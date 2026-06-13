@@ -1,0 +1,420 @@
+package com.verse.explorer.app.ui
+
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.setup.RuntimeSetupManager
+import com.verse.explorer.app.setup.RuntimeSetupManager.RuntimeComponent
+import com.verse.explorer.app.ui.theme.VerseColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * FCL 风格的前置运行时环境安装界面
+ *
+ * 照搬 FCL RuntimeFragment 的 UI 逻辑：
+ * - 显示 10 个运行时组件的安装状态（含可选组件）
+ * - 一键安装所有缺失组件
+ * - 实时进度反馈
+ * - 安装完毕后自动进入启动器
+ *
+ * 与 FCL 一致的可选组件：JAVA_11、LWJGL_BOAT
+ */
+@Composable
+fun RuntimeSetupScreen(
+    onSetupComplete: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val componentStates = remember {
+        mutableStateMapOf<RuntimeComponent, ComponentState>()
+    }
+
+    var isChecking by remember { mutableStateOf(true) }
+    var isInstallingAll by remember { mutableStateOf(false) }
+    var allCompleted by remember { mutableStateOf(false) }
+
+    // 首次检查所有组件状态
+    LaunchedEffect(Unit) {
+        try {
+            withContext(Dispatchers.IO) {
+                RuntimeSetupManager.loadPaths(context)
+                val status = RuntimeSetupManager.checkAllComponents(context)
+                status.forEach { (component, ready) ->
+                    componentStates[component] = ComponentState(
+                        isReady = ready,
+                        isCompleted = ready
+                    )
+                }
+            }
+            isChecking = false
+
+            val requiredReady = componentStates.all { (component, state) ->
+                component.isOptional || state.isReady
+            }
+            if (requiredReady) {
+                allCompleted = true
+            }
+        } catch (e: Exception) {
+            isChecking = false
+        }
+    }
+
+    // 安装所有缺失组件
+    fun installAll() {
+        isInstallingAll = true
+        scope.launch(Dispatchers.IO) {
+            RuntimeSetupManager.installMissingComponents(
+                context,
+                componentStates.mapValues { it.value.isReady }
+            ) { component, status ->
+                when {
+                    status == "正在安装..." -> {
+                        componentStates[component] = ComponentState(isInstalling = true)
+                    }
+                    status == "安装完成" -> {
+                        componentStates[component] = ComponentState(isReady = true, isCompleted = true)
+                    }
+                    status.startsWith("安装失败") -> {
+                        componentStates[component] = ComponentState(errorMessage = status)
+                    }
+                }
+            }
+
+            val verifyStatus = RuntimeSetupManager.checkAllComponents(context)
+            verifyStatus.forEach { (component, ready) ->
+                componentStates[component] = ComponentState(isReady = ready, isCompleted = ready)
+            }
+
+            val requiredReady = verifyStatus.all { (component, ready) ->
+                component.isOptional || ready
+            }
+
+            isInstallingAll = false
+            allCompleted = requiredReady
+        }
+    }
+
+    // 全部安装完毕后自动进入启动器
+    LaunchedEffect(allCompleted) {
+        if (allCompleted) {
+            onSetupComplete()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VerseColors.McDarkBg)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 24.dp)
+        ) {
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // 头部标题
+            Text(
+                text = "首次启动 · 安装前置环境",
+                style = MaterialTheme.typography.headlineSmall,
+                color = VerseColors.McTextPrimary,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "正在为 Minecraft 准备必要的运行时组件",
+                style = MaterialTheme.typography.bodyMedium,
+                color = VerseColors.McTextSecondary,
+                fontSize = 14.sp
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 统计信息
+            if (!isChecking) {
+                val readyCount = componentStates.count { it.value.isReady }
+                val totalCount = RuntimeComponent.entries.size
+                Text(
+                    text = "已就绪 $readyCount/$totalCount",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (readyCount == totalCount) VerseColors.McGreen else VerseColors.McGold,
+                    fontSize = 12.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 组件列表
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    RuntimeComponent.entries.forEach { component ->
+                        val state = componentStates[component] ?: ComponentState()
+                        RuntimeComponentRow(
+                            component = component,
+                            state = state,
+                            isChecking = isChecking
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // 底部按钮
+            if (!allCompleted) {
+                Button(
+                    onClick = { installAll() },
+                    enabled = !isChecking && !isInstallingAll,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = VerseColors.McGreen,
+                        contentColor = Color.White,
+                        disabledContainerColor = VerseColors.McCardBg,
+                        disabledContentColor = VerseColors.DarkTextDim
+                    )
+                ) {
+                    if (isChecking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = VerseColors.DarkTextDim,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("正在检查运行环境...", fontSize = 15.sp)
+                    } else if (isInstallingAll) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("正在安装中...", fontSize = 15.sp)
+                    } else {
+                        Icon(Icons.Filled.Download, null, Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("安装所有运行时组件", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            } else {
+                // 全部安装完毕
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = VerseColors.McGreen.copy(alpha = 0.12f)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = VerseColors.McGreen,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            "环境就绪，正在进入启动器...",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = VerseColors.McGreen
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun RuntimeComponentRow(
+    component: RuntimeComponent,
+    state: ComponentState,
+    isChecking: Boolean
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = VerseColors.McCardBg,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            VerseColors.McCardBorder
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 状态图标
+            val (icon, iconTint, bgColor) = when {
+                isChecking -> Triple(Icons.Outlined.HourglassEmpty, VerseColors.McTextMuted, VerseColors.DarkBgHover)
+                state.isInstalling -> Triple(Icons.Filled.Sync, VerseColors.McGreen, VerseColors.McGreen.copy(alpha = 0.15f))
+                state.isReady || state.isCompleted -> Triple(Icons.Filled.CheckCircle, VerseColors.McGreen, VerseColors.McGreen.copy(alpha = 0.08f))
+                state.errorMessage != null -> Triple(Icons.Filled.Error, VerseColors.McRedstone, VerseColors.McRedstone.copy(alpha = 0.08f))
+                else -> Triple(Icons.Outlined.RadioButtonUnchecked, VerseColors.McGold, VerseColors.McGold.copy(alpha = 0.08f))
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(bgColor),
+                contentAlignment = Alignment.Center
+            ) {
+                if (state.isInstalling) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = VerseColors.McGreen,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // 组件信息
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = component.displayName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VerseColors.McTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Text(
+                    text = component.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VerseColors.McTextSecondary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (state.errorMessage != null) {
+                    Text(
+                        text = state.errorMessage,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.McRedstone,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // 状态标签
+            when {
+                isChecking -> {
+                    Text(
+                        "检查中",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.McTextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+                state.isInstalling -> {
+                    Text(
+                        "安装中",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.McGreen,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                state.isReady || state.isCompleted -> {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = VerseColors.McGreen.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            "已就绪",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VerseColors.McGreen,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                state.errorMessage != null -> {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = VerseColors.McRedstone.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            "失败",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VerseColors.McRedstone,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                else -> {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = VerseColors.McGold.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            "待安装",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VerseColors.McGold,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 组件状态数据类（供外部使用） */
+data class ComponentState(
+    val isReady: Boolean = false,
+    val isInstalling: Boolean = false,
+    val isCompleted: Boolean = false,
+    val errorMessage: String? = null
+)

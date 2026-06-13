@@ -1,0 +1,20 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+gradle/wrapper/gradle-wrapper.jar
+temp_homescreen.ps1
+
+# Module build directories
+**/build/
+VersePC/
