@@ -318,10 +318,42 @@ static const char* detectArchSubdir(const char *jreHome) {
     return nullptr;
 }
 
+static void preloadJreLibsRecursive(const char *dirPath) {
+    DIR *dir = opendir(dirPath);
+    if (!dir) {
+        FLOGW("DLOPEN: skipping directory (opendir failed): %s (%s)", dirPath, strerror(errno));
+        return;
+    }
+
+    struct dirent *entry;
+    char fullPath[1024];
+    while ((entry = readdir(dir)) != nullptr) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", dirPath, entry->d_name);
+        struct stat st;
+        if (stat(fullPath, &st) != 0) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            preloadJreLibsRecursive(fullPath);
+        } else if (S_ISREG(st.st_mode)) {
+            size_t len = strlen(fullPath);
+            if (len > 3 && strcmp(fullPath + len - 3, ".so") == 0) {
+                FLOGI("DLOPEN: recursive loading %s", fullPath);
+                void *handle = dlopen(fullPath, RTLD_GLOBAL | RTLD_LAZY);
+                if (!handle) {
+                    FLOGE("DLOPEN: recursive loading %s failed: %s", fullPath, dlerror());
+                }
+            }
+        }
+    }
+    closedir(dir);
+}
+
 static void preloadJreLibs(const char *jreHome) {
     char path[512];
     const char *archSubdir = detectArchSubdir(jreHome);
-    
+
     if (archSubdir) {
         snprintf(path, sizeof(path), "%s/lib/%s/server/libjvm.so", jreHome, archSubdir);
         if (access(path, F_OK) == 0) {
@@ -344,6 +376,7 @@ static void preloadJreLibs(const char *jreHome) {
         "libjimage.so",
         "libawt.so",
         "libawt_headless.so",
+        "libawt_xawt.so",
         "libfontmanager.so",
         "libfreetype.so",
         "libinstrument.so",
@@ -362,6 +395,11 @@ static void preloadJreLibs(const char *jreHome) {
             dlopen_verbose(path);
         }
     }
+
+    char libDir[512];
+    snprintf(libDir, sizeof(libDir), "%s/lib", jreHome);
+    FLOGI("DLOPEN: starting recursive preload under %s", libDir);
+    preloadJreLibsRecursive(libDir);
 }
 
 static void ensureJvmCfg(const char *jrePath) {
@@ -553,7 +591,7 @@ static int launchJVMWithJLI(const char *jrePath, int argc, char **argv) {
 
 static bool loadJavaAgent(JNIEnv *env, const char *agentPath) {
     if (!agentPath || access(agentPath, F_OK) != 0) {
-        FLOGW("Agent JAR not found: %s", agentPath ? agentPath : "(null)");
+        FLOGE("Failed to load agent %s: JAR not found", agentPath ? agentPath : "(null)");
         LOGW("Agent JAR not found: %s", agentPath ? agentPath : "(null)");
         return false;
     }
@@ -577,7 +615,7 @@ static bool loadJavaAgent(JNIEnv *env, const char *agentPath) {
     if (!fileCtor || !fileToURI || !uriToURL || !getSystemCL || !urlCLCtor || env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-        FLOGE("Failed to find classes/methods for agent loading");
+        FLOGE("Failed to load agent %s: JNI class/method lookup failed", agentPath);
         LOGE("Failed to find classes/methods for agent loading");
         return false;
     }
@@ -596,7 +634,7 @@ static bool loadJavaAgent(JNIEnv *env, const char *agentPath) {
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-        FLOGE("Failed to create URLClassLoader for agent");
+        FLOGE("Failed to load agent %s: URLClassLoader creation failed", agentPath);
         LOGE("Failed to create URLClassLoader for agent");
         return false;
     }
@@ -658,7 +696,7 @@ static bool loadJavaAgent(JNIEnv *env, const char *agentPath) {
     }
 
     if (!agentClassName) {
-        FLOGW("Could not determine agent class from manifest for: %s", agentPath);
+        FLOGE("Failed to load agent %s: no Premain-Class or Agent-Class in manifest", agentPath);
         LOGW("Could not determine agent class from manifest for: %s", agentPath);
         return false;
     }
@@ -678,33 +716,67 @@ static bool loadJavaAgent(JNIEnv *env, const char *agentPath) {
         if (env->ExceptionCheck()) {
             env->ExceptionDescribe();
             env->ExceptionClear();
-            FLOGE("Failed to load agent class: %s", agentClassName);
+            FLOGE("Failed to load agent %s: class not found", agentClassName);
             LOGE("Failed to load agent class: %s", agentClassName);
             return false;
         }
     }
 
-    jmethodID premainMethod = env->GetStaticMethodID(agentCls, "premain", "(Ljava/lang/String;)V");
-    if (!premainMethod || env->ExceptionCheck()) {
-        env->ExceptionClear();
-        premainMethod = env->GetStaticMethodID(agentCls, "premain", "(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V");
-        if (!premainMethod || env->ExceptionCheck()) {
+    // 优先查找 premain(String, Instrumentation) 签名，确保 Instrumentation 参数不为 null
+    jmethodID premainMethodWithInst = env->GetStaticMethodID(agentCls, "premain", "(Ljava/lang/String;Ljava/lang/instrument/Instrumentation;)V");
+    if (premainMethodWithInst && !env->ExceptionCheck()) {
+        jclass instrImplCls = env->FindClass("sun/instrument/InstrumentationImpl");
+        if (!instrImplCls || env->ExceptionCheck()) {
             env->ExceptionClear();
-            FLOGE("Failed to find premain method in %s", agentClassName);
+            FLOGE("Failed to load agent %s: sun/instrument/InstrumentationImpl not found", agentClassName);
+            LOGE("Failed to find sun/instrument/InstrumentationImpl");
+            return false;
+        }
+        jmethodID instrCtor = env->GetMethodID(instrImplCls, "<init>", "(JZ)V");
+        if (!instrCtor || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            FLOGE("Failed to load agent %s: InstrumentationImpl constructor (JZ)V not found", agentClassName);
+            LOGE("Failed to find InstrumentationImpl constructor");
+            env->DeleteLocalRef(instrImplCls);
+            return false;
+        }
+        jobject instr = env->NewObject(instrImplCls, instrCtor, (jlong)0, JNI_TRUE);
+        if (!instr || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            FLOGE("Failed to load agent %s: InstrumentationImpl instance creation failed", agentClassName);
+            LOGE("Failed to create InstrumentationImpl instance");
+            env->DeleteLocalRef(instrImplCls);
+            return false;
+        }
+
+        jstring agentArgs = env->NewStringUTF("");
+        FLOGI("Calling %s.premain(String, Instrumentation)...", agentClassName);
+        LOGI("Calling %s.premain(String, Instrumentation)...", agentClassName);
+        env->CallStaticVoidMethod(agentCls, premainMethodWithInst, agentArgs, instr);
+        env->DeleteLocalRef(agentArgs);
+        env->DeleteLocalRef(instr);
+        env->DeleteLocalRef(instrImplCls);
+    } else {
+        env->ExceptionClear();
+        // 回退到 premain(String) 签名
+        jmethodID premainMethod1 = env->GetStaticMethodID(agentCls, "premain", "(Ljava/lang/String;)V");
+        if (!premainMethod1 || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            FLOGE("Failed to load agent %s: no premain(String) or premain(String, Instrumentation) method found", agentClassName);
             LOGE("Failed to find premain method in %s", agentClassName);
             return false;
         }
+        jstring agentArgs = env->NewStringUTF("");
+        FLOGI("Calling %s.premain(String)...", agentClassName);
+        LOGI("Calling %s.premain(String)...", agentClassName);
+        env->CallStaticVoidMethod(agentCls, premainMethod1, agentArgs);
+        env->DeleteLocalRef(agentArgs);
     }
-
-    jstring agentArgs = env->NewStringUTF("");
-    FLOGI("Calling %s.premain()...", agentClassName);
-    LOGI("Calling %s.premain()...", agentClassName);
-    env->CallStaticVoidMethod(agentCls, premainMethod, agentArgs);
 
     if (env->ExceptionCheck()) {
         env->ExceptionDescribe();
         env->ExceptionClear();
-        FLOGE("Agent %s.premain() threw an exception", agentClassName);
+        FLOGE("Failed to load agent %s: premain threw an exception", agentClassName);
         LOGE("Agent %s.premain() threw an exception", agentClassName);
         return false;
     }
@@ -785,6 +857,8 @@ static int launchJVMWithCreate(const char *jrePath, int argc, char **argv) {
     const char *mainClass = nullptr;
     int gameArgStart = -1;
     bool expectCp = false;
+    bool expectModuleArg = false;
+    const char *lastModuleOpt = nullptr;
     bool hasJavaHome = false;
     
     for (int i = 0; i < argc; i++) {
@@ -798,8 +872,29 @@ static int launchJVMWithCreate(const char *jrePath, int argc, char **argv) {
         if (gameArgStart >= 0) {
             continue;
         }
+        if (expectModuleArg) {
+            // Merge two-arg module options: --add-exports <value> -> --add-exports=<value>
+            char combined[1024];
+            snprintf(combined, sizeof(combined), "%s=%s", lastModuleOpt, argv[i]);
+            JavaVMOption opt;
+            opt.optionString = strdup(combined);
+            opt.extraInfo = nullptr;
+            jvmOptions.push_back(opt);
+            LOGI("Combined module option: %s", combined);
+            FLOGI("Combined module option: %s", combined);
+            expectModuleArg = false;
+            continue;
+        }
         if (strcmp(argv[i], "-cp") == 0 || strcmp(argv[i], "-classpath") == 0) {
             expectCp = true;
+            continue;
+        }
+        if (strcmp(argv[i], "mio.Wrapper") == 0) {
+            // FCL uses mio.Wrapper as the real main class; everything after is game args
+            mainClass = argv[i];
+            gameArgStart = i + 1;
+            LOGI("Main class: %s (game args start at %d)", mainClass, gameArgStart);
+            FLOGI("Main class: %s (game args start at %d)", mainClass, gameArgStart);
             continue;
         }
         if (argv[i][0] == '-') {
@@ -814,6 +909,22 @@ static int launchJVMWithCreate(const char *jrePath, int argc, char **argv) {
                 strncmp(argv[i], "-agentpath:", 11) == 0) {
                 LOGI("Skipping agent arg (not supported in JNI_CreateJavaVM): %s", argv[i]);
                 FLOGI("Skipping agent arg: %s", argv[i]);
+                continue;
+            }
+            // Module options that take a separate value argument (e.g. --add-exports <val>)
+            if (strcmp(argv[i], "--add-exports") == 0 ||
+                strcmp(argv[i], "--add-opens") == 0 ||
+                strcmp(argv[i], "--add-modules") == 0 ||
+                strcmp(argv[i], "--patch-module") == 0 ||
+                strcmp(argv[i], "--enable-native-access") == 0 ||
+                strcmp(argv[i], "--limit-modules") == 0 ||
+                strcmp(argv[i], "--upgrade-module-path") == 0 ||
+                strcmp(argv[i], "--module-path") == 0 ||
+                strcmp(argv[i], "-p") == 0 ||
+                strcmp(argv[i], "--module") == 0 ||
+                strcmp(argv[i], "-m") == 0) {
+                lastModuleOpt = argv[i];
+                expectModuleArg = true;
                 continue;
             }
             JavaVMOption opt;
@@ -1262,18 +1373,18 @@ static void *jvmThreadFunc(void *arg) {
         pthread_cond_signal(&g_jvmStartCond);
         pthread_mutex_unlock(&g_jvmStartMutex);
 
-        FLOGI("Trying JLI_Launch first (proper -javaagent support)...");
-        LOGI("Trying JLI_Launch first (proper -javaagent support)...");
-        int result = launchJVMWithJLI(launchArgs->jrePath, launchArgs->argc, launchArgs->argv);
-        FLOGI("JLI_Launch returned: %d", result);
-        LOGI("JLI_Launch returned: %d", result);
-        
-        if (result == -10 || result == -11) {
-            FLOGI("JLI_Launch unavailable (libjli.so missing), falling back to JNI_CreateJavaVM...");
-            LOGI("JLI_Launch unavailable, falling back to JNI_CreateJavaVM...");
-            result = launchJVMWithCreate(launchArgs->jrePath, launchArgs->argc, launchArgs->argv);
-            FLOGI("JNI_CreateJavaVM returned: %d", result);
-            LOGI("JNI_CreateJavaVM returned: %d", result);
+        FLOGI("Using JNI_CreateJavaVM directly (Android noexec workaround)...");
+        LOGI("Using JNI_CreateJavaVM directly (Android noexec workaround)...");
+        int result = launchJVMWithCreate(launchArgs->jrePath, launchArgs->argc, launchArgs->argv);
+        FLOGI("JNI_CreateJavaVM returned: %d", result);
+        LOGI("JNI_CreateJavaVM returned: %d", result);
+
+        if (result == -5 || result == -6) {
+            FLOGI("JNI_CreateJavaVM unavailable (libjvm.so missing), trying JLI_Launch...");
+            LOGI("JNI_CreateJavaVM unavailable (libjvm.so missing), trying JLI_Launch...");
+            result = launchJVMWithJLI(launchArgs->jrePath, launchArgs->argc, launchArgs->argv);
+            FLOGI("JLI_Launch returned: %d", result);
+            LOGI("JLI_Launch returned: %d", result);
         }
         
         g_exitCode = result;
@@ -1555,6 +1666,17 @@ Java_com_verse_explorer_terracotta_TerracottaAndroidAPI_nativeSetupExitTrap(
     }
     env->DeleteLocalRef(callbackClass);
     LOGI("Exit trap setup complete");
+}
+
+JNIEXPORT void JNICALL
+Java_com_verse_explorer_terracotta_TerracottaAndroidAPI_nativeReleaseExitCallback(
+    JNIEnv *env, jclass clazz) {
+    if (g_exitCallback) {
+        env->DeleteGlobalRef(g_exitCallback);
+        g_exitCallback = nullptr;
+        g_onExitMethod = nullptr;
+        LOGI("Exit callback released");
+    }
 }
 
 JNIEXPORT void JNICALL

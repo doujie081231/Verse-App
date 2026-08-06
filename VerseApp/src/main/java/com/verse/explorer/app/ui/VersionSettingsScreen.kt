@@ -1,4 +1,4 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,14 +7,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,7 +33,7 @@ fun VersionSettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgSecondary)
     ) {
         Column(
             modifier = Modifier
@@ -54,7 +52,7 @@ fun VersionSettingsScreen(
                     Icon(
                         Icons.Outlined.ArrowBack,
                         contentDescription = "返回",
-                        tint = VerseColors.McTextPrimary,
+                        tint = VerseColors.PcTextPrimary,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -62,7 +60,7 @@ fun VersionSettingsScreen(
                 Text(
                     text = "Minecraft $versionId 设置",
                     style = MaterialTheme.typography.titleMedium,
-                    color = VerseColors.McTextPrimary,
+                    color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
                 )
@@ -84,11 +82,11 @@ fun VersionSettingsScreen(
                     title = "游戏目录",
                     description = "独立的游戏文件夹",
                     icon = Icons.Outlined.Folder,
-                    iconTint = VerseColors.McGreen,
+                    iconTint = VerseColors.PcAccent,
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = VerseColors.McCardBgLight
+                            color = VerseColors.PcBgHover
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -98,13 +96,13 @@ fun VersionSettingsScreen(
                                 Text(
                                     ".minecraft-$versionId",
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextSecondary
+                                    color = VerseColors.PcTextSecondary
                                 )
                                 Icon(
                                     Icons.Outlined.OpenInNew,
                                     null,
                                     Modifier.size(14.dp),
-                                    VerseColors.McTextMuted
+                                    VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -116,11 +114,11 @@ fun VersionSettingsScreen(
                     title = "Java 运行时",
                     description = "当前版本使用的 Java",
                     icon = Icons.Outlined.Code,
-                    iconTint = VerseColors.McGold,
+                    iconTint = VerseColors.PcOrange,
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = VerseColors.McCardBgLight
+                            color = VerseColors.PcBgHover
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -130,13 +128,13 @@ fun VersionSettingsScreen(
                                 Text(
                                     "Java 21",
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextSecondary
+                                    color = VerseColors.PcTextSecondary
                                 )
                                 Icon(
                                     Icons.Outlined.ChevronRight,
                                     null,
                                     Modifier.size(14.dp),
-                                    VerseColors.McTextMuted
+                                    VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -148,11 +146,11 @@ fun VersionSettingsScreen(
                     title = "内存设置",
                     description = "最大/最小内存分配",
                     icon = Icons.Outlined.Memory,
-                    iconTint = VerseColors.McWater,
+                    iconTint = VerseColors.PcPurple,
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = VerseColors.McCardBgLight
+                            color = VerseColors.PcBgHover
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -162,13 +160,13 @@ fun VersionSettingsScreen(
                                 Text(
                                     "2 GB / 512 MB",
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextSecondary
+                                    color = VerseColors.PcTextSecondary
                                 )
                                 Icon(
                                     Icons.Outlined.ChevronRight,
                                     null,
                                     Modifier.size(14.dp),
-                                    VerseColors.McTextMuted
+                                    VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -192,14 +190,14 @@ fun VersionSettingsScreen(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(VerseColors.McGreen.copy(alpha = 0.1f)),
+                                .background(VerseColors.PcAccent.copy(alpha = 0.1f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Outlined.Extension,
                                 null,
                                 Modifier.size(18.dp),
-                                VerseColors.McGreen
+                                VerseColors.PcAccent
                             )
                         }
                         Spacer(Modifier.width(12.dp))
@@ -208,19 +206,19 @@ fun VersionSettingsScreen(
                                 "模组加载器",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = VerseColors.McTextPrimary
+                                color = VerseColors.PcTextPrimary
                             )
                             Text(
                                 "安装 Fabric / Forge / NeoForge 等加载器",
                                 fontSize = 11.sp,
-                                color = VerseColors.McTextMuted
+                                color = VerseColors.PcTextMuted
                             )
                         }
                         Icon(
                             Icons.Outlined.ChevronRight,
                             null,
                             Modifier.size(20.dp),
-                            VerseColors.McTextDim
+                            VerseColors.PcTextMuted
                         )
                     }
                 }
@@ -230,11 +228,11 @@ fun VersionSettingsScreen(
                     title = "JVM 参数",
                     description = "自定义此版本的虚拟机参数",
                     icon = Icons.Outlined.Terminal,
-                    iconTint = VerseColors.McTextSecondary,
+                    iconTint = VerseColors.PcTextSecondary,
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = VerseColors.McCardBgLight
+                            color = VerseColors.PcBgHover
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -244,13 +242,13 @@ fun VersionSettingsScreen(
                                 Text(
                                     "默认",
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextMuted
+                                    color = VerseColors.PcTextMuted
                                 )
                                 Icon(
                                     Icons.Outlined.ChevronRight,
                                     null,
                                     Modifier.size(14.dp),
-                                    VerseColors.McTextMuted
+                                    VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -262,11 +260,11 @@ fun VersionSettingsScreen(
                     title = "窗口设置",
                     description = "分辨率与全屏模式",
                     icon = Icons.Outlined.AspectRatio,
-                    iconTint = VerseColors.McGreen,
+                    iconTint = VerseColors.PcAccent,
                     trailing = {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = VerseColors.McCardBgLight
+                            color = VerseColors.PcBgHover
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -276,13 +274,13 @@ fun VersionSettingsScreen(
                                 Text(
                                     "1920×1080",
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextSecondary
+                                    color = VerseColors.PcTextSecondary
                                 )
                                 Icon(
                                     Icons.Outlined.ChevronRight,
                                     null,
                                     Modifier.size(14.dp),
-                                    VerseColors.McTextMuted
+                                    VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -306,12 +304,12 @@ fun VersionSettingsScreen(
                             description = "永久删除 Minecraft $versionId 及其所有数据",
                             icon = Icons.Outlined.Delete,
                             actionLabel = "删除",
-                            actionColor = VerseColors.McRedstone,
+                            actionColor = VerseColors.PcRed,
                             onClick = {}
                         )
 
                         HorizontalDivider(
-                            color = VerseColors.McCardBorder,
+                            color = VerseColors.PcBorder,
                             modifier = Modifier.padding(vertical = 12.dp)
                         )
 
@@ -320,12 +318,12 @@ fun VersionSettingsScreen(
                             description = "移除已安装的所有模组和数据包",
                             icon = Icons.Outlined.CleaningServices,
                             actionLabel = "清除",
-                            actionColor = VerseColors.McGold,
+                            actionColor = VerseColors.PcOrange,
                             onClick = {}
                         )
 
                         HorizontalDivider(
-                            color = VerseColors.McCardBorder,
+                            color = VerseColors.PcBorder,
                             modifier = Modifier.padding(vertical = 12.dp)
                         )
 
@@ -334,7 +332,7 @@ fun VersionSettingsScreen(
                             description = "恢复此版本所有设置为默认值",
                             icon = Icons.Outlined.RestartAlt,
                             actionLabel = "重置",
-                            actionColor = VerseColors.McGold,
+                            actionColor = VerseColors.PcOrange,
                             onClick = {}
                         )
                     }
@@ -351,9 +349,9 @@ fun VersionSettingsScreen(
 
         AlertDialog(
             onDismissRequest = { showModLoaderSheet = false },
-            containerColor = VerseColors.McOverlayContentBg,
-            titleContentColor = VerseColors.McTextPrimary,
-            textContentColor = VerseColors.McTextSecondary,
+            containerColor = VerseColors.PcBgSecondary,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text("安装模组加载器", fontWeight = FontWeight.Bold)
@@ -363,16 +361,16 @@ fun VersionSettingsScreen(
                     Text(
                         "选择一个模组加载器来安装到 Minecraft $versionId 上。",
                         fontSize = 12.sp,
-                        color = VerseColors.McTextMuted
+                        color = VerseColors.PcTextMuted
                     )
                     Spacer(Modifier.height(12.dp))
 
                     val loaders = listOf(
-                        Quad("fabric", "Fabric", "轻量高效 · 主流选择", VerseColors.McGreenLight),
-                        Quad("forge", "Forge", "经典强大 · 兼容性广", VerseColors.McLava),
-                        Quad("neoforge", "NeoForge", "Forge 现代化分支 · 性能优秀", VerseColors.McRedstone),
-                        Quad("quilt", "Quilt", "Fabric 社区分支", VerseColors.McWater),
-                        Quad("none", "无加载器", "纯净原版", VerseColors.McTextSecondary),
+                        Quad("fabric", "Fabric", "轻量高效 · 主流选择", VerseColors.PcAccentHover),
+                        Quad("forge", "Forge", "经典强大 · 兼容性广", VerseColors.PcRed),
+                        Quad("neoforge", "NeoForge", "Forge 现代化分支 · 性能优秀", VerseColors.PcRed),
+                        Quad("quilt", "Quilt", "Fabric 社区分支", VerseColors.PcPurple),
+                        Quad("none", "无加载器", "纯净原版", VerseColors.PcTextSecondary),
                     )
 
                     loaders.forEach { (id, name, desc, color) ->
@@ -381,7 +379,7 @@ fun VersionSettingsScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(
-                                    if (selectedLoader == id) VerseColors.McGreen.copy(alpha = 0.06f)
+                                    if (selectedLoader == id) VerseColors.PcAccent.copy(alpha = 0.06f)
                                     else Color.Transparent
                                 )
                                 .clickable { selectedLoader = id }
@@ -392,8 +390,8 @@ fun VersionSettingsScreen(
                                 selected = selectedLoader == id,
                                 onClick = { selectedLoader = id },
                                 colors = RadioButtonDefaults.colors(
-                                    selectedColor = VerseColors.McGreen,
-                                    unselectedColor = VerseColors.McTextMuted
+                                    selectedColor = VerseColors.PcAccent,
+                                    unselectedColor = VerseColors.PcTextMuted
                                 )
                             )
                             Spacer(Modifier.width(8.dp))
@@ -402,12 +400,12 @@ fun VersionSettingsScreen(
                                     name,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = VerseColors.McTextPrimary
+                                    color = VerseColors.PcTextPrimary
                                 )
                                 Text(
                                     desc,
                                     fontSize = 11.sp,
-                                    color = VerseColors.McTextMuted
+                                    color = VerseColors.PcTextMuted
                                 )
                             }
                         }
@@ -418,14 +416,14 @@ fun VersionSettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = { showModLoaderSheet = false },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.McGreen)
+                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcAccent)
                 ) {
                     Text("确认安装", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showModLoaderSheet = false }) {
-                    Text("取消", color = VerseColors.McTextSecondary, fontSize = 13.sp)
+                    Text("取消", color = VerseColors.PcTextSecondary, fontSize = 13.sp)
                 }
             }
         )
@@ -433,161 +431,3 @@ fun VersionSettingsScreen(
 }
 
 data class Quad(val first: String, val second: String, val third: String, val fourth: Color)
-
-@Composable
-private fun VersionInfoCard(versionId: String) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        Brush.linearGradient(
-                            listOf(VerseColors.McGreen, VerseColors.McGreenLight)
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Filled.Landscape,
-                    null,
-                    Modifier.size(30.dp),
-                    Color.White
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text(
-                    "Minecraft $versionId",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = VerseColors.McTextPrimary
-                )
-                Text(
-                    "正式版 · Fabric · 已安装",
-                    fontSize = 12.sp,
-                    color = VerseColors.McTextSecondary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsCard(
-    title: String,
-    description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    iconTint: Color,
-    trailing: @Composable (() -> Unit)? = null
-) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(iconTint.copy(alpha = 0.08f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(icon, null, Modifier.size(18.dp), iconTint)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.McTextPrimary
-                )
-                Text(
-                    description,
-                    fontSize = 11.sp,
-                    color = VerseColors.McTextMuted
-                )
-            }
-            trailing?.invoke()
-        }
-    }
-}
-
-@Composable
-private fun SectionDivider(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.labelSmall,
-        color = VerseColors.McTextMuted,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(start = 4.dp)
-    )
-}
-
-@Composable
-private fun DangerActionRow(
-    title: String,
-    description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    actionLabel: String,
-    actionColor: Color,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(actionColor.copy(alpha = 0.08f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(icon, null, Modifier.size(16.dp), actionColor)
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = VerseColors.McTextPrimary
-            )
-            Text(
-                description,
-                fontSize = 10.sp,
-                color = VerseColors.McTextMuted
-            )
-        }
-        FilledTonalButton(
-            onClick = onClick,
-            shape = RoundedCornerShape(6.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
-            colors = ButtonDefaults.filledTonalButtonColors(
-                containerColor = actionColor.copy(alpha = 0.1f),
-                contentColor = actionColor
-            )
-        ) {
-            Text(
-                actionLabel,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-    }
-}

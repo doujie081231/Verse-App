@@ -97,6 +97,14 @@ class MicrosoftAuthenticator {
             val mcToken = getMinecraftToken(xstsResponse.uhs, xstsResponse.token)
             val profile = getMinecraftProfile(mcToken)
 
+            if (profile.id.isBlank() || profile.name.isBlank()) {
+                return@withContext AuthResult(
+                    success = false,
+                    error = "Minecraft 档案为空，请先创建角色",
+                    needCreateProfile = true
+                )
+            }
+
             AuthResult(
                 success = true,
                 account = Account(
@@ -107,6 +115,26 @@ class MicrosoftAuthenticator {
                     skinUrl = profile.skinUrl,
                     capeUrl = profile.capeUrl
                 )
+            )
+        } catch (e: NotPurchasedMinecraftException) {
+            AuthResult(
+                success = false,
+                error = e.message,
+                needPurchase = true
+            )
+        } catch (e: EmptyProfileException) {
+            AuthResult(
+                success = false,
+                error = e.message,
+                needCreateProfile = true
+            )
+        } catch (e: XstsAuthException) {
+            AuthResult(
+                success = false,
+                error = e.message,
+                xerr = e.xerr,
+                isRateLimit = e.isRateLimit,
+                retryAfter = e.retryAfter
             )
         } catch (e: Exception) {
             AuthResult(success = false, error = e.message)
@@ -158,7 +186,14 @@ class MicrosoftAuthenticator {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val errorBody = response.body?.string() ?: "Unknown error"
-                throw Exception("XSTS 认证失败 (HTTP ${response.code}): $errorBody")
+                val retryAfterHeader = response.header("Retry-After")?.toIntOrNull()
+                val isRateLimit = response.code == 429
+                throw XstsAuthException(
+                    xerr = response.code,
+                    isRateLimit = isRateLimit,
+                    retryAfter = retryAfterHeader,
+                    message = "XSTS 认证失败 (HTTP ${response.code}): $errorBody"
+                )
             }
             val json = gson.fromJson(response.body?.string(), JsonObject::class.java)
             val token = json.get("Token").asString
@@ -197,8 +232,11 @@ class MicrosoftAuthenticator {
                 throw Exception("获取 Minecraft 档案失败 (HTTP ${response.code})")
             }
             val json = gson.fromJson(response.body?.string(), JsonObject::class.java)
-            val id = json.get("id").asString
-            val name = json.get("name").asString
+            val id = json.get("id")?.takeIf { !it.isJsonNull }?.asString ?: ""
+            val name = json.get("name")?.takeIf { !it.isJsonNull }?.asString ?: ""
+            if (id.isBlank() || name.isBlank()) {
+                throw EmptyProfileException()
+            }
             var skinUrl: String? = null
             var capeUrl: String? = null
             val skins = json.getAsJsonArray("skins")
@@ -221,6 +259,13 @@ class MicrosoftAuthenticator {
 }
 
 class NotPurchasedMinecraftException : Exception("该微软账号未购买 Minecraft Java Edition")
+class EmptyProfileException : Exception("Minecraft 档案为空，请先在 Minecraft 官网创建角色")
+class XstsAuthException(
+    val xerr: Int,
+    val isRateLimit: Boolean = false,
+    val retryAfter: Int? = null,
+    message: String
+) : Exception(message)
 
 class AuthlibAuthenticator {
     private val client = OkHttpClient.Builder()
@@ -230,10 +275,45 @@ class AuthlibAuthenticator {
 
     private val gson = Gson()
 
+    suspend fun verifyServer(url: String): ServerInfo {
+        return withContext(Dispatchers.IO) {
+            try {
+                val baseUrl = url.trimEnd('/')
+                val request = Request.Builder()
+                    .url("$baseUrl/server-meta")
+                    .get()
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val body = response.body?.string() ?: ""
+                        val json = gson.fromJson(body, JsonObject::class.java)
+                        val meta = json?.getAsJsonObject("meta")
+                        val serverName = json?.get("serverName")?.takeIf { !it.isJsonNull }?.asString
+                            ?: meta?.get("serverName")?.takeIf { !it.isJsonNull }?.asString
+                            ?: "未知服务器"
+                        val description = json?.get("implementationDescription")?.takeIf { !it.isJsonNull }?.asString
+                            ?: meta?.get("implementationDescription")?.takeIf { !it.isJsonNull }?.asString
+                            ?: ""
+                        ServerInfo(
+                            success = true,
+                            serverName = serverName,
+                            description = description
+                        )
+                    } else {
+                        ServerInfo(success = false)
+                    }
+                }
+            } catch (e: Exception) {
+                ServerInfo(success = false)
+            }
+        }
+    }
+
     suspend fun authenticate(
         serverUrl: String,
         username: String,
-        password: String
+        password: String,
+        profileId: String? = null
     ): AuthResult = withContext(Dispatchers.IO) {
         try {
             val body = JsonObject().apply {
@@ -244,6 +324,9 @@ class AuthlibAuthenticator {
                 addProperty("username", username)
                 addProperty("password", password)
                 addProperty("requestUser", true)
+                if (profileId != null) {
+                    addProperty("profile", profileId)
+                }
             }
 
             val request = Request.Builder()
@@ -260,19 +343,38 @@ class AuthlibAuthenticator {
                 val json = gson.fromJson(response.body?.string(), JsonObject::class.java)
                 val accessToken = json.get("accessToken").asString
                 val selectedProfile = json.getAsJsonObject("selectedProfile")
+                val availableProfiles = json.getAsJsonArray("availableProfiles")
+
+                if (availableProfiles != null && availableProfiles.size() > 1 && selectedProfile == null) {
+                    val profilesList = mutableListOf<AuthlibProfile>()
+                    availableProfiles.forEach { p ->
+                        val obj = p.asJsonObject
+                        profilesList.add(
+                            AuthlibProfile(
+                                id = obj.get("id").asString,
+                                name = obj.get("name").asString
+                            )
+                        )
+                    }
+                    return@withContext AuthResult(
+                        success = true,
+                        profiles = profilesList
+                    )
+                }
+
                 val profileName = selectedProfile?.get("name")?.asString ?: username
-                val profileId = selectedProfile?.get("id")?.asString ?: UUID.randomUUID().toString()
+                val resolvedProfileId = selectedProfile?.get("id")?.asString ?: UUID.randomUUID().toString()
 
                 AuthResult(
                     success = true,
                     account = Account(
                         username = profileName,
-                        uuid = profileId,
+                        uuid = resolvedProfileId,
                         accessToken = accessToken,
                         type = AccountType.AUTHLIB,
                         serverUrl = serverUrl,
                         loginUsername = username,
-                        skinUrl = "https://mc-heads.net/avatar/$profileId/64"
+                        skinUrl = "https://mc-heads.net/avatar/$resolvedProfileId/64"
                     )
                 )
             }

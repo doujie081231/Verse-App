@@ -47,8 +47,7 @@ sealed class Screen(
     object Accounts : Screen("accounts", "账户", Icons.Outlined.Person, Icons.Filled.Person)
     object Settings : Screen("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings)
     object Java : Screen("java", "Java", Icons.Outlined.Code, Icons.Filled.Code)
-    object Console : Screen("console", "日志", Icons.Outlined.Terminal, Icons.Filled.Terminal)
-    object SteveChat : Screen("stevechat", "Steve", Icons.Outlined.Chat, Icons.Filled.Chat)
+    object Console : Screen("console", "控制台", Icons.Outlined.Terminal, Icons.Filled.Terminal)
 }
 
 private data class NavItem(
@@ -61,7 +60,6 @@ private data class NavItem(
 
 private val mainNavItems = listOf(
     NavItem(screen = Screen.Home, icon = Icons.Outlined.Home, label = "主页"),
-    NavItem(screen = Screen.SteveChat, icon = Icons.Outlined.Chat, label = "Steve"),
     NavItem(screen = Screen.Versions, icon = Icons.Outlined.Download, label = "下载"),
     NavItem(
         icon = Icons.Outlined.Widgets,
@@ -83,7 +81,7 @@ private val mainNavItems = listOf(
 private val footerNavItem = NavItem(
     screen = Screen.Console,
     icon = Icons.Outlined.Terminal,
-    label = "日志"
+    label = "控制台"
 )
 
 private val allSidebarRoutes = mainNavItems
@@ -109,14 +107,14 @@ fun MainScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(VerseColors.McDarkBg),
+                .background(VerseColors.PcBgPrimary),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = VerseColors.McGreen)
+                CircularProgressIndicator(color = VerseColors.PcAccent)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("正在初始化Java运行环境...", color = VerseColors.McTextSecondary, fontSize = 14.sp)
-                Text("解压内置JRE，请稍候", color = VerseColors.McTextMuted, fontSize = 12.sp)
+                Text("正在初始化Java运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
+                Text("解压内置JRE，请稍候", color = VerseColors.PcTextMuted, fontSize = 12.sp)
             }
         }
         return
@@ -124,7 +122,7 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    Row(modifier = Modifier.fillMaxSize().background(VerseColors.McBg)) {
+    Row(modifier = Modifier.fillMaxSize().background(VerseColors.PcBgPrimary)) {
         if (showSidebar) {
             PcStyleSidebar(
                 navController = navController,
@@ -142,7 +140,6 @@ fun MainScreen(
             popExitTransition = { fadeOut(tween(150)) }
         ) {
             composable(Screen.Home.route) { HomeScreen(navController, onLaunchGame) }
-            composable(Screen.SteveChat.route) { SteveChatScreen(navController) }
             composable(Screen.Versions.route) { VersionsScreen(navController) }
             composable(Screen.Mods.route) { ModsScreen(navController) }
             composable(Screen.Modpacks.route) { ModpacksScreen(navController) }
@@ -200,7 +197,7 @@ private fun PcStyleSidebar(
     }
 
     Surface(
-        color = VerseColors.McSidebarBg,
+        color = VerseColors.PcBgSecondary,
         tonalElevation = 0.dp,
         modifier = Modifier.fillMaxHeight()
     ) {
@@ -282,7 +279,7 @@ private fun PcStyleSidebar(
             }
 
             HorizontalDivider(
-                color = VerseColors.McCardBorder.copy(alpha = 0.5f),
+                color = VerseColors.PcBorder,
                 thickness = 1.dp,
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
@@ -316,15 +313,15 @@ private fun SidebarNavButton(
     showIndicator: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isActive) VerseColors.McGreen.copy(alpha = 0.12f) else Color.Transparent
-    val iconColor = if (isActive) VerseColors.McGreen else VerseColors.McTextMuted
-    val textColor = if (isActive) VerseColors.McGreen else VerseColors.McTextMuted
+    val bgColor = if (isActive) VerseColors.PcAccent.copy(alpha = 0.1f) else Color.Transparent
+    val iconColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
+    val textColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
 
     Box(
         modifier = Modifier
-            .width(64.dp)
-            .height(52.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .width(60.dp)
+            .height(56.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(bgColor)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -338,9 +335,9 @@ private fun SidebarNavButton(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .width(3.dp)
-                    .height(24.dp)
+                    .height(20.dp)
                     .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
-                    .background(VerseColors.McGreen)
+                    .background(VerseColors.PcAccent)
             )
         }
 
@@ -372,8 +369,8 @@ private fun SidebarSubButton(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isActive) VerseColors.McGreen.copy(alpha = 0.08f) else Color.Transparent
-    val textColor = if (isActive) VerseColors.McGreen else VerseColors.McTextMuted
+    val bgColor = if (isActive) VerseColors.PcAccent.copy(alpha = 0.08f) else Color.Transparent
+    val textColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
 
     Box(
         modifier = Modifier

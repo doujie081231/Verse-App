@@ -52,8 +52,6 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
         this.surface = surface
         this.surfaceDestroyed = false
 
-        CallbackBridge.setFCLBridge(this)
-
         callback.onLog("Starting ZLBridge execution\n")
 
         val errorCode = TerracottaAndroidAPI.nativeRedirectStdio(logPath ?: "/dev/null")
@@ -236,7 +234,22 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
     fun getExitCode(): Int = TerracottaAndroidAPI.nativeGetExitCode()
     fun getPid(): Int = TerracottaAndroidAPI.nativeGetPid()
 
+    fun release() {
+        callback = null
+        try {
+            TerracottaAndroidAPI.nativeReleaseExitCallback()
+        } catch (e: Throwable) {
+            Log.e(TAG, "nativeReleaseExitCallback failed: ${e.message}")
+        }
+        try {
+            TerracottaAndroidAPI.nativeDestroyJVM()
+        } catch (e: Throwable) {
+            Log.e(TAG, "nativeDestroyJVM failed: ${e.message}")
+        }
+    }
+
     override fun onExit(code: Int) {
+        if (callback == null) return
         handler?.post {
             callback?.onLog("JVM exited with code: $code\n")
             callback?.onExit(code)

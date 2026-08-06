@@ -5,6 +5,8 @@ import android.os.Build
 import android.util.Log
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.download.DownloadManager
+import com.verse.explorer.core.download.MirrorSourceManager
+import com.verse.explorer.core.download.SmartDownloadClient
 import com.verse.explorer.core.version.MinecraftVersion
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -13,7 +15,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 data class InstallProgress(
@@ -45,6 +49,16 @@ class GameInstaller(private val context: Context) {
 
     private val downloadManager = DownloadManager()
     private val gson = GsonBuilder().setLenient().serializeNulls().create()
+
+    // 智能混合下载客户端：小文件竞速、大文件测速分块、低速换源、镜像熔断
+    private val smartClient = SmartDownloadClient(context = context)
+
+    // 专用于 assets 小文件下载的快速客户端（短超时，对齐 PC 端 30s 策略）
+    private val fastHttpClient = downloadManager.httpClient.newBuilder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
@@ -129,20 +143,26 @@ class GameInstaller(private val context: Context) {
                     val clientJar = File(versionDir, "${version.id}.jar")
 
                     if (clientUrl != null) {
-                        val needDownload = !clientJar.exists() || (clientSize > 0 && clientJar.length() != clientSize) ||
+                        val needDownload = !clientJar.exists() || clientJar.length() < 1024 ||
+                            (clientSize > 0 && clientJar.length() != clientSize) ||
                             (clientSha1 != null && try { calculateSHA1(clientJar).lowercase() != clientSha1.lowercase() } catch (_: Exception) { true })
 
                         if (needDownload) {
-                            val mirrorUrl = GameConfig.replaceWithMirror(clientUrl)
-                            try {
-                                downloadFileWithRetry(mirrorUrl, clientJar, clientSha1, onProgress = { p, msg ->
-                                    progressCallback(InstallProgress(InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f, "${version.id}.jar"))
-                                })
-                            } catch (e: Exception) {
-                                Log.w("GameInstaller", "Mirror client download failed, trying original: ${e.message}")
-                                downloadFileWithRetry(clientUrl, clientJar, clientSha1, onProgress = { p, msg ->
-                                    progressCallback(InstallProgress(InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f, "${version.id}.jar"))
-                                })
+                            // 智能混合下载：自动测速选最快源 + 分块并发 + 低速换源
+                            val result = smartClient.download(
+                                originalUrl = clientUrl,
+                                targetFile = clientJar,
+                                expectedSha1 = clientSha1,
+                                knownSize = clientSize
+                            ) { progress ->
+                                val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
+                                val sizeStr = formatSize(progress.downloaded) + "/" + formatSize(progress.total)
+                                val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})"
+                                progressCallback(InstallProgress(InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f, "${version.id}.jar", progress.mirrorName))
+                            }
+                            if (result.isFailure) {
+                                Log.e("GameInstaller", "Client jar smart download failed: ${result.exceptionOrNull()?.message}")
+                                throw result.exceptionOrNull() ?: Exception("客户端 JAR 下载失败")
                             }
                         }
                     }
@@ -154,6 +174,7 @@ class GameInstaller(private val context: Context) {
                 checkCancelled()
                 progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "下载库文件 (0/$totalLibs)...", 0.2f))
 
+                // 收集缺失库：保留原始 URL，由 SmartDownloadClient 自动多源选择
                 val missingLibs = mutableListOf<Triple<String, String, String?>>()
                 validLibraries.forEach { lib ->
                     val artifact = lib.get("artifact")?.asJsonObject ?: return@forEach
@@ -162,12 +183,11 @@ class GameInstaller(private val context: Context) {
                     val libSha1 = artifact.get("sha1")?.asString
                     val libFile = File(librariesDir, libPath)
                     if (!libFile.exists() || libFile.length() < 1024) {
-                        val mirrorUrl = GameConfig.replaceWithMirror(libUrl)
-                        missingLibs.add(Triple(mirrorUrl, libPath, libSha1))
+                        missingLibs.add(Triple(libUrl, libPath, libSha1))
                     }
                 }
 
-                Log.d("GameInstaller", "Downloading ${missingLibs.size}/$totalLibs missing libraries (32 threads)")
+                Log.d("GameInstaller", "Downloading ${missingLibs.size}/$totalLibs missing libraries (32 threads, smart)")
 
                 var completedLibs = 0
                 val batchSize = 32
@@ -177,7 +197,14 @@ class GameInstaller(private val context: Context) {
                             async {
                                 val libFile = File(librariesDir, path)
                                 try {
-                                    downloadFileWithRetry(url, libFile, sha1, maxRetries = 1)
+                                    val result = smartClient.download(
+                                        originalUrl = url,
+                                        targetFile = libFile,
+                                        expectedSha1 = sha1
+                                    )
+                                    if (result.isFailure) {
+                                        Log.w("GameInstaller", "Lib failed: $path - ${result.exceptionOrNull()?.message}")
+                                    }
                                 } catch (e: Exception) {
                                     Log.w("GameInstaller", "Lib failed: $path - ${e.message}")
                                 }
@@ -191,7 +218,7 @@ class GameInstaller(private val context: Context) {
                         InstallStage.DOWNLOADING_LIBRARIES,
                         "下载库文件 ($completedLibs/${missingLibs.size})...",
                         progress,
-                        "并行下载中"
+                        "智能混合下载"
                     ))
                 }
 
@@ -210,15 +237,23 @@ class GameInstaller(private val context: Context) {
 
                     if (assetUrl != null && !assetFile.exists()) {
                         assetFile.parentFile?.mkdirs()
-                        try {
-                            val mirrorUrl = GameConfig.replaceWithMirror(assetUrl)
-                            downloadFileWithRetry(mirrorUrl, assetFile, assetSha1, onProgress = { p, msg ->
-                                progressCallback(InstallProgress(InstallStage.DOWNLOADING_ASSETS, "下载资源索引...", 0.65f + p * 0.03f))
-                            })
-                        } catch (e: Exception) {
-                            downloadFileWithRetry(assetUrl, assetFile, assetSha1, onProgress = { p, msg ->
-                                progressCallback(InstallProgress(InstallStage.DOWNLOADING_ASSETS, "下载资源索引...", 0.65f + p * 0.03f))
-                            })
+                        val result = smartClient.download(
+                            originalUrl = assetUrl,
+                            targetFile = assetFile,
+                            expectedSha1 = assetSha1
+                        ) { progress ->
+                            val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
+                            progressCallback(InstallProgress(
+                                InstallStage.DOWNLOADING_ASSETS,
+                                "下载资源索引... (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})",
+                                0.65f + p * 0.03f,
+                                assetFile.name,
+                                progress.mirrorName
+                            ))
+                        }
+                        if (result.isFailure) {
+                            Log.e("GameInstaller", "Asset index smart download failed: ${result.exceptionOrNull()?.message}")
+                            throw result.exceptionOrNull() ?: Exception("资源索引下载失败")
                         }
                     }
 
@@ -232,52 +267,41 @@ class GameInstaller(private val context: Context) {
                             val entries = objects.entrySet().toList()
                             val totalAssets = entries.size
 
-                            val mirrors = listOf(
-                                "https://resources.download.minecraft.net",
-                                "https://bmclapi2.bangbang93.com/assets",
-                                "https://download.mcbbs.net/assets"
-                            )
-
+                            // assets 原始 URL 由 resources.download.minecraft.net 提供，
+                            // SmartDownloadClient 会通过 MirrorSourceManager 自动转换为
+                            // BMCLAPI/MCBBS 多源列表并选择最快源
                             val missingAssets = mutableListOf<Pair<String, File>>()
                             entries.forEach { entry ->
                                 val hash = entry.value.asJsonObject.get("hash")?.asString ?: return@forEach
                                 val subDir = hash.substring(0, 2)
                                 val assetPath = File(assetsDir, "objects/$subDir/$hash")
                                 if (!assetPath.exists() || assetPath.length() < 1024) {
-                                    // store hash and target path, not a direct URL
-                                    val mirrorUrl = mirrors.first() // placeholder; we will try mirrors later
-                                    missingAssets.add(mirrorUrl to assetPath)
+                                    val originalUrl = "https://resources.download.minecraft.net/$subDir/$hash"
+                                    missingAssets.add(originalUrl to assetPath)
                                 }
                             }
 
-                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (10 threads)")
+                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (64 threads, smart)")
 
                             var completedAssets = 0
-                            val batchSize = 10
+                            val batchSize = 64
                             for (i in missingAssets.indices step batchSize) {
                                 checkCancelled()
                                 val batch = missingAssets.subList(i, minOf(i + batchSize, missingAssets.size))
 
                                 coroutineScope {
-                                    batch.map { (_, assetPath) ->
-                                        // Re-resolve hash from path: path is objects/<subDir>/<hash>
-                                        val hash = assetPath.name
+                                    batch.map { (url, assetPath) ->
                                         async {
-                                            var downloaded = false
-                                            for (mirror in mirrors) {
-                                                try {
-                                                    val url = "$mirror/${hash.substring(0, 2)}/$hash"
-                                                    downloadFile(url, assetPath)
-                                                    if (assetPath.exists() && assetPath.length() > 0) {
-                                                        downloaded = true
-                                                        break
-                                                    }
-                                                } catch (_: Exception) {
-                                                    try { assetPath.delete() } catch (_: Exception) {}
+                                            try {
+                                                val result = smartClient.download(
+                                                    originalUrl = url,
+                                                    targetFile = assetPath
+                                                )
+                                                if (result.isFailure) {
+                                                    Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${result.exceptionOrNull()?.message}")
                                                 }
-                                            }
-                                            if (!downloaded) {
-                                                Log.w("GameInstaller", "Failed to download asset: $hash")
+                                            } catch (e: Exception) {
+                                                Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${e.message}")
                                             }
                                         }
                                     }.forEach { it.await() }
@@ -287,9 +311,9 @@ class GameInstaller(private val context: Context) {
                                 val progress = 0.68f + (0.22f * completedAssets / missingAssets.size.coerceAtLeast(1))
                                 progressCallback(InstallProgress(
                                     InstallStage.DOWNLOADING_ASSETS,
-                                    "下载资源 (${completedAssets}/${missingAssets.size})...",
+                                    "下载资源 ($completedAssets/${missingAssets.size})...",
                                     progress,
-                                    "并行下载中"
+                                    "智能混合下载"
                                 ))
                             }
                         }
@@ -502,58 +526,123 @@ class GameInstaller(private val context: Context) {
     ) {
         targetFile.parentFile?.mkdirs()
 
+        // FCL-style: 下载到临时文件，成功后原子移动到目标位置
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
+
         val request = okhttp3.Request.Builder().url(url)
             .header("User-Agent", "VerseExplorerX/1.0")
             .header("Accept", "*/*")
             .build()
 
-        downloadManager.httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
+        var totalSize = -1L
+        var downloaded = 0L
 
-            val body = response.body ?: throw Exception("Empty body: $url")
-            val totalSize = body.contentLength()
-            var downloaded = 0L
+        try {
+            downloadManager.httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
 
-            body.byteStream().use { input ->
-                targetFile.outputStream().use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        downloaded += bytesRead
-                        if (totalSize > 0) {
-                            val progress = downloaded.toFloat() / totalSize.toFloat()
-                            val sizeStr = formatSize(downloaded) + "/" + formatSize(totalSize)
-                            onProgress(progress, "下载中 $sizeStr")
+                val body = response.body ?: throw Exception("Empty body: $url")
+                totalSize = body.contentLength()
+
+                body.byteStream().use { input ->
+                    tempFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloaded += bytesRead
+                            if (totalSize > 0) {
+                                val progress = downloaded.toFloat() / totalSize.toFloat()
+                                val sizeStr = formatSize(downloaded) + "/" + formatSize(totalSize)
+                                onProgress(progress, "下载中 $sizeStr")
+                            }
                         }
                     }
                 }
             }
-        }
 
-        if (expectedSha1 != null) {
-            val actualSha1 = calculateSHA1(targetFile)
-            if (actualSha1.lowercase() != expectedSha1.lowercase()) {
-                targetFile.delete()
-                throw Exception("SHA1 mismatch for ${targetFile.name}: expected=$expectedSha1, actual=$actualSha1")
+            // FCL-style: Content-Length 校验
+            if (totalSize >= 0 && downloaded != totalSize) {
+                tempFile.delete()
+                throw Exception("文件大小不匹配: 已下载 $downloaded, 期望 $totalSize")
             }
+
+            // FCL-style: SHA1 校验
+            if (expectedSha1 != null) {
+                val actualSha1 = calculateSHA1(tempFile)
+                if (actualSha1.lowercase() != expectedSha1.lowercase()) {
+                    tempFile.delete()
+                    throw Exception("SHA1 校验失败 ${targetFile.name}: 期望=$expectedSha1, 实际=$actualSha1")
+                }
+            }
+
+            // FCL-style: 原子移动临时文件到目标位置
+            targetFile.delete()
+            if (!tempFile.renameTo(targetFile)) {
+                // renameTo 可能因跨挂载点失败，用拷贝回退
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            // 下载失败时删除临时文件，避免残留
+            tempFile.delete()
+            throw e
         }
     }
 
     private suspend fun downloadFile(url: String, targetFile: File) {
         targetFile.parentFile?.mkdirs()
 
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
+
         val request = okhttp3.Request.Builder().url(url)
             .header("User-Agent", "VerseExplorerX/1.0")
             .header("Accept", "*/*")
             .build()
 
-        downloadManager.httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
-            val body = response.body ?: throw Exception("Empty body: $url")
-            body.byteStream().use { input ->
-                targetFile.outputStream().use { output -> input.copyTo(output) }
+        try {
+            downloadManager.httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
+                val body = response.body ?: throw Exception("Empty body: $url")
+                body.byteStream().use { input ->
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                }
             }
+            targetFile.delete()
+            if (!tempFile.renameTo(targetFile)) {
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
+        }
+    }
+
+    // 对齐 PC 端：assets 小文件使用专用快速客户端（10s 连接超时 + 30s 读取超时）
+    private suspend fun downloadAssetFile(url: String, targetFile: File) {
+        targetFile.parentFile?.mkdirs()
+        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
+        val request = okhttp3.Request.Builder().url(url)
+            .header("User-Agent", "VerseExplorerX/1.0")
+            .header("Accept", "*/*")
+            .build()
+        try {
+            fastHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
+                val body = response.body ?: throw Exception("Empty body: $url")
+                body.byteStream().use { input ->
+                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+            targetFile.delete()
+            if (!tempFile.renameTo(targetFile)) {
+                tempFile.copyTo(targetFile, overwrite = true)
+                tempFile.delete()
+            }
+        } catch (e: Exception) {
+            tempFile.delete()
+            throw e
         }
     }
 
@@ -650,23 +739,21 @@ class GameInstaller(private val context: Context) {
 
         if (missingNatives.isEmpty()) return
 
-        Log.d("GameInstaller", "Downloading ${missingNatives.size} native classifier JARs")
+        Log.d("GameInstaller", "Downloading ${missingNatives.size} native classifier JARs (smart)")
 
         var successCount = 0
         for ((index, triple) in missingNatives.withIndex()) {
             val (originalUrl, path, sha1) = triple
             val nativeFile = File(librariesDir, path)
-            val downloadUrl = GameConfig.replaceWithMirror(originalUrl)
 
             try {
-                downloadFileWithRetry(downloadUrl, nativeFile, sha1, maxRetries = 2)
-                successCount++
-            } catch (e: Exception) {
-                try {
-                    downloadFileWithRetry(originalUrl, nativeFile, sha1, maxRetries = 2)
-                    successCount++
-                } catch (_: Exception) {}
-            }
+                val result = smartClient.download(
+                    originalUrl = originalUrl,
+                    targetFile = nativeFile,
+                    expectedSha1 = sha1
+                )
+                if (result.isSuccess) successCount++
+            } catch (_: Exception) {}
 
             onProgress(index.toFloat() / missingNatives.size, "下载原生库 (${index + 1}/${missingNatives.size})...")
         }
@@ -732,9 +819,12 @@ class GameInstaller(private val context: Context) {
             val targetFile = File(librariesDir, path)
 
             try {
-                val mirrorUrl = GameConfig.replaceWithMirror(url)
-                downloadFileWithRetry(mirrorUrl, targetFile, sha1)
-                downloadedCount++
+                val result = smartClient.download(
+                    originalUrl = url,
+                    targetFile = targetFile,
+                    expectedSha1 = sha1
+                )
+                if (result.isSuccess) downloadedCount++
             } catch (e: Exception) {
                 Log.w("GameInstaller", "Failed library: $path")
             }

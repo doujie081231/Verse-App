@@ -1,7 +1,7 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcButton
+import com.verse.explorer.app.ui.components.PcButtonVariant
+import com.verse.explorer.app.ui.components.PcTabGroup
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.version.MinecraftVersion
@@ -37,7 +41,7 @@ fun VersionsScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val settingsRepo = remember { com.verse.explorer.app.data.SettingsRepository(context) }
+    val settingsRepo = com.verse.explorer.app.data.SettingsRepository
     val downloadSource = remember { settingsRepo.getDownloadSource() }
     val sourceLabel = com.verse.explorer.app.download.DownloadSourceManager.Source.entries.find { it.id == downloadSource }?.label ?: "BMCLAPI 镜像"
 
@@ -62,7 +66,7 @@ fun VersionsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -70,53 +74,31 @@ fun VersionsScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 12.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "版本管理",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = VerseColors.McTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    FilledTonalButton(
+            PageHeader(
+                title = "版本管理",
+                actions = {
+                    PcButton(
+                        text = "刷新",
                         onClick = { viewModel.fetchRemoteVersions() },
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = VerseColors.McCardBg,
-                            contentColor = VerseColors.McGreen
-                        )
-                    ) {
-                        Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("刷新", fontSize = 11.sp)
-                    }
+                        variant = PcButtonVariant.GHOST,
+                        icon = Icons.Outlined.Refresh
+                    )
                 }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
+            )
 
             Text(
                 text = "下载源: $sourceLabel",
                 style = MaterialTheme.typography.labelSmall,
-                color = VerseColors.McTextMuted,
+                color = VerseColors.PcTextMuted,
                 fontSize = 11.sp
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            TabGroup(
+            PcTabGroup(
                 tabs = tabs,
                 selectedIndex = selectedTab,
-                onSelect = { selectedTab = it }
+                onSelected = { selectedTab = it }
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -131,7 +113,7 @@ fun VersionsScreen(
                 Text(
                     text = if (uiState.isLoading) "加载中..." else "共 ${displayVersions.size} 个版本",
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextMuted,
+                    color = VerseColors.PcTextMuted,
                     fontSize = 11.sp
                 )
             }
@@ -140,7 +122,7 @@ fun VersionsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = VerseColors.McRedstone.copy(alpha = 0.1f)
+                    color = VerseColors.PcRed.copy(alpha = 0.1f)
                 ) {
                     Row(
                         modifier = Modifier
@@ -148,16 +130,16 @@ fun VersionsScreen(
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Outlined.Error, null, Modifier.size(16.dp), VerseColors.McRedstone)
+                        Icon(Icons.Outlined.Error, null, Modifier.size(16.dp), VerseColors.PcRed)
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = uiState.error!!,
-                            color = VerseColors.McRedstone,
+                            color = VerseColors.PcRed,
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f)
                         )
                         TextButton(onClick = { viewModel.clearError(); viewModel.fetchRemoteVersions() }) {
-                            Text("重试", fontSize = 11.sp, color = VerseColors.McGreen)
+                            Text("重试", fontSize = 11.sp, color = VerseColors.PcAccent)
                         }
                     }
                 }
@@ -173,11 +155,11 @@ fun VersionsScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(32.dp),
-                            color = VerseColors.McGreen,
+                            color = VerseColors.PcAccent,
                             strokeWidth = 3.dp
                         )
                         Spacer(Modifier.height(12.dp))
-                        Text("从 $sourceLabel 获取版本列表...", color = VerseColors.McTextMuted, fontSize = 12.sp)
+                        Text("从 $sourceLabel 获取版本列表...", color = VerseColors.PcTextMuted, fontSize = 12.sp)
                     }
                 }
             } else {
@@ -208,10 +190,10 @@ fun VersionsScreen(
     if (showDeleteConfirm != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
-            containerColor = VerseColors.McOverlayContentBg,
-            titleContentColor = VerseColors.McTextPrimary,
-            textContentColor = VerseColors.McTextSecondary,
-            shape = RoundedCornerShape(16.dp),
+            containerColor = VerseColors.PcBgCard,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
+            shape = RoundedCornerShape(12.dp),
             title = { Text("删除版本", fontWeight = FontWeight.Bold) },
             text = { Text("确定要删除 Minecraft ${showDeleteConfirm} 吗？此操作不可撤销。") },
             confirmButton = {
@@ -220,56 +202,17 @@ fun VersionsScreen(
                         viewModel.deleteVersion(showDeleteConfirm!!)
                         showDeleteConfirm = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.McRedstone)
+                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcRed)
                 ) {
                     Text("删除", fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = null }) {
-                    Text("取消", color = VerseColors.McTextSecondary)
+                    Text("取消", color = VerseColors.PcTextSecondary)
                 }
             }
         )
-    }
-}
-
-@Composable
-internal fun TabGroup(
-    tabs: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = VerseColors.McCardBgLight,
-        modifier = Modifier.fillMaxWidth().wrapContentHeight()
-    ) {
-        Row(
-            modifier = Modifier.padding(2.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            tabs.forEachIndexed { index, title ->
-                val isSelected = index == selectedIndex
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (isSelected) VerseColors.McGreen else Color.Transparent)
-                        .clickable { onSelect(index) }
-                        .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (isSelected) Color.White else VerseColors.McTextSecondary,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -282,9 +225,9 @@ private fun VersionItem(
 ) {
     val context = LocalContext.current
     val iconBg = when (version.type) {
-        VersionType.SNAPSHOT -> Color(0xFFFF9800).copy(alpha = 0.15f)
-        VersionType.OLD_ALPHA, VersionType.OLD_BETA -> Color(0xFF9E9E9E).copy(alpha = 0.15f)
-        else -> if (isInInstalledTab) VerseColors.McGreen.copy(alpha = 0.12f) else Color(0xFF4CAF50).copy(alpha = 0.12f)
+        VersionType.SNAPSHOT -> VerseColors.PcOrange.copy(alpha = 0.15f)
+        VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
+        else -> VerseColors.PcGreen.copy(alpha = 0.15f)
     }
     val iconAssetPath = when (version.type) {
         VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
@@ -299,24 +242,36 @@ private fun VersionItem(
         } catch (e: Exception) { null }
     }
 
+    val typeBadgeColor = when (version.type) {
+        VersionType.SNAPSHOT -> VerseColors.PcOrange
+        VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple
+        else -> VerseColors.PcGreen
+    }
+    val typeBadgeLabel = when (version.type) {
+        VersionType.SNAPSHOT -> "快照"
+        VersionType.OLD_ALPHA -> "Old Alpha"
+        VersionType.OLD_BETA -> "Old Beta"
+        else -> "正式版"
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
         shape = RoundedCornerShape(8.dp),
-        color = VerseColors.McCardBg,
-        border = androidx.compose.foundation.BorderStroke(1.dp, VerseColors.McCardBorder)
+        color = VerseColors.PcBgCard,
+        border = BorderStroke(1.dp, VerseColors.PcBorder)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(vertical = 12.dp, horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(iconBg),
                 contentAlignment = Alignment.Center
             ) {
@@ -334,26 +289,38 @@ private fun VersionItem(
                 Text(
                     text = version.id,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.McTextPrimary,
-                    fontWeight = FontWeight.SemiBold,
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.Medium,
                     fontSize = 14.sp
                 )
                 Text(
                     text = buildVersionMetaText(version),
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextSecondary,
-                    fontSize = 11.sp
+                    color = VerseColors.PcTextMuted,
+                    fontSize = 12.sp
                 )
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(3.dp),
+                    color = typeBadgeColor.copy(alpha = 0.15f)
+                ) {
+                    Text(
+                        text = typeBadgeLabel,
+                        fontSize = 10.sp,
+                        color = typeBadgeColor,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
 
             if (isInInstalledTab) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Outlined.Delete, "删除", Modifier.size(16.dp), VerseColors.McTextMuted)
+                        Icon(Icons.Outlined.Delete, "删除", Modifier.size(16.dp), VerseColors.PcTextMuted)
                     }
                 }
             } else {
-                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), VerseColors.McTextDim)
+                Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
             }
         }
     }

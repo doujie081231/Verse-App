@@ -57,6 +57,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 写入启动标记日志，确认 MainActivity.onCreate 被执行
+        try {
+            (applicationContext as? com.verse.explorer.app.VerseApplication)?.writeBootLog("MainActivity.onCreate started")
+        } catch (_: Throwable) {}
+
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -90,7 +95,7 @@ class MainActivity : ComponentActivity() {
             VerseExplorerTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = VerseColors.SurfaceDark
+                    color = VerseColors.PcBgPrimary
                 ) {
                     val showEula = !eulaAgreed.value
                     val showPermission = eulaAgreed.value && !permissionGranted.value
@@ -139,18 +144,21 @@ class MainActivity : ComponentActivity() {
 
                     // 加载中 — 等待运行时状态检查完成
                     if (showLoading) {
-                        Box(modifier = Modifier.fillMaxSize().background(VerseColors.DarkBgPrimary),
+                        Box(modifier = Modifier.fillMaxSize().background(VerseColors.PcBgPrimary),
                             contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = VerseColors.AccentBlue, modifier = Modifier.size(40.dp))
+                                CircularProgressIndicator(color = VerseColors.PcAccent, modifier = Modifier.size(40.dp))
                                 Spacer(Modifier.height(16.dp))
-                                Text("正在检查运行环境...", color = VerseColors.DarkTextSecondary, fontSize = 14.sp)
+                                Text("正在检查运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
                             }
                         }
                         return@Surface
                     }
 
                     // 主界面
+                    try {
+                        (applicationContext as? com.verse.explorer.app.VerseApplication)?.writeBootLog("Showing MainScreen")
+                    } catch (_: Throwable) {}
                     MainScreen(
                         jreReady = jreReady.value,
                         onLaunchGame = { versionId ->
@@ -198,7 +206,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Java运行时尚未初始化完成，请稍候...", Toast.LENGTH_LONG).show()
             return
         }
-        val settingsRepo = com.verse.explorer.app.data.SettingsRepository(this)
+        val settingsRepo = com.verse.explorer.app.data.SettingsRepository
         val gameDirPath = settingsRepo.getGameDir()
         val gameDir = File(if (gameDirPath.isNotEmpty()) gameDirPath else "/storage/emulated/0/VerseExplorerX")
         val javaVerSetting = settingsRepo.getJavaVersion()
@@ -241,7 +249,7 @@ class MainActivity : ComponentActivity() {
     private fun startGameWithJava(versionId: String?, gameDir: File) {
         var javaHome: String? = null
 
-        val settingsRepo = com.verse.explorer.app.data.SettingsRepository(this)
+        val settingsRepo = com.verse.explorer.app.data.SettingsRepository
         val javaVerSetting = settingsRepo.getJavaVersion()
         val requiredJavaVer = javaVerSetting.toIntOrNull() ?: 17
 
@@ -368,7 +376,7 @@ private fun EulaAgreementDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.DarkBgPrimary),
+            .background(VerseColors.PcBgPrimary),
         contentAlignment = Alignment.Center
     ) {
         Surface(
@@ -376,7 +384,7 @@ private fun EulaAgreementDialog(
                 .fillMaxWidth(0.88f)
                 .fillMaxHeight(0.72f),
             shape = RoundedCornerShape(20.dp),
-            color = VerseColors.DarkBgCard
+            color = VerseColors.PcBgCard
         ) {
             Column(
                 modifier = Modifier
@@ -386,7 +394,7 @@ private fun EulaAgreementDialog(
                 Text(
                     text = "用户协议与免责声明",
                     style = MaterialTheme.typography.titleLarge,
-                    color = VerseColors.DarkTextPrimary,
+                    color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp
                 )
@@ -394,7 +402,7 @@ private fun EulaAgreementDialog(
                 Text(
                     text = "请仔细阅读以下协议，继续使用即表示您同意所有条款",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.DarkTextSecondary,
+                    color = VerseColors.PcTextSecondary,
                     fontSize = 13.sp
                 )
 
@@ -405,7 +413,7 @@ private fun EulaAgreementDialog(
                     modifier = Modifier
                         .weight(1f)
                         .background(
-                            VerseColors.DarkBgHover,
+                            VerseColors.PcBgHover,
                             RoundedCornerShape(12.dp)
                         )
                         .padding(16.dp)
@@ -426,7 +434,7 @@ private fun EulaAgreementDialog(
 继续使用即表示您已阅读并同意以上条款。
                         """.trimIndent(),
                         style = MaterialTheme.typography.bodySmall,
-                        color = VerseColors.DarkTextSecondary,
+                        color = VerseColors.PcTextSecondary,
                         fontSize = 13.sp,
                         lineHeight = 22.sp
                     )
@@ -443,7 +451,7 @@ private fun EulaAgreementDialog(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = VerseColors.DarkTextSecondary
+                            contentColor = VerseColors.PcTextSecondary
                         )
                     ) {
                         Text("不同意", fontSize = 14.sp)
@@ -453,8 +461,8 @@ private fun EulaAgreementDialog(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = VerseColors.AccentBlue,
-                            contentColor = VerseColors.DarkTextPrimary
+                            containerColor = VerseColors.PcAccent,
+                            contentColor = VerseColors.PcAccentText
                         )
                     ) {
                         Text("同意并继续", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -475,14 +483,14 @@ private fun PermissionRequestDialog(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.DarkBgPrimary),
+            .background(VerseColors.PcBgPrimary),
         contentAlignment = Alignment.Center
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.88f),
             shape = RoundedCornerShape(20.dp),
-            color = VerseColors.DarkBgCard
+            color = VerseColors.PcBgCard
         ) {
             Column(
                 modifier = Modifier.padding(24.dp)
@@ -490,7 +498,7 @@ private fun PermissionRequestDialog(
                 Text(
                     text = "存储权限",
                     style = MaterialTheme.typography.titleLarge,
-                    color = VerseColors.DarkTextPrimary,
+                    color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp
                 )
@@ -506,7 +514,7 @@ Verse Explorer X 需要存储权限来：
 请授予"所有文件访问权限"以确保软件正常运行。
                     """.trimIndent(),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.DarkTextSecondary,
+                    color = VerseColors.PcTextSecondary,
                     fontSize = 13.sp,
                     lineHeight = 20.sp
                 )
@@ -522,7 +530,7 @@ Verse Explorer X 需要存储权限来：
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = VerseColors.DarkTextSecondary
+                            contentColor = VerseColors.PcTextSecondary
                         )
                     ) {
                         Text("退出", fontSize = 14.sp)
@@ -532,8 +540,8 @@ Verse Explorer X 需要存储权限来：
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = VerseColors.AccentBlue,
-                            contentColor = VerseColors.DarkTextPrimary
+                            containerColor = VerseColors.PcAccent,
+                            contentColor = VerseColors.PcAccentText
                         )
                     ) {
                         Text("授予权限", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)

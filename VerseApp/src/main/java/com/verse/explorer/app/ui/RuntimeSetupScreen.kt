@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.domain.model.setup.ComponentState
 import com.verse.explorer.app.setup.RuntimeSetupManager
 import com.verse.explorer.app.setup.RuntimeSetupManager.RuntimeComponent
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -37,7 +38,9 @@ import kotlinx.coroutines.withContext
  * - 实时进度反馈
  * - 安装完毕后自动进入启动器
  *
- * 与 FCL 一致的可选组件：JAVA_11、LWJGL_BOAT
+ * 与 FCL 一致的可选组件：JAVA_25
+ * （LWJGL_BOAT 已移除：FCL 上游无此目录，且 boat/pojav 启动方式共用同一份 lwjgl.jar）
+ * （JAVA_11 已移除：MC 1.16-1.17 实际使用 Java 8/17 兼容，无需单独 JRE 11）
  */
 @Composable
 fun RuntimeSetupScreen(
@@ -125,7 +128,7 @@ fun RuntimeSetupScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McDarkBg)
+            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -138,7 +141,7 @@ fun RuntimeSetupScreen(
             Text(
                 text = "首次启动 · 安装前置环境",
                 style = MaterialTheme.typography.headlineSmall,
-                color = VerseColors.McTextPrimary,
+                color = VerseColors.PcTextPrimary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 22.sp
             )
@@ -146,7 +149,7 @@ fun RuntimeSetupScreen(
             Text(
                 text = "正在为 Minecraft 准备必要的运行时组件",
                 style = MaterialTheme.typography.bodyMedium,
-                color = VerseColors.McTextSecondary,
+                color = VerseColors.PcTextSecondary,
                 fontSize = 14.sp
             )
 
@@ -159,7 +162,7 @@ fun RuntimeSetupScreen(
                 Text(
                     text = "已就绪 $readyCount/$totalCount",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (readyCount == totalCount) VerseColors.McGreen else VerseColors.McGold,
+                    color = if (readyCount == totalCount) VerseColors.PcAccent else VerseColors.PcOrange,
                     fontSize = 12.sp
                 )
             }
@@ -196,16 +199,16 @@ fun RuntimeSetupScreen(
                         .height(52.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = VerseColors.McGreen,
+                        containerColor = VerseColors.PcAccent,
                         contentColor = Color.White,
-                        disabledContainerColor = VerseColors.McCardBg,
-                        disabledContentColor = VerseColors.DarkTextDim
+                        disabledContainerColor = VerseColors.PcBgCard,
+                        disabledContentColor = VerseColors.PcTextMuted
                     )
                 ) {
                     if (isChecking) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
-                            color = VerseColors.DarkTextDim,
+                            color = VerseColors.PcTextMuted,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -231,7 +234,7 @@ fun RuntimeSetupScreen(
                         .fillMaxWidth()
                         .height(52.dp),
                     shape = RoundedCornerShape(14.dp),
-                    color = VerseColors.McGreen.copy(alpha = 0.12f)
+                    color = VerseColors.PcAccent.copy(alpha = 0.12f)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxSize(),
@@ -240,7 +243,7 @@ fun RuntimeSetupScreen(
                     ) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
-                            color = VerseColors.McGreen,
+                            color = VerseColors.PcAccent,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
@@ -248,7 +251,7 @@ fun RuntimeSetupScreen(
                             "环境就绪，正在进入启动器...",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = VerseColors.McGreen
+                            color = VerseColors.PcAccent
                         )
                     }
                 }
@@ -267,10 +270,10 @@ private fun RuntimeComponentRow(
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = VerseColors.McCardBg,
+        color = VerseColors.PcBgCard,
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            VerseColors.McCardBorder
+            VerseColors.PcBorder
         )
     ) {
         Row(
@@ -281,11 +284,11 @@ private fun RuntimeComponentRow(
         ) {
             // 状态图标
             val (icon, iconTint, bgColor) = when {
-                isChecking -> Triple(Icons.Outlined.HourglassEmpty, VerseColors.McTextMuted, VerseColors.DarkBgHover)
-                state.isInstalling -> Triple(Icons.Filled.Sync, VerseColors.McGreen, VerseColors.McGreen.copy(alpha = 0.15f))
-                state.isReady || state.isCompleted -> Triple(Icons.Filled.CheckCircle, VerseColors.McGreen, VerseColors.McGreen.copy(alpha = 0.08f))
-                state.errorMessage != null -> Triple(Icons.Filled.Error, VerseColors.McRedstone, VerseColors.McRedstone.copy(alpha = 0.08f))
-                else -> Triple(Icons.Outlined.RadioButtonUnchecked, VerseColors.McGold, VerseColors.McGold.copy(alpha = 0.08f))
+                isChecking -> Triple(Icons.Outlined.HourglassEmpty, VerseColors.PcTextMuted, VerseColors.PcBgHover)
+                state.isInstalling -> Triple(Icons.Filled.Sync, VerseColors.PcAccent, VerseColors.PcAccent.copy(alpha = 0.15f))
+                state.isReady || state.isCompleted -> Triple(Icons.Filled.CheckCircle, VerseColors.PcAccent, VerseColors.PcAccent.copy(alpha = 0.08f))
+                state.errorMessage != null -> Triple(Icons.Filled.Error, VerseColors.PcRed, VerseColors.PcRed.copy(alpha = 0.08f))
+                else -> Triple(Icons.Outlined.RadioButtonUnchecked, VerseColors.PcOrange, VerseColors.PcOrange.copy(alpha = 0.08f))
             }
 
             Box(
@@ -298,7 +301,7 @@ private fun RuntimeComponentRow(
                 if (state.isInstalling) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = VerseColors.McGreen,
+                        color = VerseColors.PcAccent,
                         strokeWidth = 2.dp
                     )
                 } else {
@@ -318,14 +321,14 @@ private fun RuntimeComponentRow(
                 Text(
                     text = component.displayName,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.McTextPrimary,
+                    color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
                 Text(
                     text = component.description,
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextSecondary,
+                    color = VerseColors.PcTextSecondary,
                     fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -334,7 +337,7 @@ private fun RuntimeComponentRow(
                     Text(
                         text = state.errorMessage,
                         style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McRedstone,
+                        color = VerseColors.PcRed,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -348,7 +351,7 @@ private fun RuntimeComponentRow(
                     Text(
                         "检查中",
                         style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McTextMuted,
+                        color = VerseColors.PcTextMuted,
                         fontSize = 11.sp
                     )
                 }
@@ -356,7 +359,7 @@ private fun RuntimeComponentRow(
                     Text(
                         "安装中",
                         style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McGreen,
+                        color = VerseColors.PcAccent,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -364,12 +367,12 @@ private fun RuntimeComponentRow(
                 state.isReady || state.isCompleted -> {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = VerseColors.McGreen.copy(alpha = 0.12f)
+                        color = VerseColors.PcAccent.copy(alpha = 0.12f)
                     ) {
                         Text(
                             "已就绪",
                             style = MaterialTheme.typography.labelSmall,
-                            color = VerseColors.McGreen,
+                            color = VerseColors.PcAccent,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -379,12 +382,12 @@ private fun RuntimeComponentRow(
                 state.errorMessage != null -> {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = VerseColors.McRedstone.copy(alpha = 0.12f)
+                        color = VerseColors.PcRed.copy(alpha = 0.12f)
                     ) {
                         Text(
                             "失败",
                             style = MaterialTheme.typography.labelSmall,
-                            color = VerseColors.McRedstone,
+                            color = VerseColors.PcRed,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -394,12 +397,12 @@ private fun RuntimeComponentRow(
                 else -> {
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = VerseColors.McGold.copy(alpha = 0.12f)
+                        color = VerseColors.PcOrange.copy(alpha = 0.12f)
                     ) {
                         Text(
                             "待安装",
                             style = MaterialTheme.typography.labelSmall,
-                            color = VerseColors.McGold,
+                            color = VerseColors.PcOrange,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
@@ -410,11 +413,3 @@ private fun RuntimeComponentRow(
         }
     }
 }
-
-/** 组件状态数据类（供外部使用） */
-data class ComponentState(
-    val isReady: Boolean = false,
-    val isInstalling: Boolean = false,
-    val isCompleted: Boolean = false,
-    val errorMessage: String? = null
-)

@@ -1,4 +1,4 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,20 +10,19 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.java.JavaRuntimeRepository
 import com.verse.explorer.app.launch.JvmArgsBuilder
-import com.verse.explorer.app.ui.components.GlassCard
+import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcButton
+import com.verse.explorer.app.ui.components.PcButtonVariant
+import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.java.JavaRuntimeManager
 import kotlinx.coroutines.Dispatchers
@@ -35,10 +34,10 @@ fun JavaScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val settingsRepo = remember { SettingsRepository(context) }
+    val settingsRepo = SettingsRepository
     val scope = rememberCoroutineScope()
 
-    var installedRuntimes by remember { mutableStateOf(loadInstalledRuntimes(context)) }
+    var installedRuntimes by remember { mutableStateOf(JavaRuntimeRepository.loadInstalledRuntimes(context)) }
     var selectedJavaVersion by remember { mutableStateOf(settingsRepo.getJavaVersion()) }
     var selectedGcType by remember { mutableStateOf(settingsRepo.getGcType()) }
     var customJvmArgs by remember { mutableStateOf(settingsRepo.getCustomJvmArgs()) }
@@ -47,7 +46,7 @@ fun JavaScreen(
     var installProgress by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        installedRuntimes = loadInstalledRuntimes(context)
+        installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
     }
 
     val javaVersions = listOf(
@@ -78,7 +77,7 @@ fun JavaScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgPrimary)
     ) {
         LazyColumn(
             modifier = Modifier
@@ -90,48 +89,16 @@ fun JavaScreen(
             item {
                 PageHeader(
                     title = "Java 管理",
-                    subtitle = "管理 Java 运行时和 JVM 参数"
-                )
-            }
-
-            item {
-                SectionTitle("已安装的 Java 运行时")
-            }
-
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val installedCount = installedRuntimes.distinctBy { it.version }.size
-                    Text(
-                        text = "已安装 $installedCount/4 · 当前默认: Java $selectedJavaVersion",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McTextSecondary,
-                        fontSize = 12.sp
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(
-                            onClick = {
-                                installedRuntimes = loadInstalledRuntimes(context)
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = VerseColors.McCardBg,
-                                contentColor = VerseColors.McTextSecondary
-                            )
-                        ) {
-                            Icon(Icons.Outlined.Refresh, null, Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("刷新", fontSize = 11.sp)
-                        }
-                        if (installedCount < 4) {
-                            FilledTonalButton(
+                    actions = {
+                        PcButton(
+                            text = "刷新",
+                            onClick = { installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context) },
+                            variant = PcButtonVariant.GHOST,
+                            icon = Icons.Outlined.Refresh
+                        )
+                        if (installedRuntimes.distinctBy { it.version }.size < 4) {
+                            PcButton(
+                                text = "一键安装所有",
                                 onClick = {
                                     scope.launch(Dispatchers.IO) {
                                         try {
@@ -139,7 +106,7 @@ fun JavaScreen(
                                             var installedCount2 = 0
                                             for (versionKey in allVersions) {
                                                 val verNum = versionKey.removePrefix("java").toIntOrNull() ?: continue
-                                                val current = loadInstalledRuntimes(context)
+                                                val current = JavaRuntimeRepository.loadInstalledRuntimes(context)
                                                 if (current.any { it.version == verNum }) continue
                                                 installingVersion = verNum.toString()
                                                 installProgress = "正在安装 Java $verNum..."
@@ -151,7 +118,7 @@ fun JavaScreen(
                                                 }
                                                 if (result.isSuccess) {
                                                     installedCount2++
-                                                    installedRuntimes = loadInstalledRuntimes(context)
+                                                    installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
                                                 }
                                             }
                                             installProgress = if (installedCount2 > 0) "全部安装完成 (新增 $installedCount2 个)" else "全部已安装"
@@ -162,87 +129,88 @@ fun JavaScreen(
                                         }
                                     }
                                 },
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                colors = ButtonDefaults.filledTonalButtonColors(
-                                    containerColor = VerseColors.McGreen.copy(alpha = 0.12f),
-                                    contentColor = VerseColors.McGreen
-                                )
-                            ) {
-                                Icon(Icons.Filled.Download, null, Modifier.size(14.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("一键安装所有", fontSize = 11.sp)
-                            }
+                                variant = PcButtonVariant.PRIMARY,
+                                icon = Icons.Filled.Download
+                            )
                         }
                     }
-                }
+                )
             }
 
             item {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                SectionTitle("已安装的 Java 运行时")
+            }
+
+            item {
+                val installedCount = installedRuntimes.distinctBy { it.version }.size
+                Text(
+                    text = "已安装 $installedCount/4 · 当前默认: Java $selectedJavaVersion",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VerseColors.PcTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+
+            item {
+                PcCard(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        javaVersions.forEachIndexed { index, (version, displayName, mcVersions) ->
-                            val verNum = version.toIntOrNull() ?: 8
-                            val installed = installedRuntimes.any { it.version == verNum }
-                            val installedRuntime = installedRuntimes.firstOrNull { it.version == verNum }
-                            val isInstalling = installingVersion == version
+                    javaVersions.forEachIndexed { index, (version, displayName, mcVersions) ->
+                        val verNum = version.toIntOrNull() ?: 8
+                        val installed = installedRuntimes.any { it.version == verNum }
+                        val installedRuntime = installedRuntimes.firstOrNull { it.version == verNum }
+                        val isInstalling = installingVersion == version
 
-                            JavaVersionRow(
-                                version = version,
-                                displayName = displayName,
-                                mcVersions = mcVersions,
-                                installed = installed,
-                                isInstalling = isInstalling,
-                                installProgress = installProgress,
-                                isDefault = selectedJavaVersion == version,
-                                runtimePath = installedRuntime?.path?.absolutePath,
-                                onInstall = {
-                                    installingVersion = version
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            installProgress = "正在安装..."
-                                            val result = JavaRuntimeManager.installJre(
-                                                context,
-                                                "java$version"
-                                            ) { progress ->
-                                                installProgress = progress.message
-                                            }
-                                            if (result.isSuccess) {
-                                                settingsRepo.setJavaVersion(version)
-                                                selectedJavaVersion = version
-                                                installedRuntimes = loadInstalledRuntimes(context)
-                                                installProgress = ""
-                                            } else {
-                                                installProgress = "安装失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
-                                            }
-                                        } catch (e: Exception) {
-                                            installProgress = "安装异常: ${e.message}"
-                                        } finally {
-                                            installingVersion = null
+                        JavaVersionRow(
+                            version = version,
+                            displayName = displayName,
+                            mcVersions = mcVersions,
+                            installed = installed,
+                            isInstalling = isInstalling,
+                            installProgress = installProgress,
+                            isDefault = selectedJavaVersion == version,
+                            runtimePath = installedRuntime?.path?.absolutePath,
+                            onInstall = {
+                                installingVersion = version
+                                scope.launch(Dispatchers.IO) {
+                                    try {
+                                        installProgress = "正在安装..."
+                                        val result = JavaRuntimeManager.installJre(
+                                            context,
+                                            "java$version"
+                                        ) { progress ->
+                                            installProgress = progress.message
                                         }
+                                        if (result.isSuccess) {
+                                            settingsRepo.setJavaVersion(version)
+                                            selectedJavaVersion = version
+                                            installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
+                                            installProgress = ""
+                                        } else {
+                                            installProgress = "安装失败: ${result.exceptionOrNull()?.message ?: "未知错误"}"
+                                        }
+                                    } catch (e: Exception) {
+                                        installProgress = "安装异常: ${e.message}"
+                                    } finally {
+                                        installingVersion = null
                                     }
-                                },
-                                onSetDefault = {
-                                    settingsRepo.setJavaVersion(version)
-                                    selectedJavaVersion = version
-                                },
-                                onDelete = {
-                                    showDeleteConfirm = verNum
                                 }
-                            )
-
-                            if (index < javaVersions.size - 1) {
-                                HorizontalDivider(
-                                    color = Color.White.copy(alpha = 0.04f),
-                                    thickness = 1.dp,
-                                    modifier = Modifier.padding(vertical = 10.dp)
-                                )
+                            },
+                            onSetDefault = {
+                                settingsRepo.setJavaVersion(version)
+                                selectedJavaVersion = version
+                            },
+                            onDelete = {
+                                showDeleteConfirm = verNum
                             }
+                        )
+
+                        if (index < javaVersions.size - 1) {
+                            HorizontalDivider(
+                                color = VerseColors.PcBorder,
+                                thickness = 1.dp,
+                                modifier = Modifier.padding(vertical = 10.dp)
+                            )
                         }
                     }
                 }
@@ -257,161 +225,156 @@ fun JavaScreen(
             }
 
             item {
-                GlassCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                PcCard(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp)
+                    Text(
+                        text = "垃圾回收器 (GC)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VerseColors.PcTextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "垃圾回收器 (GC)",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = VerseColors.McTextSecondary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            availableGcTypes.forEach { gc ->
-                                val isGcSelected = selectedGcType == gc
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (isGcSelected) VerseColors.McGreen.copy(alpha = 0.12f) else VerseColors.McCardBg,
-                                    modifier = Modifier
-                                        .clickable {
-                                            selectedGcType = gc
-                                            settingsRepo.setGcType(gc)
-                                        }
-                                ) {
-                                    Text(
-                                        text = when (gc) {
-                                            "Shenandoah" -> "Shenandoah (低延迟)"
-                                            "ZGC" -> "ZGC (大内存)"
-                                            "SerialGC" -> "Serial (单线程)"
-                                            "ParallelGC" -> "Parallel (多线程)"
-                                            else -> "G1GC (默认)"
-                                        },
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (isGcSelected) VerseColors.McGreen else VerseColors.McTextSecondary,
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Text(
-                            text = "JVM 参数预览",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = VerseColors.McTextSecondary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = VerseColors.McBg
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp)
+                        availableGcTypes.forEach { gc ->
+                            val isGcSelected = selectedGcType == gc
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isGcSelected) VerseColors.PcGreen.copy(alpha = 0.12f) else VerseColors.PcBgCard,
+                                modifier = Modifier
+                                    .clickable {
+                                        selectedGcType = gc
+                                        settingsRepo.setGcType(gc)
+                                    }
                             ) {
-                                jvmArgsPreview.forEach { arg ->
-                                    Text(
-                                        text = arg,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (arg.startsWith("-X")) VerseColors.McGreen.copy(alpha = 0.8f) else VerseColors.McTextSecondary,
-                                        fontSize = 11.sp,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                }
+                                Text(
+                                    text = when (gc) {
+                                        "Shenandoah" -> "Shenandoah (低延迟)"
+                                        "ZGC" -> "ZGC (大内存)"
+                                        "SerialGC" -> "Serial (单线程)"
+                                        "ParallelGC" -> "Parallel (多线程)"
+                                        else -> "G1GC (默认)"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isGcSelected) VerseColors.PcGreen else VerseColors.PcTextSecondary,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                        Text(
-                            text = "自定义 JVM 参数",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = VerseColors.McTextSecondary,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = customJvmArgs,
-                            onValueChange = {
-                                customJvmArgs = it
-                                settingsRepo.setCustomJvmArgs(it)
-                            },
-                            placeholder = {
+                    Text(
+                        text = "JVM 参数预览",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VerseColors.PcTextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = VerseColors.PcBgTertiary
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            jvmArgsPreview.forEach { arg ->
                                 Text(
-                                    "-XX:+AggressiveOpts -Dcustom.prop=value",
-                                    color = VerseColors.McTextDim,
-                                    fontSize = 12.sp,
+                                    text = arg,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (arg.startsWith("-X")) VerseColors.PcGreen.copy(alpha = 0.8f) else VerseColors.PcTextSecondary,
+                                    fontSize = 11.sp,
                                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                                 )
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = VerseColors.McGreen.copy(alpha = 0.3f),
-                                unfocusedBorderColor = VerseColors.McCardBorder,
-                                focusedContainerColor = VerseColors.McCardBg,
-                                unfocusedContainerColor = VerseColors.McCardBg,
-                                focusedTextColor = VerseColors.McTextPrimary,
-                                unfocusedTextColor = VerseColors.McTextPrimary,
-                                cursorColor = VerseColors.McGreen
-                            ),
-                            textStyle = MaterialTheme.typography.bodySmall.copy(
+                                Spacer(modifier = Modifier.height(2.dp))
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "自定义 JVM 参数",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VerseColors.PcTextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = customJvmArgs,
+                        onValueChange = {
+                            customJvmArgs = it
+                            settingsRepo.setCustomJvmArgs(it)
+                        },
+                        placeholder = {
+                            Text(
+                                "-XX:+AggressiveOpts -Dcustom.prop=value",
+                                color = VerseColors.PcTextMuted,
+                                fontSize = 12.sp,
                                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                             )
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = VerseColors.PcAccent.copy(alpha = 0.3f),
+                            unfocusedBorderColor = VerseColors.PcBorder,
+                            focusedContainerColor = VerseColors.PcBgTertiary,
+                            unfocusedContainerColor = VerseColors.PcBgTertiary,
+                            focusedTextColor = VerseColors.PcTextPrimary,
+                            unfocusedTextColor = VerseColors.PcTextPrimary,
+                            cursorColor = VerseColors.PcAccent
+                        ),
+                        textStyle = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                         )
+                    )
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                customJvmArgs = ""
+                                settingsRepo.setCustomJvmArgs("")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = VerseColors.PcBgCard,
+                                contentColor = VerseColors.PcTextSecondary
+                            )
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    customJvmArgs = ""
-                                    settingsRepo.setCustomJvmArgs("")
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = VerseColors.McCardBg,
-                                    contentColor = VerseColors.McTextSecondary
-                                )
-                            ) {
-                                Text("清空", fontSize = 12.sp)
-                            }
-                            Button(
-                                onClick = {
-                                    selectedGcType = "G1GC"
-                                    customJvmArgs = ""
-                                    settingsRepo.setGcType("G1GC")
-                                    settingsRepo.setCustomJvmArgs("")
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = VerseColors.McGreen.copy(alpha = 0.12f),
-                                    contentColor = VerseColors.McGreen
-                                )
-                            ) {
-                                Text("恢复默认", fontSize = 12.sp)
-                            }
+                            Text("清空", fontSize = 12.sp)
+                        }
+                        Button(
+                            onClick = {
+                                selectedGcType = "G1GC"
+                                customJvmArgs = ""
+                                settingsRepo.setGcType("G1GC")
+                                settingsRepo.setCustomJvmArgs("")
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VerseColors.PcGreen.copy(alpha = 0.12f),
+                                contentColor = VerseColors.PcGreen
+                            )
+                        ) {
+                            Text("恢复默认", fontSize = 12.sp)
                         }
                     }
                 }
@@ -426,9 +389,9 @@ fun JavaScreen(
     if (showDeleteConfirm != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
-            containerColor = VerseColors.McOverlayContentBg,
-            titleContentColor = VerseColors.McTextPrimary,
-            textContentColor = VerseColors.McTextSecondary,
+            containerColor = VerseColors.PcBgCard,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
             shape = RoundedCornerShape(16.dp),
             title = {
                 Text("删除 Java $showDeleteConfirm", fontWeight = FontWeight.Bold)
@@ -446,199 +409,18 @@ fun JavaScreen(
                                 try { rt.path.deleteRecursively() } catch (_: Exception) {}
                             }
                         }
-                        installedRuntimes = loadInstalledRuntimes(context)
+                        installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.McRedstone)
+                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcRed)
                 ) {
                     Text("删除", fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteConfirm = null }) {
-                    Text("取消", color = VerseColors.McTextSecondary)
+                    Text("取消", color = VerseColors.PcTextSecondary)
                 }
             }
         )
-    }
-}
-
-private fun loadInstalledRuntimes(context: android.content.Context): List<com.verse.explorer.core.java.JavaRuntime> {
-    return try {
-        JavaRuntimeManager.getInstalledRuntimes(context)
-    } catch (e: Exception) {
-        emptyList()
-    }
-}
-
-@Composable
-private fun JavaVersionRow(
-    version: String,
-    displayName: String,
-    mcVersions: String,
-    installed: Boolean,
-    isInstalling: Boolean,
-    installProgress: String,
-    isDefault: Boolean,
-    runtimePath: String? = null,
-    onInstall: () -> Unit,
-    onSetDefault: () -> Unit,
-    onDelete: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(
-                    Brush.linearGradient(
-                        if (installed) listOf(VerseColors.McGreen, VerseColors.McGreen.copy(alpha = 0.6f))
-                        else listOf(VerseColors.McGold, VerseColors.McGold.copy(alpha = 0.6f))
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isInstalling) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Icon(
-                    imageVector = if (installed) Icons.Filled.Check else Icons.Filled.Code,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = displayName,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.McTextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
-                )
-                if (isDefault && installed) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = VerseColors.McGreen.copy(alpha = 0.12f)
-                    ) {
-                        Text(
-                            text = "默认",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = VerseColors.McGreen,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
-            Text(
-                text = "支持: $mcVersions",
-                style = MaterialTheme.typography.labelSmall,
-                color = VerseColors.McTextSecondary,
-                fontSize = 11.sp
-            )
-            if (installed && runtimePath != null) {
-                Text(
-                    text = runtimePath.let { if (it.length > 30) "...${it.takeLast(30)}" else it },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextMuted,
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (isInstalling) {
-                Text(
-                    text = installProgress,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McGold,
-                    fontSize = 10.sp,
-                    maxLines = 1
-                )
-            }
-        }
-
-        if (installed) {
-            if (!isDefault) {
-                TextButton(
-                    onClick = onSetDefault,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "设为默认",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McGreen,
-                        fontSize = 10.sp
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = "删除",
-                        tint = VerseColors.McTextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = VerseColors.McGreen.copy(alpha = 0.1f)
-                ) {
-                    Text(
-                        text = "已安装",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McGreen,
-                        fontSize = 10.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        } else {
-            FilledTonalButton(
-                onClick = onInstall,
-                enabled = !isInstalling,
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = VerseColors.McGold.copy(alpha = 0.12f),
-                    contentColor = VerseColors.McGold,
-                    disabledContainerColor = VerseColors.McCardBg,
-                    disabledContentColor = VerseColors.McTextDim
-                )
-            ) {
-                if (isInstalling) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        color = VerseColors.McGold,
-                        strokeWidth = 1.5.dp
-                    )
-                } else {
-                    Icon(Icons.Filled.Download, null, Modifier.size(12.dp))
-                }
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = if (isInstalling) "安装中" else "安装",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 11.sp
-                )
-            }
-        }
     }
 }

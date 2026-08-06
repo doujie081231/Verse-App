@@ -1,6 +1,7 @@
 package com.verse.explorer.launcher.bridge
 
 import android.view.Surface
+import com.tungsten.fclauncher.bridge.FCLBridge
 
 object CallbackBridge {
 
@@ -16,25 +17,26 @@ object CallbackBridge {
 
     const val ANDROID_TYPE_GRAB_STATE = 0
 
-    private var zlBridge: ZLBridge? = null
+    private var fclBridge: FCLBridge? = null
     private var inputReady = false
     private var useInputStackQueue = false
 
     private val pressedKeys = mutableSetOf<Int>()
     private var currentMods = 0
 
-    private var windowWidth = ZLBridge.DEFAULT_WIDTH
-    private var windowHeight = ZLBridge.DEFAULT_HEIGHT
+    private var windowWidth = FCLBridge.DEFAULT_WIDTH
+    private var windowHeight = FCLBridge.DEFAULT_HEIGHT
     private var isGrabbing = false
 
     @JvmStatic
-    fun setFCLBridge(bridge: ZLBridge?) {
-        zlBridge = bridge
+    fun setFCLBridge(bridge: FCLBridge?) {
+        fclBridge = bridge
     }
 
     @JvmStatic
     fun setUseInputStackQueue(use: Boolean) {
         useInputStackQueue = use
+        nativeSetUseInputStackQueue(use)
     }
 
     @JvmStatic
@@ -122,6 +124,7 @@ object CallbackBridge {
     private external fun nativeSendData(isAndroid: Boolean, type: Int, i1: Int, i2: Int, i3: Int, i4: Int)
     private external fun nativeSetWindowAttribNative(attrib: Int, value: Int)
     private external fun nativeGetFps(): Int
+    private external fun nativeSetUseInputStackQueue(use: Boolean)
 
     @JvmStatic
     fun nativeSetInputReady(ready: Boolean): Boolean {
@@ -137,16 +140,16 @@ object CallbackBridge {
     @JvmStatic
     fun nativeSetGrabbing(grab: Boolean) {
         isGrabbing = grab
-        zlBridge?.setCursorMode(if (grab) ZLBridge.CursorDisabled else ZLBridge.CursorEnabled)
+        fclBridge?.setCursorMode(if (grab) FCLBridge.CursorDisabled else FCLBridge.CursorEnabled)
     }
 
     @JvmStatic
     fun nativeClipboard(action: Int, copy: ByteArray?): String? {
         if (action == 1 && copy != null) {
             val text = String(copy, Charsets.UTF_8)
-            zlBridge?.setPrimaryClipString(text)
+            fclBridge?.setPrimaryClipString(text)
             return null
         }
-        return zlBridge?.getPrimaryClipString()
+        return fclBridge?.getPrimaryClipString()
     }
 }

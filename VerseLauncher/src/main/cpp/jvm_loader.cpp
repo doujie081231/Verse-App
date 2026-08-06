@@ -12,6 +12,14 @@
 #include <cstring>
 #include <pthread.h>
 #include <fcntl.h>
+#include <sys/prctl.h>
+
+#ifndef PR_SET_TAGGED_ADDR_CTRL
+#define PR_SET_TAGGED_ADDR_CTRL 55
+#endif
+#ifndef PR_TAGGED_ADDR_ENABLE
+#define PR_TAGGED_ADDR_ENABLE (1UL << 0)
+#endif
 
 #define LOG_TAG "JVMLoader"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -460,6 +468,11 @@ static int launchViaJNI(const char *jrePath, int argc, char **argv) {
     vmArgs.nOptions = (jint)jvmOptions.size();
     vmArgs.options = jvmOptions.data();
     vmArgs.ignoreUnrecognized = JNI_TRUE;
+
+    // Disable Android tagged addressing before JVM creation
+    // Standard JRE doesn't handle MTE/TBI tagged pointers
+    int prctlResult = prctl(PR_SET_TAGGED_ADDR_CTRL, 0, 0, 0, 0);
+    LOGI("prctl(PR_SET_TAGGED_ADDR_CTRL, 0) = %d (errno=%d)", prctlResult, errno);
 
     JavaVM *jvm = nullptr;
     JNIEnv *jniEnv = nullptr;

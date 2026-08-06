@@ -1,6 +1,7 @@
 package com.verse.explorer.app.setup
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
@@ -10,6 +11,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.zip.ZipFile
 
 object RuntimeSetupManager {
 
@@ -68,11 +70,9 @@ object RuntimeSetupManager {
         val isOptional: Boolean = false
     ) {
         LWJGL("LWJGL", "OpenGL 图形库", "lwjgl"),
-        LWJGL_BOAT("LWJGL Boat", "Boat 后端支持", "lwjgl-boat", isOptional = true),
         CACIO_8("CacioCavallo 8", "Java 8 AWT 桥接", "caciocavallo"),
         CACIO_17("CacioCavallo 17", "Java 17+ AWT 桥接", "caciocavallo17"),
         JAVA_8("Java 8", "Minecraft 1.7 - 1.16", "java/jre8", isJava = true),
-        JAVA_11("Java 11", "Minecraft 1.16 - 1.17", "java/jre11", isJava = true, isOptional = true),
         JAVA_17("Java 17", "Minecraft 1.18 - 1.20.4", "java/jre17", isJava = true),
         JAVA_21("Java 21", "Minecraft 1.20.5 - 1.21.x", "java/jre21", isJava = true),
         JAVA_25("Java 25", "Minecraft 1.22+", "java/jre25", isJava = true, isOptional = true),
@@ -82,11 +82,9 @@ object RuntimeSetupManager {
     fun getTargetDir(component: RuntimeComponent): String {
         return when (component) {
             RuntimeComponent.LWJGL -> LWJGL_DIR
-            RuntimeComponent.LWJGL_BOAT -> "$LWJGL_DIR-boat"
             RuntimeComponent.CACIO_8 -> CACIOCAVALLO_8_DIR
             RuntimeComponent.CACIO_17 -> CACIOCAVALLO_17_DIR
             RuntimeComponent.JAVA_8 -> JAVA_8_PATH
-            RuntimeComponent.JAVA_11 -> "$JAVA_PATH/jre11"
             RuntimeComponent.JAVA_17 -> JAVA_17_PATH
             RuntimeComponent.JAVA_21 -> JAVA_21_PATH
             RuntimeComponent.JAVA_25 -> "$JAVA_PATH/jre25"
@@ -226,7 +224,7 @@ object RuntimeSetupManager {
 
     private fun downloadComponentFiles(component: RuntimeComponent, targetDir: String) {
         when (component) {
-            RuntimeComponent.LWJGL, RuntimeComponent.LWJGL_BOAT -> {
+            RuntimeComponent.LWJGL -> {
                 val downloaded = downloadFileWithMirror(
                     "${component.remotePath}/lwjgl.jar",
                     "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
@@ -429,11 +427,7 @@ object RuntimeSetupManager {
 
         val libawtFile = File(dest, "$libFolder/libawt_xawt.so")
         if (!libawtFile.exists()) {
-            val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
-            val sourceLib = File(nativeLibDir, "libawt_xawt.so")
-            if (sourceLib.exists()) {
-                try { sourceLib.copyTo(libawtFile, overwrite = true) } catch (_: Exception) {}
-            }
+            extractLibFromApk(context, "libawt_xawt.so", libawtFile)
         }
 
         val binDir = File(dest, "bin")
@@ -451,6 +445,43 @@ object RuntimeSetupManager {
             File(libDir, "jli").listFiles()?.filter { it.name.endsWith(".so") }?.forEach {
                 it.setExecutable(true, false)
             }
+        }
+    }
+
+    /**
+     * 从 APK 的 lib/<abi>/ 目录提取指定 .so 文件到目标路径
+     * Android 11+ 限制访问 nativeLibraryDir，所以直接从 ZipFile 读取
+     */
+    private fun extractLibFromApk(context: Context, libName: String, destFile: File): Boolean {
+        return try {
+            val apkFile = File(context.applicationInfo.sourceDir)
+            if (!apkFile.exists()) {
+                Log.w(TAG, "APK not found: ${apkFile.absolutePath}")
+                return false
+            }
+
+            val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull() ?: "arm64-v8a"
+            val entryName = "lib/$targetAbi/$libName"
+
+            ZipFile(apkFile).use { zip ->
+                val entry = zip.getEntry(entryName) ?: run {
+                    Log.w(TAG, "Entry not found in APK: $entryName")
+                    return false
+                }
+                destFile.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input ->
+                    destFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                destFile.setExecutable(true, false)
+                destFile.setReadable(true, false)
+                Log.i(TAG, "Extracted $libName from APK -> ${destFile.absolutePath} (${destFile.length()} bytes)")
+                true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract $libName from APK: ${e.message}")
+            false
         }
     }
 

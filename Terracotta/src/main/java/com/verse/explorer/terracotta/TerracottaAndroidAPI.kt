@@ -49,6 +49,9 @@ object TerracottaAndroidAPI {
     external fun nativeSetupExitTrap(callback: TerracottaExitCallback)
 
     @JvmStatic
+    external fun nativeReleaseExitCallback()
+
+    @JvmStatic
     external fun nativeSetupBridgeWindow(surface: android.view.Surface)
 
     @JvmStatic

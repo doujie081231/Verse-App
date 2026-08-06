@@ -25,7 +25,7 @@ enum class JavaVersion(val majorVersion: Int, val displayName: String) {
             val snapshotYear = extractSnapshotVersion(mcVersion)
             if (snapshotYear != null) {
                 return when {
-                    snapshotYear >= 25 -> JAVA_25
+                    snapshotYear >= 25 -> JAVA_21
                     snapshotYear >= 24 -> JAVA_21
                     snapshotYear >= 23 -> JAVA_17
                     else -> JAVA_8
@@ -37,7 +37,7 @@ enum class JavaVersion(val majorVersion: Int, val displayName: String) {
                 return try {
                     val ver = mcVersion.toInt()
                     when {
-                        ver >= 25 -> JAVA_25
+                        ver >= 25 -> JAVA_21
                         ver >= 21 -> JAVA_21
                         ver >= 17 -> JAVA_17
                         ver >= 11 -> JAVA_17
@@ -73,16 +73,16 @@ enum class JavaVersion(val majorVersion: Int, val displayName: String) {
                     else -> JAVA_17
                 }
                 mcVersion.startsWith("1.21") -> JAVA_21
-                mcVersion.startsWith("1.22") -> JAVA_25
-                mcVersion.startsWith("1.23") || mcVersion.startsWith("1.24") || mcVersion.startsWith("1.25") -> JAVA_25
-                mcVersion.startsWith("1.26") || mcVersion.startsWith("1.27") || mcVersion.startsWith("1.28") -> JAVA_25
-                mcVersion.startsWith("1.29") || mcVersion.startsWith("1.30") -> JAVA_25
-                mcVersion.startsWith("2") -> JAVA_25
-                major >= 22 -> JAVA_25
+                mcVersion.startsWith("1.22") -> JAVA_21
+                mcVersion.startsWith("1.23") || mcVersion.startsWith("1.24") || mcVersion.startsWith("1.25") -> JAVA_21
+                mcVersion.startsWith("1.26") || mcVersion.startsWith("1.27") || mcVersion.startsWith("1.28") -> JAVA_21
+                mcVersion.startsWith("1.29") || mcVersion.startsWith("1.30") -> JAVA_21
+                mcVersion.startsWith("2") -> JAVA_21
+                major >= 22 -> JAVA_21
                 major >= 18 -> JAVA_21
                 major >= 13 -> JAVA_17
                 else -> when {
-                    minor >= 22 -> JAVA_25
+                    minor >= 22 -> JAVA_21
                     minor >= 20 -> JAVA_21
                     minor >= 17 -> JAVA_17
                     minor >= 11 -> JAVA_17

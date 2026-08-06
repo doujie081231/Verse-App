@@ -1,4 +1,4 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
+import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
 import com.verse.explorer.core.resource.ModrinthApi
@@ -64,7 +65,7 @@ fun ModsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -72,6 +73,8 @@ fun ModsScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 0.dp)
         ) {
+            PageHeader(title = "模组管理")
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -81,10 +84,10 @@ fun ModsScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = {
-                        Text("搜索模组...", color = VerseColors.McTextMuted, fontSize = 13.sp)
+                        Text("搜索模组...", color = VerseColors.PcTextMuted, fontSize = 13.sp)
                     },
                     leadingIcon = {
-                        Icon(Icons.Outlined.Search, null, tint = VerseColors.McTextMuted, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Search, null, tint = VerseColors.PcTextMuted, modifier = Modifier.size(14.dp))
                     },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -92,21 +95,21 @@ fun ModsScreen(
                                 searchQuery = ""
                                 viewModel.search("")
                             }) {
-                                Icon(Icons.Outlined.Clear, null, tint = VerseColors.McTextMuted, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Clear, null, tint = VerseColors.PcTextMuted, modifier = Modifier.size(18.dp))
                             }
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f).height(48.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VerseColors.McGreen.copy(alpha = 0.3f),
-                        unfocusedBorderColor = VerseColors.McCardBorder,
-                        focusedContainerColor = VerseColors.McCardBg,
-                        unfocusedContainerColor = VerseColors.McCardBg,
-                        focusedTextColor = VerseColors.McTextPrimary,
-                        unfocusedTextColor = VerseColors.McTextPrimary,
-                        cursorColor = VerseColors.McGreen
+                        focusedBorderColor = VerseColors.PcAccent,
+                        unfocusedBorderColor = VerseColors.PcBorder,
+                        focusedContainerColor = VerseColors.PcBgTertiary,
+                        unfocusedContainerColor = VerseColors.PcBgTertiary,
+                        focusedTextColor = VerseColors.PcTextPrimary,
+                        unfocusedTextColor = VerseColors.PcTextPrimary,
+                        cursorColor = VerseColors.PcAccent
                     ),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = androidx.compose.foundation.text.KeyboardActions(
@@ -128,14 +131,14 @@ fun ModsScreen(
                     val isSelected = uiState.selectedLoader == loader
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.McGreen.copy(alpha = 0.12f) else VerseColors.McCardBg,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.McGreen.copy(alpha = 0.3f)) else null,
+                        color = if (isSelected) VerseColors.PcAccent.copy(alpha = 0.12f) else VerseColors.PcBgCard,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.3f)) else null,
                         modifier = Modifier.clickable { viewModel.setSelectedLoader(loader) }
                     ) {
                         Text(
                             text = loader,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.McGreen else VerseColors.McTextSecondary,
+                            color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                         )
@@ -153,14 +156,14 @@ fun ModsScreen(
                     val isSelected = uiState.selectedVersion == version
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.McGreen.copy(alpha = 0.12f) else VerseColors.McCardBg,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.McGreen.copy(alpha = 0.3f)) else null,
+                        color = if (isSelected) VerseColors.PcAccent.copy(alpha = 0.12f) else VerseColors.PcBgCard,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.3f)) else null,
                         modifier = Modifier.clickable { viewModel.setSelectedVersion(version) }
                     ) {
                         Text(
                             text = version,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.McGreen else VerseColors.McTextSecondary,
+                            color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
                             fontSize = 11.sp,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                         )
@@ -180,7 +183,7 @@ fun ModsScreen(
                 Text(
                     text = "共 ${uiState.totalHits} 个模组",
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextMuted,
+                    color = VerseColors.PcTextMuted,
                     fontSize = 12.sp
                 )
             }
@@ -191,7 +194,7 @@ fun ModsScreen(
                 uiState.isLoading && results.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(
-                            color = VerseColors.McGreen,
+                            color = VerseColors.PcAccent,
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(32.dp)
                         )
@@ -200,12 +203,12 @@ fun ModsScreen(
                 uiState.error != null && results.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(Icons.Outlined.CloudOff, null, Modifier.size(40.dp), VerseColors.McTextMuted)
-                            Text(uiState.error ?: "加载失败", fontSize = 13.sp, color = VerseColors.McTextMuted)
+                            Icon(Icons.Outlined.CloudOff, null, Modifier.size(40.dp), VerseColors.PcTextMuted)
+                            Text(uiState.error ?: "加载失败", fontSize = 13.sp, color = VerseColors.PcTextMuted)
                             OutlinedButton(
                                 onClick = { viewModel.search(searchQuery) },
                                 shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = VerseColors.McGreen)
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = VerseColors.PcAccent)
                             ) {
                                 Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -217,8 +220,8 @@ fun ModsScreen(
                 results.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Outlined.SearchOff, null, Modifier.size(40.dp), VerseColors.McTextMuted)
-                            Text("未找到模组", fontSize = 13.sp, color = VerseColors.McTextMuted)
+                            Icon(Icons.Outlined.SearchOff, null, Modifier.size(40.dp), VerseColors.PcTextMuted)
+                            Text("未找到模组", fontSize = 13.sp, color = VerseColors.PcTextMuted)
                         }
                     }
                 }
@@ -239,7 +242,7 @@ fun ModsScreen(
                             item {
                                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator(
-                                        color = VerseColors.McGreen,
+                                        color = VerseColors.PcAccent,
                                         strokeWidth = 2.dp,
                                         modifier = Modifier.size(24.dp)
                                     )
@@ -251,7 +254,6 @@ fun ModsScreen(
             }
         }
     }
-
     }
 
 @Composable
@@ -263,42 +265,43 @@ private fun ModListItem(
 
     GlassCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(10.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(
                         Brush.linearGradient(
                             when (primaryLoader) {
-                                "forge" -> listOf(VerseColors.McLava, VerseColors.McLava.copy(alpha = 0.7f))
-                                "neoforge" -> listOf(VerseColors.McRedstone, VerseColors.McRedstone.copy(alpha = 0.7f))
-                                "quilt" -> listOf(VerseColors.McWater, VerseColors.McWater.copy(alpha = 0.7f))
-                                else -> listOf(VerseColors.McGreenLight, VerseColors.McGreenLight.copy(alpha = 0.7f))
+                                "forge" -> listOf(VerseColors.PcOrange, VerseColors.PcOrange.copy(alpha = 0.7f))
+                                "neoforge" -> listOf(VerseColors.PcRed, VerseColors.PcRed.copy(alpha = 0.7f))
+                                "quilt" -> listOf(VerseColors.PcPurple, VerseColors.PcPurple.copy(alpha = 0.7f))
+                                else -> listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.7f))
                             }
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
+                // 始终显示占位文字（加载失败时透出来）
+                Text(
+                    text = (hit.loaders.firstOrNull()?.first()?.uppercase() ?: "?"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                // 有图标 URL 时叠加 AsyncImage 在上层（加载失败时透出底层占位）
                 if (!hit.iconUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = hit.iconUrl,
                         contentDescription = null,
-                        modifier = Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)),
+                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = (hit.loaders.firstOrNull()?.first()?.uppercase() ?: "?"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
                     )
                 }
             }
@@ -308,7 +311,7 @@ private fun ModListItem(
                     Text(
                         text = hit.title,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = VerseColors.McTextPrimary,
+                        color = VerseColors.PcTextPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp,
                         maxLines = 1,
@@ -319,12 +322,12 @@ private fun ModListItem(
                     if (hit.loaders.isNotEmpty()) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.McTextDim.copy(alpha = 0.3f)
+                            color = VerseColors.PcTextMuted.copy(alpha = 0.3f)
                         ) {
                             Text(
                                 text = hit.loaders.joinToString(", "),
                                 style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.McTextSecondary,
+                                color = VerseColors.PcTextSecondary,
                                 fontSize = 10.sp,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
@@ -333,24 +336,24 @@ private fun ModListItem(
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(hit.author, fontSize = 11.sp, color = VerseColors.McTextSecondary)
+                    Text(hit.author, fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
                     Spacer(Modifier.width(8.dp))
-                    Text("·", fontSize = 11.sp, color = VerseColors.McTextMuted)
+                    Text("·", fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
                     Spacer(Modifier.width(8.dp))
                     if (hit.gameVersions.isNotEmpty()) {
-                        Text(hit.gameVersions.first(), fontSize = 11.sp, color = VerseColors.McTextMuted)
+                        Text(hit.gameVersions.first(), fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
-                        Text("·", fontSize = 11.sp, color = VerseColors.McTextMuted)
+                        Text("·", fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
                     }
-                    Text(formatDownloadCount(hit.downloads), fontSize = 11.sp, color = VerseColors.McTextMuted)
+                    Text(formatDownloadCount(hit.downloads), fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
                 }
                 if (hit.description.isNotBlank()) {
                     Spacer(Modifier.height(3.dp))
                     Text(
                         hit.description,
-                        fontSize = 11.sp,
-                        color = VerseColors.McTextMuted,
+                        fontSize = 12.sp,
+                        color = VerseColors.PcTextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

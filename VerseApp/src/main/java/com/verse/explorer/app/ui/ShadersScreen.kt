@@ -1,4 +1,4 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,6 +26,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
+import com.verse.explorer.app.ui.components.LabelWithIcon
+import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
 import com.verse.explorer.core.resource.ModrinthSearchHit
@@ -50,7 +52,7 @@ fun ShadersScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -58,6 +60,8 @@ fun ShadersScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 0.dp)
         ) {
+            PageHeader(title = "光影包管理")
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -67,14 +71,14 @@ fun ShadersScreen(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = {
-                        Text("搜索光影包...", color = VerseColors.McTextMuted, fontSize = 13.sp)
+                        Text("搜索光影包...", color = VerseColors.PcTextMuted, fontSize = 13.sp)
                     },
                     leadingIcon = {
                         Icon(
                             Icons.Outlined.Search,
                             contentDescription = null,
-                            tint = VerseColors.McTextMuted,
-                            modifier = Modifier.size(20.dp)
+                            tint = VerseColors.PcTextMuted,
+                            modifier = Modifier.size(14.dp)
                         )
                     },
                     trailingIcon = {
@@ -83,23 +87,23 @@ fun ShadersScreen(
                                 Icon(
                                     Icons.Outlined.Clear,
                                     contentDescription = null,
-                                    tint = VerseColors.McTextMuted,
+                                    tint = VerseColors.PcTextMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f).height(48.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VerseColors.McGreen.copy(alpha = 0.3f),
-                        unfocusedBorderColor = VerseColors.McCardBorder,
-                        focusedContainerColor = VerseColors.McCardBg,
-                        unfocusedContainerColor = VerseColors.McCardBg,
-                        focusedTextColor = VerseColors.McTextPrimary,
-                        unfocusedTextColor = VerseColors.McTextPrimary,
-                        cursorColor = VerseColors.McGreen
+                        focusedBorderColor = VerseColors.PcAccent,
+                        unfocusedBorderColor = VerseColors.PcBorder,
+                        focusedContainerColor = VerseColors.PcBgTertiary,
+                        unfocusedContainerColor = VerseColors.PcBgTertiary,
+                        focusedTextColor = VerseColors.PcTextPrimary,
+                        unfocusedTextColor = VerseColors.PcTextPrimary,
+                        cursorColor = VerseColors.PcAccent
                     )
                 )
 
@@ -107,13 +111,13 @@ fun ShadersScreen(
                     modifier = Modifier
                         .size(48.dp)
                         .clickable {},
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Outlined.FolderOpen,
                             contentDescription = null,
-                            tint = VerseColors.McTextSecondary,
+                            tint = VerseColors.PcTextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -132,13 +136,13 @@ fun ShadersScreen(
                 Text(
                     text = "共 ${uiState.totalHits} 个光影包",
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextMuted,
+                    color = VerseColors.PcTextMuted,
                     fontSize = 12.sp
                 )
                 Text(
                     text = "已加载 ${results.size} 个",
                     style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.McTextSecondary,
+                    color = VerseColors.PcTextSecondary,
                     fontSize = 12.sp
                 )
             }
@@ -148,7 +152,7 @@ fun ShadersScreen(
             if (uiState.error != null) {
                 GlassCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -157,14 +161,14 @@ fun ShadersScreen(
                         Icon(
                             imageVector = Icons.Filled.ErrorOutline,
                             contentDescription = null,
-                            tint = VerseColors.McRedstone,
+                            tint = VerseColors.PcRed,
                             modifier = Modifier.size(36.dp)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = uiState.error ?: "未知错误",
                             style = MaterialTheme.typography.bodySmall,
-                            color = VerseColors.McTextSecondary,
+                            color = VerseColors.PcTextSecondary,
                             fontSize = 13.sp,
                             maxLines = 3,
                             overflow = TextOverflow.Ellipsis
@@ -174,8 +178,8 @@ fun ShadersScreen(
                             onClick = { viewModel.clearError(); viewModel.search(searchQuery) },
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = VerseColors.McGreen.copy(alpha = 0.12f),
-                                contentColor = VerseColors.McGreen
+                                containerColor = VerseColors.PcAccent.copy(alpha = 0.12f),
+                                contentColor = VerseColors.PcAccent
                             )
                         ) {
                             Icon(Icons.Filled.Refresh, null, Modifier.size(16.dp))
@@ -208,7 +212,7 @@ fun ShadersScreen(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
                                     strokeWidth = 2.dp,
-                                    color = VerseColors.McGreen
+                                    color = VerseColors.PcAccent
                                 )
                             }
                         }
@@ -227,8 +231,8 @@ fun ShadersScreen(
                                     shape = RoundedCornerShape(8.dp),
                                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
                                     colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = VerseColors.McCardBg,
-                                        contentColor = VerseColors.McTextSecondary
+                                        containerColor = VerseColors.PcBgCard,
+                                        contentColor = VerseColors.PcTextSecondary
                                     )
                                 ) {
                                     Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
@@ -251,13 +255,13 @@ fun ShadersScreen(
                             CircularProgressIndicator(
                                 modifier = Modifier.size(36.dp),
                                 strokeWidth = 3.dp,
-                                color = VerseColors.McGreen
+                                color = VerseColors.PcAccent
                             )
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "正在加载光影包...",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = VerseColors.McTextMuted,
+                                color = VerseColors.PcTextMuted,
                                 fontSize = 13.sp
                             )
                         }
@@ -269,66 +273,40 @@ fun ShadersScreen(
 }
 
 @Composable
-private fun LabelWithIcon(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(12.dp)
-        )
-        Spacer(modifier = Modifier.width(3.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            fontSize = 11.sp
-        )
-    }
-}
-
-@Composable
 private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
     GlassCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(14.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.Top
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(VerseColors.GradientPurpleStart.copy(alpha = 0.15f)),
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(VerseColors.PcPurple.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
+                    // 始终显示占位图标（加载失败时透出来）
+                    Icon(
+                        imageVector = Icons.Filled.Flare,
+                        contentDescription = null,
+                        tint = VerseColors.PcPurple,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    // 有图标 URL 时叠加 AsyncImage 在上层
                     if (!hit.iconUrl.isNullOrBlank()) {
                         AsyncImage(
                             model = hit.iconUrl,
                             contentDescription = null,
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp)),
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Flare,
-                            contentDescription = null,
-                            tint = VerseColors.McWater,
-                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
@@ -337,9 +315,9 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     Text(
                         text = hit.title,
                         style = MaterialTheme.typography.titleSmall,
-                        color = VerseColors.McTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+                        color = VerseColors.PcTextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -347,8 +325,8 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     Text(
                         text = "作者: ${hit.author}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.McTextSecondary,
-                        fontSize = 11.sp
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 11.5.sp
                     )
                 }
             }
@@ -358,7 +336,7 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
             Text(
                 text = hit.description,
                 style = MaterialTheme.typography.bodySmall,
-                color = VerseColors.McTextSecondary,
+                color = VerseColors.PcTextSecondary,
                 fontSize = 12.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -379,7 +357,7 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     LabelWithIcon(
                         icon = Icons.Outlined.Download,
                         text = formatDownloadCount(hit.downloads),
-                        color = VerseColors.McTextSecondary
+                        color = VerseColors.PcTextSecondary
                     )
                 }
 
@@ -388,8 +366,8 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = VerseColors.Yellow.copy(alpha = 0.12f),
-                        contentColor = VerseColors.McGold
+                        containerColor = VerseColors.PcOrange.copy(alpha = 0.12f),
+                        contentColor = VerseColors.PcOrange
                     )
                 ) {
                     Icon(
@@ -415,12 +393,12 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     hit.categories.take(4).forEach { cat ->
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.McTextDim.copy(alpha = 0.15f)
+                            color = VerseColors.PcTextMuted.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = cat,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.McTextMuted,
+                                color = VerseColors.PcTextMuted,
                                 fontSize = 9.sp,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )

@@ -1,4 +1,4 @@
-﻿package com.verse.explorer.app.ui
+package com.verse.explorer.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -90,7 +90,7 @@ fun ModDetailScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.McBg)
+            .background(VerseColors.PcBgSecondary)
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -100,7 +100,7 @@ fun ModDetailScreen(
                 isLoading -> {
                     item {
                         Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = VerseColors.McGreen, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                            CircularProgressIndicator(color = VerseColors.PcAccent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
                         }
                     }
                 }
@@ -108,8 +108,8 @@ fun ModDetailScreen(
                     item {
                         Box(Modifier.fillMaxWidth().height(300.dp), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(48.dp), VerseColors.McTextMuted)
-                                Text(error ?: "未知错误", color = VerseColors.McTextSecondary, fontSize = 14.sp)
+                                Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(48.dp), VerseColors.PcTextMuted)
+                                Text(error ?: "未知错误", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
                                 OutlinedButton(onClick = { retryCount++ }, shape = RoundedCornerShape(8.dp)) {
                                     Text("重试", fontSize = 13.sp)
                                 }
@@ -129,10 +129,10 @@ fun ModDetailScreen(
                                 IconButton(onClick = {
                                     try { navController.popBackStack() } catch (_: Exception) {}
                                 }) {
-                                    Icon(Icons.Filled.ArrowBack, "返回", tint = VerseColors.McTextPrimary)
+                                    Icon(Icons.Filled.ArrowBack, "返回", tint = VerseColors.PcTextPrimary)
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                Text(typeLabel + "详情", color = VerseColors.McTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                                Text(typeLabel + "详情", color = VerseColors.PcTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                             }
 
                             Row(
@@ -141,7 +141,7 @@ fun ModDetailScreen(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
-                                    color = VerseColors.McCardBg,
+                                    color = VerseColors.PcBgCard,
                                     modifier = Modifier.size(72.dp)
                                 ) {
                                     if (proj.iconUrl != null && proj.iconUrl!!.isNotBlank()) {
@@ -153,7 +153,7 @@ fun ModDetailScreen(
                                         )
                                     } else {
                                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Filled.Extension, null, Modifier.size(32.dp), VerseColors.McTextMuted)
+                                            Icon(Icons.Filled.Extension, null, Modifier.size(32.dp), VerseColors.PcTextMuted)
                                         }
                                     }
                                 }
@@ -161,7 +161,7 @@ fun ModDetailScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text(
                                         proj.title.ifEmpty { projectId },
-                                        color = VerseColors.McTextPrimary,
+                                        color = VerseColors.PcTextPrimary,
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 2,
@@ -170,12 +170,12 @@ fun ModDetailScreen(
                                     Spacer(Modifier.height(4.dp))
                                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         if (proj.author.isNotBlank()) {
-                                            Text(proj.author, color = VerseColors.McTextSecondary, fontSize = 13.sp)
+                                            Text(proj.author, color = VerseColors.PcTextSecondary, fontSize = 13.sp)
                                         } else if (proj.team.isNotBlank()) {
-                                            Text("Team: ${proj.team}", color = VerseColors.McTextSecondary, fontSize = 13.sp)
+                                            Text("Team: ${proj.team}", color = VerseColors.PcTextSecondary, fontSize = 13.sp)
                                         }
-                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.McGreen.copy(alpha = 0.1f)) {
-                                            Text(typeLabel, color = VerseColors.McGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.PcAccent.copy(alpha = 0.1f)) {
+                                            Text(typeLabel, color = VerseColors.PcAccent, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                                         }
                                     }
                                     Spacer(Modifier.height(2.dp))
@@ -195,23 +195,23 @@ fun ModDetailScreen(
 
                             Spacer(Modifier.height(16.dp))
 
-                            Text("描述", color = VerseColors.McTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("描述", color = VerseColors.PcTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(6.dp))
                             Text(
                                 proj.description,
-                                color = VerseColors.McTextSecondary,
+                                color = VerseColors.PcTextSecondary,
                                 fontSize = 13.sp,
                                 lineHeight = 20.sp
                             )
 
                             if (proj.categories.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
-                                Text("分类", color = VerseColors.McTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("分类", color = VerseColors.PcTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                     proj.categories.take(6).forEach { cat ->
-                                        Surface(shape = RoundedCornerShape(6.dp), color = VerseColors.McGreen.copy(alpha = 0.08f)) {
-                                            Text(cat, color = VerseColors.McGreen, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                                        Surface(shape = RoundedCornerShape(6.dp), color = VerseColors.PcAccent.copy(alpha = 0.08f)) {
+                                            Text(cat, color = VerseColors.PcAccent, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                                         }
                                     }
                                 }
@@ -219,12 +219,12 @@ fun ModDetailScreen(
 
                             if (proj.gameVersions.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
-                                Text("支持版本", color = VerseColors.McTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("支持版本", color = VerseColors.PcTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                                     proj.gameVersions.take(8).forEach { ver ->
-                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.McCardBg) {
-                                            Text(ver, color = VerseColors.McTextSecondary, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.PcBgCard) {
+                                            Text(ver, color = VerseColors.PcTextSecondary, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                                         }
                                     }
                                 }
@@ -232,19 +232,19 @@ fun ModDetailScreen(
 
                             if (proj.loaders.isNotEmpty()) {
                                 Spacer(Modifier.height(12.dp))
-                                Text("加载器", color = VerseColors.McTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("加载器", color = VerseColors.PcTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                                     proj.loaders.forEach { loader ->
-                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.McGold.copy(alpha = 0.08f)) {
-                                            Text(loader, color = VerseColors.McGold, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                                        Surface(shape = RoundedCornerShape(4.dp), color = VerseColors.PcOrange.copy(alpha = 0.08f)) {
+                                            Text(loader, color = VerseColors.PcOrange, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
                                         }
                                     }
                                 }
                             }
 
                             Spacer(Modifier.height(20.dp))
-                            Text("版本列表 (${versions.size})", color = VerseColors.McTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("版本列表 (${versions.size})", color = VerseColors.PcTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.height(8.dp))
                         }
                     }
@@ -267,9 +267,9 @@ fun ModDetailScreen(
 @Composable
 private fun StatChip(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, modifier = Modifier.size(14.dp), tint = VerseColors.McTextMuted)
+        Icon(icon, null, modifier = Modifier.size(14.dp), tint = VerseColors.PcTextMuted)
         Spacer(Modifier.width(3.dp))
-        Text(text, fontSize = 11.sp, color = VerseColors.McTextMuted)
+        Text(text, fontSize = 11.sp, color = VerseColors.PcTextMuted)
     }
 }
 
@@ -297,7 +297,7 @@ private fun VersionsDetailCard(
             ) {
                 Text(
                     version.versionNumber,
-                    color = if (isSelected) VerseColors.McGreen else VerseColors.McTextPrimary,
+                    color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -305,7 +305,7 @@ private fun VersionsDetailCard(
                 if (primaryFile != null) {
                     Text(
                         formatFileSize(primaryFile.size),
-                        color = VerseColors.McTextMuted,
+                        color = VerseColors.PcTextMuted,
                         fontSize = 11.sp
                     )
                 }
@@ -313,13 +313,13 @@ private fun VersionsDetailCard(
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
                 version.gameVersions.take(6).forEach { ver ->
-                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.McBg) {
-                        Text(ver, color = VerseColors.McTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
+                        Text(ver, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
                 version.loaders.take(3).forEach { loader ->
-                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.McGold.copy(alpha = 0.1f)) {
-                        Text(loader, color = VerseColors.McGold, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcOrange.copy(alpha = 0.1f)) {
+                        Text(loader, color = VerseColors.PcOrange, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
             }

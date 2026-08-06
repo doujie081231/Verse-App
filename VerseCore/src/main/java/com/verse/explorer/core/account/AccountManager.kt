@@ -74,6 +74,15 @@ class AccountManager(private val accountDao: AccountDao) {
         loadAccounts()
     }
 
+    suspend fun updateAccountSkin(accountId: Int, skinFile: String?, skinModel: String) {
+        withContext(Dispatchers.IO) {
+            val account = accountDao.getById(accountId) ?: return@withContext
+            val updated = account.copy(skinFile = skinFile, skinModel = skinModel)
+            accountDao.update(updated)
+            loadAccounts()
+        }
+    }
+
     private fun AccountEntity.toAccount() = Account(
         id = id,
         username = username,
@@ -85,6 +94,8 @@ class AccountManager(private val accountDao: AccountDao) {
         capeUrl = capeUrl,
         serverUrl = serverUrl,
         loginUsername = loginUsername,
+        skinFile = skinFile,
+        skinModel = skinModel,
         selected = selected
     )
 
@@ -99,6 +110,8 @@ class AccountManager(private val accountDao: AccountDao) {
         capeUrl = capeUrl,
         serverUrl = serverUrl,
         loginUsername = loginUsername,
+        skinFile = skinFile,
+        skinModel = skinModel,
         selected = selected
     )
 }

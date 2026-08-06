@@ -40,7 +40,7 @@ data class LaunchState(
 
 class GameLaunchController(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val settingsRepo = SettingsRepository(context)
+    private val settingsRepo = SettingsRepository
     private val gameDir = GameConfig.getGameDir(context)
     private val versionManager = VersionManager(gameDir)
 
@@ -189,7 +189,17 @@ class GameLaunchController(private val context: Context) {
         if (cachedVersion == null) {
             steps[stepIdx] = LaunchStep("Java 检查", "跳过 (前置失败)", "skip")
         } else {
-            val jsonJavaVer = resolveVersionJsonJavaVersion(cachedVersion.id)
+            val rawJsonJavaVer = resolveVersionJsonJavaVersion(cachedVersion.id)
+            // Java 21/25 在 aarch64 上存在 stub 生成 bug（assembler_aarch64.hpp:245 立即数溢出），
+            // 崩溃发生在 JNI_CreateJavaVM 初始化阶段，-XX:TieredStopAtLevel=1 无法解决。
+            // 仅在 aarch64 架构下强制降级到 Java 17；x86_64 架构可正常运行 Java 21+。
+            val currentArch = JavaRuntimeManager.getArchName()
+            val jsonJavaVer = if (rawJsonJavaVer != null && rawJsonJavaVer >= 21 && currentArch == "aarch64") {
+                VerseLogger.warn("版本JSON要求 Java $rawJsonJavaVer，aarch64 架构降级到 Java 17 规避 stub 生成 bug", "Launch")
+                17
+            } else {
+                rawJsonJavaVer
+            }
             val recommendedJava = jsonJavaVer?.let { JavaVersion.fromMajorVersion(it) }
                 ?: JavaVersion.getRecommended(cachedVersion.id)
             cachedRecommendedJava = recommendedJava
@@ -323,11 +333,7 @@ class GameLaunchController(private val context: Context) {
             VerseLogger.info("选择最小兼容Java ${minHigher.version}", "Launch")
             return minHigher
         }
-        val maxAvailable = runtimes.maxByOrNull { it.version }
-        if (maxAvailable != null) {
-            VerseLogger.warn("无兼容版本，回退最高可用Java ${maxAvailable.version}", "Launch")
-            return maxAvailable
-        }
+        VerseLogger.warn("无兼容版本 (需要Java $requiredVersion)", "Launch")
         return null
     }
 

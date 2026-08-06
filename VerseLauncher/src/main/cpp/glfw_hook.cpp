@@ -1602,4 +1602,26 @@ Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeGetFps(
     return 0;
 }
 
+static bool g_useInputStackQueue = false;
+
+JNIEXPORT void JNICALL
+Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeSetUseInputStackQueue(
+    JNIEnv *env, jclass clazz, jboolean useInputStackQueue) {
+    g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    LOGI("Set useInputStackQueue (Verse): %d", g_useInputStackQueue);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
+    JNIEnv *env, jclass clazz, jboolean useInputStackQueue) {
+    g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    LOGI("Set useInputStackQueue (LWJGL): %d", g_useInputStackQueue);
+}
+
+JNIEXPORT void JavaCritical_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
+    jboolean useInputStackQueue) {
+    g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    LOGI("Set useInputStackQueue (critical): %d", g_useInputStackQueue);
+}
+
 } // extern "C"

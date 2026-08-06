@@ -14,16 +14,14 @@ object GameConfig {
     )
 
     fun getGameDir(context: Context): File {
-        val externalDir = context.getExternalFilesDir(null)
-        return if (externalDir != null && externalDir.exists()) {
-            File(externalDir, GAME_DIR_NAME)
-        } else {
-            File(context.filesDir, GAME_DIR_NAME)
-        }
+        // 使用 internal storage 避免 Android 11+ SELinux 限制
+        // 应用无法访问通过 adb shell 创建的文件（即使有 MANAGE_EXTERNAL_STORAGE 权限）
+        // internal storage 由应用自己管理，adb 可通过 run-as 推送文件
+        return File(context.filesDir, GAME_DIR_NAME)
     }
 
     fun getExternalGameDir(context: Context): File {
-        return File(context.getExternalFilesDir(null), GAME_DIR_NAME)
+        return File(context.filesDir, GAME_DIR_NAME)
     }
 
     fun getVersionsDir(gameDir: File): File = File(gameDir, "versions").apply { mkdirs() }
@@ -106,7 +104,13 @@ object GameConfig {
         "https://libraries.minecraft.net/" to "https://bmclapi2.bangbang93.com/libraries/",
         "https://resources.download.minecraft.net/" to "https://bmclapi2.bangbang93.com/assets/",
         "https://launchermeta.mojang.com/" to "https://bmclapi2.bangbang93.com/",
-        "https://piston-meta.mojang.com/" to "https://bmclapi2.bangbang93.com/"
+        "https://piston-meta.mojang.com/" to "https://bmclapi2.bangbang93.com/",
+        // 第三方 Maven 仓库镜像 (通过 BMCLAPI 通用 Maven 代理)
+        "https://files.minecraftforge.net/maven" to "https://bmclapi2.bangbang93.com/maven",
+        "https://maven.minecraftforge.net" to "https://bmclapi2.bangbang93.com/maven",
+        "https://maven.fabricmc.net/" to "https://bmclapi2.bangbang93.com/maven/",
+        "https://maven.neoforged.net/releases/" to "https://bmclapi2.bangbang93.com/maven/",
+        "https://maven.quiltmc.org/repository/release" to "https://bmclapi2.bangbang93.com/maven"
     )
 
     private val MCBBS_URL_MAP = mapOf(

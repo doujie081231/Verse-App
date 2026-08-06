@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val settingsRepo = SettingsRepository(application)
+    private val settingsRepo = SettingsRepository
 
     var gameDir by mutableStateOf(settingsRepo.getGameDir())
         private set
@@ -20,7 +20,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private set
     var minMemory by mutableStateOf(settingsRepo.getMinMemory())
         private set
-    var rendererType by mutableStateOf(settingsRepo.getRendererType().name)
+    var rendererType by mutableStateOf(settingsRepo.getRenderer())
         private set
     var showVirtualMouse by mutableStateOf(settingsRepo.getShowVirtualMouse())
         private set
@@ -47,7 +47,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private set
     var targetFolder by mutableStateOf(settingsRepo.getTargetFolder())
         private set
-    var sslVerify by mutableStateOf(settingsRepo.getSslVerify())
+    var sslVerify by mutableStateOf(settingsRepo.getVerifySsl())
         private set
 
     var communitySource by mutableStateOf(settingsRepo.getCommunitySource())
@@ -95,10 +95,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateRendererType(type: String) {
         rendererType = type
-        settingsRepo.setRendererType(
-            try { com.verse.explorer.launcher.renderer.RendererType.valueOf(type) }
-            catch (_: Exception) { com.verse.explorer.launcher.renderer.RendererType.ZINK }
-        )
+        settingsRepo.setRenderer(type)
     }
 
     fun updateShowVirtualMouse(show: Boolean) {
@@ -163,7 +160,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun updateSslVerify(verify: Boolean) {
         sslVerify = verify
-        settingsRepo.setSslVerify(verify)
+        settingsRepo.setVerifySsl(verify)
     }
 
     fun updateCommunitySource(source: String) {
@@ -235,7 +232,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         gameDir = "/storage/emulated/0/VerseExplorerX"
         maxMemory = 2048
         minMemory = 512
-        rendererType = "Zink"
+        rendererType = "gl4es"
         showVirtualMouse = true
         virtualMouseOpacity = 0.7f
         theme = "深色"

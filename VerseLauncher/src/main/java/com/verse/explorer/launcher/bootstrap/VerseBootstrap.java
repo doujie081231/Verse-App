@@ -10,7 +10,16 @@ public class VerseBootstrap {
     private static volatile boolean securityManagerInstalled = false;
 
     public static void main(String[] args) {
+        try {
+            System.loadLibrary("verseexec");
+            System.out.println("[VerseBootstrap] verseexec native library loaded");
+        } catch (UnsatisfiedLinkError e) {
+            System.out.println("[VerseBootstrap] Failed to load verseexec: " + e.getMessage());
+        }
+
         System.out.println("[VerseBootstrap] Starting, args count: " + args.length);
+        System.out.println("[VerseBootstrap] java.class.path=" + System.getProperty("java.class.path"));
+        System.out.println("[VerseBootstrap] java.library.path=" + System.getProperty("java.library.path"));
 
         try {
             System.setSecurityManager(new SecurityManager() {
@@ -55,8 +64,17 @@ public class VerseBootstrap {
                 System.out.println("[VerseBootstrap] Trying " + className + "...");
                 Class<?> cls = Class.forName(className);
                 Method mainMethod = cls.getMethod("main", String[].class);
-                System.out.println("[VerseBootstrap] Invoking " + className + ".main() with " + gameArgs.length + " args...");
-                mainMethod.invoke(null, (Object) gameArgs);
+                // mio.Wrapper expects the real main class name as first arg
+                String[] argsToPass;
+                if (className.equals("mio.Wrapper") && targetClass != null) {
+                    argsToPass = new String[gameArgs.length + 1];
+                    argsToPass[0] = targetClass;
+                    System.arraycopy(gameArgs, 0, argsToPass, 1, gameArgs.length);
+                } else {
+                    argsToPass = gameArgs;
+                }
+                System.out.println("[VerseBootstrap] Invoking " + className + ".main() with " + argsToPass.length + " args...");
+                mainMethod.invoke(null, (Object) argsToPass);
                 System.out.println("[VerseBootstrap] " + className + ".main() returned.");
                 return;
             } catch (ClassNotFoundException e) {

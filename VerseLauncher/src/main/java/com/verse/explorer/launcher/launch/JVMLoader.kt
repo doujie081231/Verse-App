@@ -12,11 +12,11 @@ class JVMLoader(private val context: Context) {
 
         init {
             try {
-                System.loadLibrary("pojavexec")
+                System.loadLibrary("verseexec")
                 libraryLoaded = true
-                Log.d(TAG, "pojavexec native library loaded successfully")
+                Log.d(TAG, "verseexec native library loaded successfully")
             } catch (e: UnsatisfiedLinkError) {
-                Log.e(TAG, "CRITICAL: Failed to load pojavexec native library!", e)
+                Log.e(TAG, "CRITICAL: Failed to load verseexec native library!", e)
                 libraryLoaded = false
             }
         }

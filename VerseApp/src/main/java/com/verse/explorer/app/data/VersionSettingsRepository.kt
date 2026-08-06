@@ -19,7 +19,7 @@ class VersionSettingsRepository(context: Context) {
         const val DEFAULT_WIDTH = 1920
         const val DEFAULT_HEIGHT = 1080
         const val DEFAULT_FULLSCREEN = true
-        const val DEFAULT_RENDERER = "ZINK"
+        const val DEFAULT_RENDERER = "GL4ES"
         const val DEFAULT_SHOW_VIRTUAL_MOUSE = true
         const val DEFAULT_VIRTUAL_MOUSE_OPACITY = 0.7f
         const val DEFAULT_NO_JVM_ARGS = false

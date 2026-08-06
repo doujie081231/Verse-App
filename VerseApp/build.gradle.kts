@@ -21,7 +21,7 @@ android {
             useSupportLibrary = true
         }
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("x86_64")
         }
     }
 
@@ -63,6 +63,8 @@ tasks.named("preBuild") {
 }
 
 dependencies {
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
+
     implementation(project(":VerseCore"))
     implementation(project(":VerseLibrary"))
     implementation(project(":VerseLauncher"))

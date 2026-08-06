@@ -15,6 +15,8 @@ data class AccountEntity(
     @ColumnInfo(name = "cape_url") val capeUrl: String? = null,
     @ColumnInfo(name = "server_url") val serverUrl: String? = null,
     @ColumnInfo(name = "login_username") val loginUsername: String? = null,
+    @ColumnInfo(name = "skin_file") val skinFile: String? = null,
+    @ColumnInfo(name = "skin_model") val skinModel: String = "default",
     @ColumnInfo(name = "selected") val selected: Boolean = false,
     @ColumnInfo(name = "create_time") val createTime: Long = System.currentTimeMillis()
 )
@@ -73,7 +75,7 @@ interface AuthServerDao {
 
 @Database(
     entities = [AccountEntity::class, AuthServerEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -31,7 +31,7 @@ data class ModrinthSearchHit(
     @SerializedName("follows")
     val followers: Long = 0,
     @SerializedName("icon_url")
-    val iconUrl: String? = null,
+    var iconUrl: String? = null,
     @SerializedName("author")
     val author: String = "",
     val versions: List<String> = emptyList(),
@@ -57,7 +57,7 @@ data class ModrinthProject(
     val downloads: Long = 0,
     val followers: Long = 0,
     @SerializedName("icon_url")
-    val iconUrl: String? = null,
+    var iconUrl: String? = null,
     val author: String = "",
     val versions: List<String> = emptyList(),
     @SerializedName("game_versions")
@@ -136,8 +136,8 @@ data class ModrinthCategory(
 )
 
 object ModrinthApi {
+    // BMCLAPI 不支持 modrinth API 镜像（返回 404），直接使用官方 API
     private const val MODRINTH_API = "https://api.modrinth.com/v2"
-    private const val MODRINTH_MIRROR_API = "https://bmclapi2.bangbang93.com/modrinth/v2"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -148,9 +148,7 @@ object ModrinthApi {
         .serializeNulls()
         .create()
 
-    private fun getApiBaseUrl(useMirror: Boolean): String {
-        return if (useMirror) MODRINTH_MIRROR_API else MODRINTH_API
-    }
+    private fun getApiBaseUrl(useMirror: Boolean): String = MODRINTH_API
 
     suspend fun searchProjects(
         query: String = "",
@@ -203,7 +201,19 @@ object ModrinthApi {
                 try {
                     val body = response.body?.string() ?: throw Exception("Empty response")
                     if (response.isSuccessful) {
-                        return@withContext gson.fromJson(body, ModrinthSearchResult::class.java)
+                        val result = gson.fromJson(body, ModrinthSearchResult::class.java)
+                        // 替换 cdn.modrinth.com 为图片代理（国内可能无法直接访问）
+                        result.hits.forEach { hit ->
+                            hit.iconUrl?.let { url ->
+                                if (url.contains("cdn.modrinth.com")) {
+                                    val proxyUrl = url
+                                        .removePrefix("https://")
+                                        .removePrefix("http://")
+                                    hit.iconUrl = "https://images.weserv.nl/?url=$proxyUrl"
+                                }
+                            }
+                        }
+                        return@withContext result
                     }
                 } finally {
                     response.close()
@@ -229,7 +239,16 @@ object ModrinthApi {
                 try {
                     val body = response.body?.string() ?: throw Exception("Empty response")
                     if (response.isSuccessful) {
-                        return@withContext gson.fromJson(body, ModrinthProject::class.java)
+                        val project = gson.fromJson(body, ModrinthProject::class.java)
+                        project.iconUrl?.let { url ->
+                            if (url.contains("cdn.modrinth.com")) {
+                                val proxyUrl = url
+                                    .removePrefix("https://")
+                                    .removePrefix("http://")
+                                project.iconUrl = "https://images.weserv.nl/?url=$proxyUrl"
+                            }
+                        }
+                        return@withContext project
                     }
                 } finally {
                     response.close()

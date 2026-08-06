@@ -18,11 +18,12 @@ android {
             cmake {
                 cppFlags += "-std=c++17"
                 arguments += "-DANDROID_STL=c++_shared"
+                abiFilters += listOf("x86_64")
             }
         }
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += listOf("x86_64")
         }
     }
 
@@ -57,7 +58,7 @@ tasks.register<Copy>("copyBootstrapJarToAssets") {
     dependsOn("bundleLibRuntimeToJarDebug")
 
     from(layout.buildDirectory.file("intermediates/runtime_library_classes_jar/debug/bundleLibRuntimeToJarDebug/classes.jar"))
-    into(file("$rootDir/VerseApp/src/main/assets"))
+    into(file("$rootDir/VerseApp/src/main/assets/game"))
     rename { "verse-bootstrap.jar" }
 }
 
@@ -67,6 +68,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("com.google.code.gson:gson:2.11.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")

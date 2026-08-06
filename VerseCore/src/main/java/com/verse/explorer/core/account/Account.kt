@@ -25,13 +25,32 @@ data class Account(
     val capeUrl: String? = null,
     val serverUrl: String? = null,
     val loginUsername: String? = null,
+    val skinFile: String? = null,
+    val skinModel: String = "default",
     val selected: Boolean = false
+)
+
+data class AuthlibProfile(
+    val id: String,
+    val name: String
+)
+
+data class ServerInfo(
+    val success: Boolean,
+    val serverName: String = "",
+    val description: String = ""
 )
 
 data class AuthResult(
     val success: Boolean,
     val account: Account? = null,
-    val error: String? = null
+    val error: String? = null,
+    val profiles: List<AuthlibProfile>? = null,
+    val needPurchase: Boolean = false,
+    val needCreateProfile: Boolean = false,
+    val xerr: Int? = null,
+    val isRateLimit: Boolean = false,
+    val retryAfter: Int? = null
 )
 
 data class DeviceCodeResponse(

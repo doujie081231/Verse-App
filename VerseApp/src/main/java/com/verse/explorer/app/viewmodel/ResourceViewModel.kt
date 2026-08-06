@@ -27,7 +27,7 @@ class ResourceViewModel(
     private val projectType: String
 ) : AndroidViewModel(application) {
 
-    private val settingsRepo = SettingsRepository(application)
+    private val settingsRepo = SettingsRepository
     private val useMirror = settingsRepo.getDownloadSource() != "mojang"
 
     private val _uiState = MutableStateFlow(ResourceUiState())
