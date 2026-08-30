@@ -27,7 +27,11 @@ internal class GameArgsParser(private val context: Context) {
                     else if (json.has("minecraftArguments"))
                         json.getString("minecraftArguments").split(" ")
                     else emptyList()
-                return (parentArgs + currentArgs).distinct()
+                // 合并父版本(原版)与当前版本(加载器)的参数，并按 key 去重。
+                // 原版 arguments.game 含 --username/--gameDir/--width/--height 等，
+                // 加载器 JSON 的 arguments 也会继承到这些键；只保留各自的独占键，
+                // 否则 ModLauncher 收到重复 --gameDir 触发 jopt MultipleArgumentsForOptionException。
+                return dedupeArgsByKey(parentArgs, currentArgs)
             }
 
             if (args.isNotEmpty()) return args
@@ -39,6 +43,36 @@ internal class GameArgsParser(private val context: Context) {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /** 按参数键合并去重：后出现的键值优先覆盖（加载器独占参数如 --launchTarget 保留）。 */
+    private fun dedupeArgsByKey(vararg lists: List<String>): List<String> {
+        val result = mutableListOf<String>()
+        val seenKeys = mutableSetOf<String>()
+        for (list in lists) {
+            var i = 0
+            while (i < list.size) {
+                val token = list[i]
+                if (token.startsWith("--")) {
+                    if (seenKeys.add(token)) {
+                        result.add(token)
+                        if (i + 1 < list.size && !list[i + 1].startsWith("--")) {
+                            result.add(list[i + 1])
+                            i++
+                        }
+                    } else {
+                        // key 已存在：跳过其值，避免重复
+                        if (i + 1 < list.size && !list[i + 1].startsWith("--")) {
+                            i++
+                        }
+                    }
+                } else {
+                    result.add(token)
+                }
+                i++
+            }
+        }
+        return result
     }
 
     private fun parseGameArgsFromJson(json: org.json.JSONObject): List<String> {
@@ -167,6 +201,10 @@ internal class GameArgsParser(private val context: Context) {
         val versionDir = File(config.gameDir, "versions/${config.version.id}")
         val parsedArgs = parseGameArgsFromVersionJson(versionDir, config.version.id)
         if (parsedArgs.isNotEmpty()) {
+            // 收集 base args 中已存在的参数键（如 --username/--gameDir），
+            // 版本 JSON 的 arguments.game 会带回与 base 完全相同的键（如
+            // --username/--version/--gameDir/--width/--height），必须成对跳过，
+            // 否则 ModLauncher/jopt-simple 报 MultipleArgumentsForOptionException。
             val existingKeys = mutableSetOf<String>()
             var i = 0
             while (i < args.size) {
@@ -176,18 +214,31 @@ internal class GameArgsParser(private val context: Context) {
             var j = 0
             while (j < parsedArgs.size) {
                 val token = parsedArgs[j]
-                if (token.startsWith("--") && token !in existingKeys) {
-                    args.add(token)
-                    if (j + 1 < parsedArgs.size && !parsedArgs[j + 1].startsWith("--")) {
-                        args.add(parsedArgs[j + 1])
-                        j++
+                if (token.startsWith("--")) {
+                    if (token !in existingKeys) {
+                        args.add(token)
+                        if (j + 1 < parsedArgs.size && !parsedArgs[j + 1].startsWith("--")) {
+                            args.add(parsedArgs[j + 1])
+                            j++
+                        } else if (j + 1 < parsedArgs.size && parsedArgs[j + 1].startsWith("--")) {
+                            // 无值参数（如 --demo），仅加入键本身
+                        }
+                    } else {
+                        // 键已存在：若后面跟着一个非 -- 的值（该值的键上文已生成），
+                        // 跳过这对参数，避免 jopt-simple 收到重复键值
+                        if (j + 1 < parsedArgs.size && !parsedArgs[j + 1].startsWith("--")) {
+                            j++ // 跳过该重复键的值
+                        }
                     }
                 }
                 j++
             }
         }
 
-        return args
+        // 最终兜底：整体按 key 去重。无论重复来自 base/parsedArgs 的何种组合，
+        // ModLauncher/jopt-simple 都要求每个 option 只出现一次，否则抛
+        // MultipleArgumentsForOptionException（如 --gameDir 出现两次）。
+        return dedupeArgsByKey(args)
     }
 
     fun compareGameVersion(a: String, b: String): Int {

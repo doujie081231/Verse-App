@@ -198,6 +198,10 @@ public class DefaultLauncher extends Launcher {
             }
         }
         classpath.add(jar.getAbsolutePath());
+        // 注：Forge 1.20.5+ / NeoForge 的 module 参数（-p / --add-modules）由加载器
+        // 版本 JSON 的 jvm 参数自带（如 NeoForge -p security:asm:bootstraplauncher），
+        // 此处仅负责展开 ${library_directory}/${classpath} 等占位符即可，不自行注入，
+        // 否则把全部 classpath 当 module path 会触发 log4j 等模块导出冲突。
 
         Path gameAssets = repository.getActualAssetDirectory(version.getId(), version.getAssetIndex().getId());
         Map<String, String> configuration = getConfigurations();
