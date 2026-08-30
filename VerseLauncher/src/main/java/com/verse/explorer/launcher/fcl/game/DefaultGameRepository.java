@@ -219,7 +219,7 @@ public class DefaultGameRepository implements GameRepository {
                         // parent arguments (including "-cp ${classpath}"). Storing the
                         // raw version would drop inherited JVM/game arguments and the
                         // launcher would launch with an empty classpath.
-                        result.put(version.getId(), resolved);
+                        result.put(version.getId(), dedupeLibraries(resolved));
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Ignoring version " + version.getId()
@@ -239,6 +239,35 @@ public class DefaultGameRepository implements GameRepository {
         } catch (JsonParseException e) {
             throw new JsonParseException("Version json incorrect: " + file, e);
         }
+    }
+
+    /**
+     * 合并版本库去重：resolve 会把父版本（原版）库追加到补丁库之后，但同
+     * group:artifact 的多版本并全会触发模块导出冲突（如 log4j-slf4j2-impl 2.19.0
+     * 与 2.22.1 模块导出同一包 org.apache.logging.slf4j）。按去掉 version 段
+     * （保留 classifier）的 key 保留先出现的补丁库，剔除父版本的旧库。
+     * 注意 key 必须保留 classifier：forge-universal 与 forge-client 是
+     * group:artifact:version:classifier 四段，minecraft 客户端类只在 client jar。
+     */
+    private Version dedupeLibraries(Version version) {
+        List<Library> libs = version.getLibraries();
+        if (libs == null || libs.isEmpty()) return version;
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        List<Library> deduped = new java.util.ArrayList<>();
+        for (Library lib : libs) {
+            String name = lib.getName();
+            String[] parts = name.split(":");
+            String key;
+            if (parts.length >= 4) {
+                key = parts[0] + ":" + parts[1] + ":" + parts[3];
+            } else if (parts.length >= 2) {
+                key = parts[0] + ":" + parts[1];
+            } else {
+                key = name;
+            }
+            if (seen.add(key)) deduped.add(lib);
+        }
+        return deduped.size() == libs.size() ? version : version.setLibraries(deduped);
     }
 
     @Override

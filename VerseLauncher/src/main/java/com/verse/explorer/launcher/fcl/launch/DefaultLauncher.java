@@ -211,6 +211,23 @@ public class DefaultLauncher extends Launcher {
 
         configuration.put("${natives_directory}", nativesDirectory != null ? nativesDirectory : "");
         List<String> jvmArgs = Arguments.parseArguments(version.getArguments().map(Arguments::getJvm).orElseGet(this::getDefaultJVMArguments), configuration);
+        // NeoForge/Forge（bootstraplauncher 链路）：把实际加入 classpath 的游戏 JAR 文件名
+        // 追加到 -DignoreList，让 bootstraplauncher 跳过 Jigsaw 模块扫描。
+        // -DignoreList 字面量只覆盖补丁版本目录名（如 1.21.1-neoforge-21.1.1.jar），但实际
+        // 游戏 JAR 沿 inheritsFrom 解析为原版 jar（1.21.1.jar），文件名为模块名 _1._21._1，
+        // 与 Mojang 补丁 srg jar 的 minecraft 模块导出同一包 → ResolutionException。
+        // 对应 FCL MaintainTask.updateIgnoreList 的 ${primary_jar} 语义。
+        for (int i = 0; i < jvmArgs.size(); i++) {
+            String arg = jvmArgs.get(i);
+            if (arg.startsWith("-DignoreList=")) {
+                String ignoreList = arg.substring("-DignoreList=".length());
+                String jarName = jar.getName();
+                if (!ignoreList.contains(jarName)) {
+                    jvmArgs.set(i, "-DignoreList=" + ignoreList + "," + jarName);
+                }
+                break;
+            }
+        }
         res.addAll(jvmArgs);
         Arguments argumentsFromAuthInfo = authInfo.getLaunchArguments(options);
         if (argumentsFromAuthInfo != null && argumentsFromAuthInfo.getJvm() != null && !argumentsFromAuthInfo.getJvm().isEmpty())

@@ -45,7 +45,28 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             log("复制APK native库失败: ${e.message}\n")
         }
 
-        // externalNativesDir 中的历史遗留库不再复制（LWJGL 使用 APK patched 版）
+        // externalNativesDir 中的历史遗留库不再复制（LWJGL 使用 APK patched 版）；
+        // 仅补一个例外：libjemalloc.so（LWJGL jemalloc 绑定，原版 Minecraft 初始化
+        // org.lwjgl.system.jemalloc.JEmalloc 时按名加载，APK 未打包，NeoForge 不触发
+        // 该路径所以此前未暴露）。它由 NativeExtractionCoordinator 从
+        // lwjgl-jemalloc-natives-linux.jar 提取到外部 natives 目录，此处同步到内部。
+        try {
+            val jemallocSrc = File(externalNativesDir, "libjemalloc.so")
+            val jemallocDst = File(internalNativesDir, "libjemalloc.so")
+            if (jemallocSrc.exists() && jemallocSrc.isFile && jemallocSrc.length() > 1024 && !jemallocDst.exists()) {
+                jemallocSrc.inputStream().use { input ->
+                    jemallocDst.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                jemallocDst.setExecutable(true, false)
+                jemallocDst.setReadable(true, false)
+                copied++
+                log("复制 libjemalloc.so 到内部存储\n")
+            }
+        } catch (e: Exception) {
+            log("复制 libjemalloc.so 失败: ${e.message}\n")
+        }
 
         ensureJnaNativeLib(internalNativesDir)
 

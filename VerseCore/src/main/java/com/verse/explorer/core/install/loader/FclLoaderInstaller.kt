@@ -124,19 +124,30 @@ object FclLoaderInstaller {
             val resolved = attached.resolve(repo)
             // 类路径上去重同一 group:artifact 的库（补丁库先到先得）：
             // 原版 asm 9.6 + 补丁 asm 9.10.1 同存会触发 Fabric verifyClasspath 拒绝启动。
+            // 注意去重键必须保留 classifier（如 forge-universal 与 forge-client 是
+            // group:artifact:version:classifier 四段，去掉 version 后 key 分别为
+            // net.minecraftforge:forge:universal / :client，两者都必须保留，
+            // minecraft 客户端类只存在于 client jar）；不能用 substringBeforeLast(":")，
+            // 否则 client 与 universal 共享同一 key 会被误删。
             val seenArtifacts = java.util.HashSet<String>()
             val libraries = resolved.libraries.filter { lib ->
                 val name = lib.name
-                val groupArtifact = name.substringBeforeLast(":")
+                val parts = name.split(":")
+                val key = when {
+                    parts.size >= 4 -> "${parts[0]}:${parts[1]}:${parts[3]}"
+                    parts.size == 3 -> "${parts[0]}:${parts[1]}"
+                    parts.size == 2 -> "${parts[0]}:${parts[1]}"
+                    else -> name
+                }
                 // 原版带 log4j-slf4j-impl（module: org.apache.logging.log4j.slf4j），
                 // 补丁/NeoForge 带 log4j-slf4j2-impl（module: org.apache.logging.log4j.slf4j2.impl）。
                 // 两者都含 module-info 且都向 ALL-MODULE-PATH 导出 org.apache.logging.slf4j，
                 // 同存会触发 java.lang.module.ResolutionException（模块导出冲突）。
                 // 保留补丁侧 log4j-slf4j2-impl，剔除原版 log4j-slf4j-impl。
-                if (groupArtifact.endsWith(":log4j-slf4j-impl")) {
+                if (key.endsWith(":log4j-slf4j-impl")) {
                     return@filter false
                 }
-                seenArtifacts.add(groupArtifact)
+                seenArtifacts.add(key)
             }
             val newId = "$versionId-$loaderType-$loaderVersion"
             // arguments：
