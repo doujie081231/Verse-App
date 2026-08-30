@@ -12,7 +12,6 @@ local.properties
 *.aab
 *.jks
 *.keystore
-gradle/wrapper/gradle-wrapper.jar
 temp_homescreen.ps1
 
 # Module build directories
