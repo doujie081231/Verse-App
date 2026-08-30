@@ -24,6 +24,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.FilterRow
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
 
@@ -44,7 +45,6 @@ fun ModpacksScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -52,7 +52,7 @@ fun ModpacksScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 0.dp)
         ) {
-            PageHeader(title = "整合包管理")
+            PageHeader(title = "整合包管理", compact = true)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -90,7 +90,7 @@ fun ModpacksScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(40.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -108,7 +108,7 @@ fun ModpacksScreen(
 
                 GlassCard(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp)
                         .clickable { viewModel.search(searchQuery) },
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -117,41 +117,50 @@ fun ModpacksScreen(
                             imageVector = Icons.Outlined.Search,
                             contentDescription = null,
                             tint = VerseColors.PcTextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 对齐模组页：筛选去竖排 label，直接并排两行 FilterRow，尽量省纵向空间多看卡片
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterRow(loaders, uiState.selectedLoader, onSelect = { viewModel.setSelectedLoader(it) }, modifier = Modifier.weight(1f))
+                FilterRow(versions, uiState.selectedVersion, onSelect = { viewModel.setSelectedVersion(it) }, modifier = Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "加载器",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 10.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    FilterRow(loaders, uiState.selectedLoader) { viewModel.setSelectedLoader(it) }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "游戏版本",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 10.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    FilterRow(versions, uiState.selectedVersion) { viewModel.setSelectedVersion(it) }
+                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
+                sources.forEach { (label, value) ->
+                    val isSelected = uiState.selectedSource == value
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
+                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
@@ -174,7 +183,7 @@ fun ModpacksScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (uiState.error != null && results.isEmpty()) {
                 Box(
@@ -190,7 +199,7 @@ fun ModpacksScreen(
                             tint = VerseColors.PcTextMuted,
                             modifier = Modifier.size(48.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = uiState.error ?: "加载失败",
                             color = VerseColors.PcTextSecondary,
@@ -242,7 +251,7 @@ fun ModpacksScreen(
                             tint = VerseColors.PcTextMuted,
                             modifier = Modifier.size(48.dp)
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "没有找到整合包",
                             color = VerseColors.PcTextSecondary,
@@ -252,12 +261,12 @@ fun ModpacksScreen(
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
                     items(results) { hit ->
-                        ModpackCard(hit, onClick = { navController.navigate("modpack_detail/${hit.projectId}") })
+                        ModpackCard(hit, onClick = { navController.navigate("modpack_detail/${hit.projectId}?source=${hit.source}") })
                     }
                     if (uiState.isLoading) {
                         item {
@@ -275,52 +284,15 @@ fun ModpacksScreen(
                             }
                         }
                     }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilledTonalButton(
-                        onClick = { viewModel.search(searchQuery) },
-                        shape = RoundedCornerShape(8.dp, 0.dp, 0.dp, 8.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = VerseColors.PcBgCard,
-                            contentColor = VerseColors.PcTextSecondary
+                    // 分页并入列表末尾，避免固定占据列表空间（对齐 PC .pagination：上一页/页码/下一页）
+                    item {
+                        PcPagination(
+                            currentPage = uiState.currentPage,
+                            totalHits = uiState.totalHits,
+                            pageSize = 15,
+                            onPrev = { viewModel.goToPage(uiState.currentPage - 1) },
+                            onNext = { viewModel.goToPage(uiState.currentPage + 1) }
                         )
-                    ) {
-                        Icon(Icons.Outlined.Refresh, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("刷新", fontSize = 12.sp)
-                    }
-
-                    Text(
-                        text = " ${results.size} / ${uiState.totalHits} ",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 12.dp)
-                    )
-
-                    FilledTonalButton(
-                        onClick = { viewModel.loadMore() },
-                        enabled = results.size < uiState.totalHits && !uiState.isLoading,
-                        shape = RoundedCornerShape(0.dp, 8.dp, 8.dp, 0.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = VerseColors.PcBgCard,
-                            contentColor = VerseColors.PcTextSecondary,
-                            disabledContainerColor = VerseColors.PcBgCard,
-                            disabledContentColor = VerseColors.PcTextMuted
-                        )
-                    ) {
-                        Text("加载更多", fontSize = 12.sp)
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(16.dp))
                     }
                 }
             }

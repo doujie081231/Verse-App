@@ -7,12 +7,160 @@
 #include <dlfcn.h>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <pthread.h>
+
+#include "verse_compat.h"
 
 #define LOG_TAG "GLFWHook"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+
+// EGL 动态加载层：默认使用系统 libEGL.so；当环境变量 POJAVEXEC_EGL 指定
+// （如 Zink 渲染器的 libEGL_mesa.so）时加载指定实现，使桌面 GL 上下文
+// 可由 Mesa EGL 创建，同时 libcutils.so 需预加载供 Kopper 后端使用。
+typedef EGLBoolean (*VerseEglBooleanDisp)(EGLDisplay);
+typedef EGLBoolean (*VerseEglMakeCurrent)(EGLDisplay, EGLSurface, EGLSurface, EGLContext);
+typedef EGLBoolean (*VerseEglDestroyCtx)(EGLDisplay, EGLContext);
+typedef EGLBoolean (*VerseEglDestroySurf)(EGLDisplay, EGLSurface);
+typedef EGLDisplay (*VerseEglGetDisplay)(EGLNativeDisplayType);
+typedef EGLBoolean (*VerseEglInitialize)(EGLDisplay, EGLint*, EGLint*);
+typedef EGLBoolean (*VerseEglChooseConfig)(EGLDisplay, const EGLint*, EGLConfig*, EGLint, EGLint*);
+typedef EGLBoolean (*VerseEglBindAPI)(EGLenum);
+typedef EGLSurface (*VerseEglCreateWindowSurface)(EGLDisplay, EGLConfig, EGLNativeWindowType, const EGLint*);
+typedef EGLBoolean (*VerseEglSwapBuffers)(EGLDisplay, EGLSurface);
+typedef EGLContext (*VerseEglCreateContext)(EGLDisplay, EGLConfig, EGLContext, const EGLint*);
+typedef EGLBoolean (*VerseEglSwapInterval)(EGLDisplay, EGLint);
+typedef const char* (*VerseEglQueryString)(EGLDisplay, EGLint);
+typedef void* (*VerseEglGetProcAddress)(const char*);
+typedef EGLint (*VerseEglGetError)(void);
+
+static struct {
+    VerseEglGetDisplay eglGetDisplay;
+    VerseEglInitialize eglInitialize;
+    VerseEglChooseConfig eglChooseConfig;
+    VerseEglBindAPI eglBindAPI;
+    VerseEglCreateContext eglCreateContext;
+    VerseEglCreateWindowSurface eglCreateWindowSurface;
+    VerseEglMakeCurrent eglMakeCurrent;
+    VerseEglDestroyCtx eglDestroyContext;
+    VerseEglDestroySurf eglDestroySurface;
+    VerseEglSwapInterval eglSwapInterval;
+    VerseEglSwapBuffers eglSwapBuffers;
+    VerseEglQueryString eglQueryString;
+    VerseEglGetProcAddress eglGetProcAddress;
+    VerseEglGetError eglGetError;
+} g_egl;
+
+static bool g_eglLoaded = false;
+static pthread_mutex_t g_eglLoadMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static bool verseRendererIsDesktopGL() {
+    const char* r = getenv("POJAV_RENDERER");
+    return r != nullptr && strncmp(r, "opengles3_desktopgl", 19) == 0;
+}
+
+static void* verseDlopenRendererLib(const char* name) {
+    void* h = dlopen(name, RTLD_GLOBAL | RTLD_LAZY);
+    if (h != nullptr) return h;
+    const char* dirs[] = {getenv("POJAV_NATIVEDIR"), getenv("FCL_NATIVEDIR"), nullptr};
+    for (int i = 0; dirs[i] != nullptr; i++) {
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s", dirs[i], name);
+        h = dlopen(path, RTLD_GLOBAL | RTLD_LAZY);
+        if (h != nullptr) return h;
+    }
+    return nullptr;
+}
+
+static bool verseEglLoad() {
+    pthread_mutex_lock(&g_eglLoadMutex);
+    if (g_eglLoaded) {
+        pthread_mutex_unlock(&g_eglLoadMutex);
+        return g_egl.eglGetProcAddress != nullptr;
+    }
+    g_eglLoaded = true;
+
+    const char* eglName = getenv("POJAVEXEC_EGL");
+    if (eglName == nullptr || !*eglName) eglName = "libEGL.so";
+    if (strncmp(eglName, "libEGL_mesa.so", 14) == 0) {
+        dlopen("libcutils.so", RTLD_GLOBAL | RTLD_NOW);
+    }
+    void* h = verseDlopenRendererLib(eglName);
+    if (h == nullptr) {
+        LOGW("verseEglLoad: dlopen(%s) failed: %s, fallback to system libEGL.so", eglName, dlerror());
+        h = dlopen("libEGL.so", RTLD_GLOBAL | RTLD_LAZY);
+    }
+    if (h == nullptr) {
+        LOGE("verseEglLoad: cannot load any EGL implementation");
+        pthread_mutex_unlock(&g_eglLoadMutex);
+        return false;
+    }
+    LOGI("verseEglLoad: using %s (%p)", eglName, h);
+
+    g_egl.eglGetProcAddress = (VerseEglGetProcAddress)dlsym(h, "eglGetProcAddress");
+    if (g_egl.eglGetProcAddress == nullptr) {
+        LOGE("verseEglLoad: eglGetProcAddress missing: %s", dlerror());
+        pthread_mutex_unlock(&g_eglLoadMutex);
+        return false;
+    }
+    g_egl.eglGetDisplay = (VerseEglGetDisplay)dlsym(h, "eglGetDisplay");
+    g_egl.eglInitialize = (VerseEglInitialize)dlsym(h, "eglInitialize");
+    g_egl.eglChooseConfig = (VerseEglChooseConfig)dlsym(h, "eglChooseConfig");
+    g_egl.eglBindAPI = (VerseEglBindAPI)dlsym(h, "eglBindAPI");
+    g_egl.eglCreateContext = (VerseEglCreateContext)dlsym(h, "eglCreateContext");
+    g_egl.eglCreateWindowSurface = (VerseEglCreateWindowSurface)dlsym(h, "eglCreateWindowSurface");
+    g_egl.eglMakeCurrent = (VerseEglMakeCurrent)dlsym(h, "eglMakeCurrent");
+    g_egl.eglDestroyContext = (VerseEglDestroyCtx)dlsym(h, "eglDestroyContext");
+    g_egl.eglDestroySurface = (VerseEglDestroySurf)dlsym(h, "eglDestroySurface");
+    g_egl.eglSwapInterval = (VerseEglSwapInterval)dlsym(h, "eglSwapInterval");
+    g_egl.eglSwapBuffers = (VerseEglSwapBuffers)dlsym(h, "eglSwapBuffers");
+    g_egl.eglQueryString = (VerseEglQueryString)dlsym(h, "eglQueryString");
+    g_egl.eglGetError = (VerseEglGetError)dlsym(h, "eglGetError");
+
+    bool ok = g_egl.eglGetDisplay && g_egl.eglInitialize && g_egl.eglChooseConfig &&
+              g_egl.eglBindAPI && g_egl.eglCreateContext && g_egl.eglCreateWindowSurface &&
+              g_egl.eglMakeCurrent && g_egl.eglSwapBuffers;
+    if (!ok) {
+        LOGE("verseEglLoad: incomplete EGL symbols in %s", eglName);
+    } else {
+        if (verseRendererIsDesktopGL()) {
+            LOGI("verseEglLoad: desktop OpenGL renderer, binding EGL_OPENGL_API");
+            g_egl.eglBindAPI(EGL_OPENGL_API);
+        } else {
+            g_egl.eglBindAPI(EGL_OPENGL_ES_API);
+        }
+    }
+    pthread_mutex_unlock(&g_eglLoadMutex);
+    return ok;
+}
+
+#define eglGetDisplay g_egl.eglGetDisplay
+#define eglInitialize g_egl.eglInitialize
+#define eglChooseConfig g_egl.eglChooseConfig
+#define eglBindAPI g_egl.eglBindAPI
+#define eglCreateContext g_egl.eglCreateContext
+#define eglCreateWindowSurface g_egl.eglCreateWindowSurface
+#define eglMakeCurrent g_egl.eglMakeCurrent
+#define eglDestroyContext g_egl.eglDestroyContext
+#define eglDestroySurface g_egl.eglDestroySurface
+#define eglSwapInterval g_egl.eglSwapInterval
+#define eglSwapBuffers g_egl.eglSwapBuffers
+#define eglQueryString g_egl.eglQueryString
+#define eglGetProcAddress g_egl.eglGetProcAddress
+#define eglGetError g_egl.eglGetError
+
+static void verseSetupZinkEnvironment() {
+    const char* r = getenv("POJAV_RENDERER");
+    if (r == nullptr) return;
+    if (strcmp(r, "opengles3_desktopgl_zink_kopper") == 0 || strcmp(r, "vulkan_zink") == 0) {
+        setenv("GALLIUM_DRIVER", "zink", 1);
+        setenv("MESA_ANDROID_NO_KMS_SWRAST", "1", 1);
+        void* vk = dlopen("libvulkan.so", RTLD_LAZY | RTLD_LOCAL);
+        LOGI("verseSetupZinkEnvironment: GALLIUM_DRIVER=zink, libvulkan=%p", vk);
+    }
+}
 
 #define GLFW_TRUE 1
 #define GLFW_FALSE 0
@@ -425,6 +573,7 @@ static GLFWallocator g_allocator = {nullptr, nullptr, nullptr, nullptr};
 
 static EGLDisplay g_sharedDisplay = EGL_NO_DISPLAY;
 static bool g_sharedDisplayInitialized = false;
+static pthread_mutex_t g_eglInitMutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void* allocAlloc(size_t size, void* user) {
     (void)user;
@@ -450,10 +599,17 @@ static int g_windowHintCount = 0;
 
 static ANativeWindow* (*g_getNativeWindow)(void) = nullptr;
 
+// 由 Java 侧 surfaceCreated 回调通过 nativeSetupBridgeWindow 直接注入的原生窗口。
+// 拥有权：本库持有该 ANativeWindow 的引用，glfwCreateWindow 使用时需自行 acquire。
+static ANativeWindow* g_ownedNativeWindow = nullptr;
+static int g_ownedNativeWindowReady = 0;
+
 static void resolveNativeWindowFunc() {
+    // 已直接注入窗口时优先使用，无需跨命名空间查 versejvm 符号
+    if (g_ownedNativeWindowReady && g_ownedNativeWindow) return;
     if (g_getNativeWindow) return;
     
-    dlopen("libterracotta.so", RTLD_NOLOAD | RTLD_GLOBAL);
+    dlopen("libversejvm.so", RTLD_NOLOAD | RTLD_GLOBAL);
     
     g_getNativeWindow = (ANativeWindow* (*)(void))dlsym(RTLD_DEFAULT, "getFCLNativeWindow");
     if (!g_getNativeWindow) {
@@ -464,6 +620,63 @@ static void resolveNativeWindowFunc() {
     } else {
         LOGW("Failed to resolve getFCLNativeWindow: %s", dlerror());
     }
+}
+
+// 跨命名空间窗口指针共享的文件路径由环境变量指定（Java 侧在 setupBridgeWindow 时 setenv）。
+// 应用命名空间与 JVM 各持一份 libpojavexec.so，静态变量不共享，但 ANativeWindow 是 framework
+// 引用计数对象（堆地址），指针跨命名空间有效，故用文件作为跨命名空间传递通道。
+static const char* kWndFileEnv = "VERSE_NATIVE_WINDOW_FILE";
+
+static void writePointerFile(ANativeWindow* w, const char* path) {
+    if (!w || !path || !*path) return;
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        LOGW("writePointerFile: cannot open %s", path);
+        return;
+    }
+    fprintf(f, "%llx\n", (unsigned long long)(uintptr_t)w);
+    fclose(f);
+    LOGI("writePointerFile: wrote %p to %s", w, path);
+}
+
+static ANativeWindow* readPointerFile() {
+    const char* path = getenv(kWndFileEnv);
+    if (!path || !*path) return nullptr;
+    FILE* f = fopen(path, "r");
+    if (!f) return nullptr;
+    unsigned long long ptr = 0;
+    int matched = fscanf(f, "%llx", &ptr);
+    fclose(f);
+    if (matched != 1 || !ptr) return nullptr;
+    ANativeWindow* w = (ANativeWindow*)(uintptr_t)ptr;
+    ANativeWindow_acquire(w);
+    return w;
+}
+
+// 返回 glfwCreateWindow 应使用的 ANativeWindow。
+// 返回值已持有引用（owned 窗口会 acquire，dlsym 路径本身会 acquire），调用方负责在销毁时 release。
+ANativeWindow* getNativeWindowSafe() {
+    resolveNativeWindowFunc();
+    if (g_ownedNativeWindowReady && g_ownedNativeWindow) {
+        ANativeWindow* w = g_ownedNativeWindow;
+        ANativeWindow_acquire(w);
+        return w;
+    }
+    if (g_getNativeWindow) {
+        return g_getNativeWindow();
+    }
+    // 跨命名空间兜底：应用命名空间与 JVM 通过 dlopen 加载的是两份 libpojavexec.so，
+    // 静态变量 g_ownedNativeWindow 不共享，但 ANativeWindow 是 framework 引用计数对象（堆地址），
+    // 指针跨命名空间依然有效，可从 Java 侧写入的文件里恢复。
+    ANativeWindow* w = readPointerFile();
+    if (w) {
+        g_ownedNativeWindow = w;
+        g_ownedNativeWindowReady = 1;
+        LOGI("getNativeWindowSafe: recovered owned window from file %p", w);
+        ANativeWindow_acquire(w);
+        return w;
+    }
+    return nullptr;
 }
 
 static void setError(int code, const char* description) {
@@ -480,17 +693,26 @@ static void setError(int code, const char* description) {
 }
 
 static EGLDisplay getSharedEGLDisplay() {
+    pthread_mutex_lock(&g_eglInitMutex);
     if (g_sharedDisplay != EGL_NO_DISPLAY && g_sharedDisplayInitialized) {
+        pthread_mutex_unlock(&g_eglInitMutex);
         return g_sharedDisplay;
+    }
+    if (!verseEglLoad()) {
+        pthread_mutex_unlock(&g_eglInitMutex);
+        LOGE("getSharedEGLDisplay: verseEglLoad failed");
+        return EGL_NO_DISPLAY;
     }
     g_sharedDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (g_sharedDisplay == EGL_NO_DISPLAY) {
+        pthread_mutex_unlock(&g_eglInitMutex);
         LOGE("getSharedEGLDisplay: eglGetDisplay failed");
         return EGL_NO_DISPLAY;
     }
     if (!g_sharedDisplayInitialized) {
         EGLint major, minor;
         if (!eglInitialize(g_sharedDisplay, &major, &minor)) {
+            pthread_mutex_unlock(&g_eglInitMutex);
             LOGE("getSharedEGLDisplay: eglInitialize failed: 0x%04x", eglGetError());
             g_sharedDisplay = EGL_NO_DISPLAY;
             return EGL_NO_DISPLAY;
@@ -498,6 +720,7 @@ static EGLDisplay getSharedEGLDisplay() {
         g_sharedDisplayInitialized = true;
         LOGI("getSharedEGLDisplay: EGL initialized v%d.%d", major, minor);
     }
+    pthread_mutex_unlock(&g_eglInitMutex);
     return g_sharedDisplay;
 }
 
@@ -513,27 +736,41 @@ static EGLConfig selectEGLConfig(EGLDisplay display, GLFWwindow* window) {
         EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
         EGL_NONE
     };
-    
+
+    if (verseRendererIsDesktopGL()) {
+        configAttribs[13] = EGL_OPENGL_ES2_BIT;
+        configAttribs[15] = EGL_WINDOW_BIT | EGL_PBUFFER_BIT;
+    }
+
     EGLConfig config = nullptr;
     EGLint numConfigs = 0;
-    
+
     if (!eglChooseConfig(display, configAttribs, &config, 1, &numConfigs) || numConfigs == 0) {
         configAttribs[13] = EGL_OPENGL_ES2_BIT;
+        if (verseRendererIsDesktopGL()) {
+            configAttribs[15] = EGL_WINDOW_BIT | EGL_PBUFFER_BIT;
+        }
         if (!eglChooseConfig(display, configAttribs, &config, 1, &numConfigs) || numConfigs == 0) {
             LOGE("Failed to choose EGL config");
             return nullptr;
         }
     }
-    
+
     return config;
 }
 
 static EGLContext createEGLContext(EGLDisplay display, EGLConfig config, EGLContext share) {
+    int clientVersion = 3;
+    const char* es = getenv("LIBGL_ES");
+    if (es != nullptr && *es) {
+        int v = atoi(es);
+        if (v >= 1 && v <= 3) clientVersion = v;
+    }
     EGLint contextAttribs[] = {
-        EGL_CONTEXT_CLIENT_VERSION, 3,
+        EGL_CONTEXT_CLIENT_VERSION, clientVersion,
         EGL_NONE
     };
-    
+
     EGLContext context = eglCreateContext(display, config, share, contextAttribs);
     if (context == EGL_NO_CONTEXT) {
         contextAttribs[1] = 2;
@@ -581,9 +818,10 @@ void glfwDestroyWindow(GLFWwindow* window);
 
 int glfwInit(void) {
     if (g_initialized) return GLFW_TRUE;
-    
+
     LOGI("glfwInit: Custom Android EGL GLFW");
-    
+
+    verseSetupZinkEnvironment();
     resolveNativeWindowFunc();
     
     g_timeBase = getCurrentTime();
@@ -646,13 +884,12 @@ GLFWwindow* glfwCreateWindow(int width, int height, const char* title, GLFWmonit
         g_focusedWindow = nullptr;
     }
     
-    resolveNativeWindowFunc();
-    ANativeWindow* nativeWindow = g_getNativeWindow ? g_getNativeWindow() : nullptr;
+    ANativeWindow* nativeWindow = getNativeWindowSafe();
     
     LOGI("glfwCreateWindow: ANativeWindow=%p", nativeWindow);
     
     if (!nativeWindow) {
-        LOGE("glfwCreateWindow: No native window available! getFCLNativeWindow returned null");
+        LOGE("glfwCreateWindow: No native window available! getFCLNativeWindow/owned returned null");
         setError(GLFW_PLATFORM_ERROR, "No native window available. SurfaceView not initialized yet.");
         return nullptr;
     }
@@ -688,8 +925,12 @@ GLFWwindow* glfwCreateWindow(int width, int height, const char* title, GLFWmonit
         setError(GLFW_PLATFORM_ERROR, "Failed to get shared EGL display");
         return nullptr;
     }
-    
-    eglBindAPI(EGL_OPENGL_ES_API);
+
+    if (verseRendererIsDesktopGL()) {
+        eglBindAPI(EGL_OPENGL_API);
+    } else {
+        eglBindAPI(EGL_OPENGL_ES_API);
+    }
     
     window->eglConfig = selectEGLConfig(window->eglDisplay, window);
     if (!window->eglConfig) {
@@ -754,11 +995,6 @@ GLFWwindow* glfwCreateWindow(int width, int height, const char* title, GLFWmonit
         window->fbWidth = actualWidth;
         window->fbHeight = actualHeight;
     }
-    
-    glViewport(0, 0, window->fbWidth, window->fbHeight);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    eglSwapBuffers(window->eglDisplay, window->eglSurface);
     
     if (window->fbSizeCallback) {
         window->fbSizeCallback(window, window->fbWidth, window->fbHeight);
@@ -1333,6 +1569,11 @@ GLFWmonitor* glfwGetPrimaryMonitor(void) {
     return &g_primaryMonitor;
 }
 
+GLFWmonitor* glfwGetWindowMonitor(GLFWwindow* window) {
+    // 模拟器/Android 单屏场景：窗口始终依附于主显示器
+    return &g_primaryMonitor;
+}
+
 void glfwGetMonitorPos(GLFWmonitor* monitor, int* xpos, int* ypos) {
     if (xpos) *xpos = 0;
     if (ypos) *ypos = 0;
@@ -1436,8 +1677,10 @@ GLFWmonitor* glfwSetWindowMonitor(GLFWwindow* window, GLFWmonitor* monitor, int 
     return nullptr;
 }
 
-void glfwSetErrorCallback(GLFWerrorfun callback) {
+GLFWerrorfun glfwSetErrorCallback(GLFWerrorfun callback) {
+    GLFWerrorfun previous = g_errorCallback;
     g_errorCallback = callback;
+    return previous;
 }
 
 int glfwGetError(const char** description) {
@@ -1490,98 +1733,40 @@ int glfwGetPlatform(void) {
 JNIEXPORT void JNICALL
 Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeSendData(
     JNIEnv *env, jclass clazz, jboolean isAndroid, jint type, jint i1, jint i2, jint i3, jint i4) {
-    GLFWwindow* window = g_focusedWindow;
-    if (!window) return;
-
-    switch (type) {
-        case 1003: {
-            double x = (double)i1;
-            double y = (double)i2;
-            window->cursorX = x;
-            window->cursorY = y;
-            if (window->cursorPosCallback) {
-                window->cursorPosCallback(window, x, y);
-            }
-            break;
-        }
-        case 1005: {
-            int keyChar = i1;
-            int keyCode = i2;
-            int action = i3;
-            int mods = i4;
-            if (keyCode >= 0 && keyCode < 512) {
-                window->keyState[keyCode] = (action == 1);
-            }
-            if (window->keyCallback) {
-                window->keyCallback(window, keyCode, 0, action == 1 ? GLFW_PRESS : GLFW_RELEASE, mods);
-            }
-            if (action == 1 && keyChar > 0 && window->charCallback) {
-                window->charCallback(window, (unsigned int)keyChar);
-            }
-            break;
-        }
-        case 1006: {
-            int button = i1;
-            int pressed = i2;
-            if (button >= 0 && button < 8) {
-                window->mouseButtonState[button] = (pressed == 1);
-            }
-            if (window->mouseButtonCallback) {
-                window->mouseButtonCallback(window, button, pressed == 1 ? GLFW_PRESS : GLFW_RELEASE, 0);
-            }
-            break;
-        }
-        case 1000: {
-            unsigned int codepoint = (unsigned int)i1;
-            if (window->charCallback) {
-                window->charCallback(window, codepoint);
-            }
-            break;
-        }
-        case 1007: {
-            double xOffset = (double)i1 / 1000.0;
-            double yOffset = (double)i2 / 1000.0;
-            if (window->scrollCallback) {
-                window->scrollCallback(window, xOffset, yOffset);
-            }
-            break;
-        }
-        case 1008: {
-            int width = i1;
-            int height = i2;
-            window->width = width;
-            window->height = height;
-            if (window->sizeCallback) {
-                window->sizeCallback(window, width, height);
-            }
-            break;
-        }
-        case 1004: {
-            int width = i1;
-            int height = i2;
-            window->fbWidth = width;
-            window->fbHeight = height;
-            if (window->fbSizeCallback) {
-                window->fbSizeCallback(window, width, height);
-            }
-            break;
-        }
-        case 1009: {
-            double dx = (double)i1;
-            double dy = (double)i2;
-            window->cursorX += dx;
-            window->cursorY += dy;
-            if (window->cursorPosCallback) {
-                window->cursorPosCallback(window, window->cursorX, window->cursorY);
-            }
-            break;
-        }
-    }
+    verseDispatchInput(type, i1, i2, i3, i4);
 }
 
 JNIEXPORT void JNICALL
 Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeSetupBridgeWindow(
-    JNIEnv *env, jclass clazz, jobject surface) {
+    JNIEnv *env, jclass clazz, jobject surface, jstring windowFilePath) {
+    if (!surface) {
+        LOGW("nativeSetupBridgeWindow: null surface");
+        return;
+    }
+    ANativeWindow* newWindow = ANativeWindow_fromSurface(env, surface);
+    if (!newWindow) {
+        LOGE("nativeSetupBridgeWindow: ANativeWindow_fromSurface failed");
+        return;
+    }
+    ANativeWindow* oldWindow = g_ownedNativeWindow;
+    g_ownedNativeWindow = newWindow;
+    g_ownedNativeWindowReady = 1;
+    if (oldWindow) {
+        ANativeWindow_release(oldWindow);
+    }
+    // 记录指针文件路径并写入指针，供 JVM 命名空间内的另一份 libpojavexec.so 恢复窗口。
+    if (windowFilePath) {
+        const char* path = env->GetStringUTFChars(windowFilePath, nullptr);
+        if (path) {
+            setenv(kWndFileEnv, path, 1);
+            writePointerFile(newWindow, path);
+            env->ReleaseStringUTFChars(windowFilePath, path);
+        }
+    }
+    LOGI("nativeSetupBridgeWindow: owned window set to %p (%dx%d)",
+         g_ownedNativeWindow,
+         ANativeWindow_getWidth(newWindow),
+         ANativeWindow_getHeight(newWindow));
 }
 
 JNIEXPORT void JNICALL
@@ -1608,6 +1793,7 @@ JNIEXPORT void JNICALL
 Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeSetUseInputStackQueue(
     JNIEnv *env, jclass clazz, jboolean useInputStackQueue) {
     g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    verseSetStackQueue(g_useInputStackQueue);
     LOGI("Set useInputStackQueue (Verse): %d", g_useInputStackQueue);
 }
 
@@ -1615,12 +1801,14 @@ JNIEXPORT void JNICALL
 Java_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
     JNIEnv *env, jclass clazz, jboolean useInputStackQueue) {
     g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    verseSetStackQueue(g_useInputStackQueue);
     LOGI("Set useInputStackQueue (LWJGL): %d", g_useInputStackQueue);
 }
 
-JNIEXPORT void JavaCritical_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
+JNIEXPORT void JNICALL JavaCritical_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
     jboolean useInputStackQueue) {
     g_useInputStackQueue = (useInputStackQueue == JNI_TRUE);
+    verseSetStackQueue(g_useInputStackQueue);
     LOGI("Set useInputStackQueue (critical): %d", g_useInputStackQueue);
 }
 

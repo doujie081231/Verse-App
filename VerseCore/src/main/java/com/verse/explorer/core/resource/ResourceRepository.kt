@@ -1,0 +1,365 @@
+package com.verse.explorer.core.resource
+
+import android.content.Context
+import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.download.SmartDownloadClient
+import com.verse.explorer.core.util.FileUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
+
+/**
+ * 统一的资源仓库：整合 Modrinth + CurseForge 双源，提供搜索、详情、版本、下载。
+ *
+ * 与 VersePC `server/api/routes/resources.js` 对齐：
+ *  - [search]：双源搜索并合并（按下载量排序）
+ *  - [getDetail]：双源详情
+ *  - [getVersions]：双源版本列表
+ *  - [downloadVersion]：下载资源文件到游戏对应目录
+ */
+class ResourceRepository(
+    private val context: Context,
+    private val useMirror: Boolean = true
+) {
+
+    private val smartClient = SmartDownloadClient(context = context)
+
+    /**
+     * 双源搜索。
+     *
+     * @param source 可选过滤："modrinth" / "curseforge" / ""（全部）
+     */
+    suspend fun search(
+        query: String = "",
+        projectType: String = "mod",
+        categories: List<String> = emptyList(),
+        gameVersions: List<String> = emptyList(),
+        loaders: List<String> = emptyList(),
+        sort: String = "downloads",
+        limit: Int = 20,
+        offset: Int = 0,
+        source: String = ""
+    ): ResourceSearchResult = withContext(Dispatchers.IO) {
+        val allHits = mutableListOf<ModrinthSearchHit>()
+        var total = 0
+
+        // CurseForge 仅对 mod/modpack/resourcepack/shader/datapack 有意义
+        if (source.isBlank() || source == "curseforge") {
+            try {
+                val cf = CurseForgeApi.search(
+                    query = query,
+                    projectType = projectType,
+                    loader = loaders.firstOrNull() ?: "",
+                    gameVersion = gameVersions.firstOrNull() ?: "",
+                    sort = if (query.isBlank()) "downloads" else sort,
+                    limit = limit,
+                    offset = offset
+                )
+                allHits.addAll(cf.hits)
+                total += cf.total
+            } catch (e: Exception) {
+                // CurseForge 失败不影响 Modrinth
+            }
+        }
+
+        if (source.isBlank() || source == "modrinth") {
+            try {
+                val mrResult = ModrinthApi.searchProjects(
+                    query = query,
+                    projectType = projectType,
+                    categories = categories,
+                    gameVersions = gameVersions,
+                    loaders = loaders,
+                    sort = if (query.isBlank()) "downloads" else sort,
+                    limit = limit,
+                    offset = offset,
+                    useMirror = useMirror
+                )
+                allHits.addAll(mrResult.hits)
+                total += mrResult.totalHits
+            } catch (e: Exception) {
+                // Modrinth 失败不影响 CurseForge
+            }
+        }
+
+        if (allHits.size > 1) {
+            allHits.sortByDescending { it.downloads }
+        }
+        ResourceSearchResult(hits = allHits, total = total)
+    }
+
+    /** 获取项目详情（按 source 路由） */
+    suspend fun getDetail(projectId: String, source: String): ResourceDetail = withContext(Dispatchers.IO) {
+        if (source == "curseforge") {
+            CurseForgeApi.getProjectDetail(projectId)
+        } else {
+            val p = ModrinthApi.getProject(projectId, useMirror)
+            ResourceDetail(
+                id = p.id,
+                slug = p.slug,
+                title = p.title,
+                description = p.description,
+                body = p.body,
+                iconUrl = p.iconUrl,
+                downloads = p.downloads,
+                followers = p.followers,
+                categories = p.categories,
+                loaders = p.loaders,
+                gameVersions = p.gameVersions,
+                license = p.license?.name ?: "",
+                sourceUrl = p.sourceUrl ?: "",
+                issuesUrl = p.issuesUrl ?: "",
+                wikiUrl = p.wikiUrl ?: "",
+                discordUrl = p.discordUrl ?: "",
+                gallery = (p.gallery ?: emptyList()).map { ResourceGallery(it.url, it.title) },
+                dateCreated = p.dateCreated,
+                dateModified = p.dateModified,
+                source = "modrinth",
+                projectType = ""
+            )
+        }
+    }
+
+    /** 获取版本列表（按 source 路由） */
+    suspend fun getVersions(
+        projectId: String,
+        source: String,
+        loader: String = "",
+        gameVersion: String = ""
+    ): List<ResourceVersion> = withContext(Dispatchers.IO) {
+        if (source == "curseforge") {
+            CurseForgeApi.getProjectFiles(projectId, loader, gameVersion)
+        } else {
+            // Gson 用 Unsafe 实例化 Kotlin data class，缺失/为 null 的字段会被注入 null（绕过默认值），
+            // 任何一处未兜底都会在映射时抛"message 为 null 的 NPE"导致整批版本加载失败（详见 ModDetail 日志）。
+            // 因此对所有字段兜底，并按版本粒度 try 单条失败不拖垮整批。
+            val rawVersions = ModrinthApi.getProjectVersions(projectId, useMirror) ?: emptyList()
+            rawVersions.mapNotNull { v ->
+                val files = v.files.orEmpty()
+                val primary = files.firstOrNull { it.primary } ?: files.firstOrNull()
+                runCatching {
+                    ResourceVersion(
+                        id = v.id ?: "",
+                        name = v.name ?: "",
+                        versionNumber = v.versionNumber ?: "",
+                        datePublished = v.datePublished ?: "",
+                        gameVersions = v.gameVersions.orEmpty(),
+                        loaders = v.loaders.orEmpty(),
+                        releaseType = v.versionType ?: "release",
+                        downloads = v.downloads.toLong(),
+                        changelog = v.changelog ?: "",
+                        primaryFile = primary?.let {
+                            ResourceFile(
+                                it.url ?: "",
+                                it.filename ?: "",
+                                it.size,
+                                it.primary,
+                                it.hashes?.get("sha1") ?: ""
+                            )
+                        },
+                        files = files.map {
+                            ResourceFile(
+                                it.url ?: "",
+                                it.filename ?: "",
+                                it.size,
+                                it.primary,
+                                it.hashes?.get("sha1") ?: ""
+                            )
+                        },
+                        dependencies = v.dependencies.orEmpty().map {
+                            ResourceDependency(
+                                projectId = it.projectId ?: "",
+                                versionId = it.versionId ?: "",
+                                fileName = it.fileName ?: "",
+                                type = it.dependencyType ?: "required"
+                            )
+                        },
+                        source = "modrinth"
+                    )
+                }.getOrNull()
+            }
+        }
+    }
+
+    /**
+     * 下载指定版本到游戏对应目录。
+     *
+     * @return 下载完成后的文件路径
+     */
+    suspend fun downloadVersion(
+        projectType: String,
+        version: ResourceVersion,
+        onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
+    ): Result<File> = withContext(Dispatchers.IO) {
+        val primaryFile = version.primaryFile ?: version.files.firstOrNull()
+            ?: return@withContext Result.failure(Exception("该版本没有可下载的文件"))
+
+        if (primaryFile.url.isBlank()) {
+            return@withContext Result.failure(Exception("下载链接为空，该资源可能暂时不可用"))
+        }
+
+        val gameDir = GameConfig.getGameDir(context)
+        val destDir = when (projectType) {
+            "resourcepack" -> File(gameDir, "resourcepacks")
+            "shader" -> File(gameDir, "shaderpacks")
+            "datapack" -> File(gameDir, "datapacks")
+            "modpack" -> File(gameDir, "modpacks")
+            else -> GameConfig.getModsDir(gameDir)
+        }
+        destDir.mkdirs()
+
+        val safeName = (primaryFile.filename.ifBlank { "${version.id}.jar" })
+            .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
+        val destFile = File(destDir, safeName)
+
+        // mod 复用（对齐 VersePC _findExistingModInVersions）：下载 mod 前，
+        // 若其他版本目录的 mods 已存在同名同 sha1 的文件，直接复制，避免重复下载
+        if (projectType == "mod" && destFile.name.endsWith(".jar") && primaryFile.sha1.isNotBlank()) {
+            val versionsDir = GameConfig.getVersionsDir(gameDir)
+            val reuseTarget = findExistingMod(versionsDir, destFile.name, primaryFile.sha1)
+            if (reuseTarget != null) {
+                try {
+                    destFile.parentFile?.mkdirs()
+                    reuseTarget.copyTo(destFile, overwrite = true)
+                    onProgress(primaryFile.size, primaryFile.size, 0)
+                    return@withContext Result.success(destFile)
+                } catch (_: Exception) {
+                    // 复制失败则回退到正常下载
+                }
+            }
+        }
+
+        smartClient.download(
+            originalUrl = primaryFile.url,
+            targetFile = destFile,
+            expectedSha1 = primaryFile.sha1.ifBlank { null },
+            knownSize = primaryFile.size,
+            onProgress = {
+                onProgress(it.downloaded, it.total, it.speed)
+            }
+        )
+    }
+
+    /** 获取游戏 mods 目录（供 UI 展示下载落点） */
+    fun getModsDir(): File = GameConfig.getModsDir(GameConfig.getGameDir(context))
+
+    /** 资源类型对应的版本内文件夹（与 ZL2 的 VersionFolders 对应） */
+    fun versionFolderFor(projectType: String): String? = when (projectType) {
+        "resourcepack" -> "resourcepacks"
+        "shader" -> "shaderpacks"
+        "datapack" -> "datapacks"
+        "modpack" -> null
+        else -> "mods"
+    }
+
+    /**
+     * 下载资源并安装到多个游戏版本的对应文件夹（与 ZL2 的 downloadSingleForVersions 对应）：
+     * 先下载到应用缓存，再复制到每个选中版本的 versions/<id>/<folder> 内，目标同名文件先删除。
+     * 隔离安装：不写入全局目录。
+     *
+     * @param targetVersionIds 选中的游戏版本 id 列表
+     * @return 各版本目录内的安装结果
+     */
+    suspend fun downloadVersionForVersions(
+        projectType: String,
+        version: ResourceVersion,
+        targetVersionIds: List<String>,
+        onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
+    ): Result<List<File>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val primaryFile = version.primaryFile ?: version.files.firstOrNull()
+                ?: throw Exception("该版本没有可下载的文件")
+            if (primaryFile.url.isBlank()) {
+                throw Exception("下载链接为空，该资源可能暂时不可用")
+            }
+            val folder = versionFolderFor(projectType)
+                ?: throw Exception("该资源类型不支持按版本安装")
+
+            val safeName = (primaryFile.filename.ifBlank { "${version.id}.jar" })
+                .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
+            val gameDir = GameConfig.getGameDir(context)
+
+            // 与 ZL2 一致：先下载到缓存目录，再分发到各版本
+            val cacheDir = File(context.cacheDir, "assets")
+            cacheDir.mkdirs()
+            val cacheFile = File(cacheDir, primaryFile.sha1.ifBlank { safeName })
+
+            try {
+                // 版本内复用（对齐 _findExistingModInVersions）：任一版本的对应文件夹里
+                // 已有同名同 SHA1 的文件时直接复制，避免重复下载
+                var reused = false
+                if (primaryFile.sha1.isNotBlank()) {
+                    val reuseSource = findExistingFileInVersions(
+                        GameConfig.getVersionsDir(gameDir), folder, safeName, primaryFile.sha1
+                    )
+                    if (reuseSource != null) {
+                        runCatching {
+                            reuseSource.copyTo(cacheFile, overwrite = true)
+                            onProgress(primaryFile.size, primaryFile.size, 0)
+                            reused = true
+                        }
+                    }
+                }
+                if (!reused) {
+                    smartClient.download(
+                        originalUrl = primaryFile.url,
+                        targetFile = cacheFile,
+                        expectedSha1 = primaryFile.sha1.ifBlank { null },
+                        knownSize = primaryFile.size,
+                        onProgress = {
+                            onProgress(it.downloaded, it.total, it.speed)
+                        }
+                    )
+                }
+
+                val versionsDir = GameConfig.getVersionsDir(gameDir)
+                val installed = mutableListOf<File>()
+                targetVersionIds.forEach { versionId ->
+                    val targetFolder = File(File(versionsDir, versionId), folder)
+                    targetFolder.mkdirs()
+                    val targetFile = File(targetFolder, safeName)
+                    if (targetFile.exists() && !targetFile.delete()) {
+                        throw IOException("无法覆盖已存在的文件: ${targetFile.absolutePath}")
+                    }
+                    cacheFile.copyTo(targetFile)
+                    installed.add(targetFile)
+                }
+                installed
+            } finally {
+                // 与 ZL2 一致：分发完成后清理缓存
+                cacheFile.delete()
+            }
+        }
+    }
+
+    /**
+     * 在 VERSIONS_DIR 下所有版本目录的 mods 子目录中查找同名且同 SHA1 的 mod 文件
+     * （对齐 VersePC _findExistingModInVersions），找到则返回复用的文件，否则返回 null。
+     */
+    private fun findExistingMod(versionsDir: File, fileName: String, expectedSha1: String): File? =
+        findExistingFileInVersions(versionsDir, "mods", fileName, expectedSha1)
+
+    /** 在所有版本目录的 [folder] 子目录中查找同名且同 SHA1 的文件，找到则返回，否则返回 null */
+    private fun findExistingFileInVersions(
+        versionsDir: File,
+        folder: String,
+        fileName: String,
+        expectedSha1: String
+    ): File? {
+        val versionDirs = versionsDir.listFiles { f -> f.isDirectory } ?: return null
+        for (dir in versionDirs) {
+            val candidate = File(File(dir, folder), fileName)
+            if (!candidate.isFile || candidate.length() == 0L) continue
+            try {
+                val actualSha1 = FileUtils.calculateSha1(candidate)
+                if (actualSha1.equals(expectedSha1, ignoreCase = true)) {
+                    return candidate
+                }
+            } catch (_: Exception) {
+                continue
+            }
+        }
+        return null
+    }
+}

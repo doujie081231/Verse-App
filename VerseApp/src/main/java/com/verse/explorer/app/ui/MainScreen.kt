@@ -69,12 +69,7 @@ private val mainNavItems = listOf(
     ),
     NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "联机"),
     NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "账户"),
-    NavItem(
-        icon = Icons.Outlined.Settings,
-        label = "设置",
-        isSubmenuToggle = true,
-        submenuItems = listOf(Screen.Settings)
-    ),
+    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置"),
     NavItem(screen = Screen.Java, icon = Icons.Outlined.Code, label = "Java")
 )
 
@@ -122,16 +117,18 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    Row(modifier = Modifier.fillMaxSize().background(VerseColors.PcBgPrimary)) {
-        if (showSidebar) {
-            PcStyleSidebar(
-                navController = navController,
-                currentRoute = currentRoute
-            )
-        }
+    // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）
+    Box(modifier = Modifier.fillMaxSize().background(VerseColors.PcGlassBg)) {
+        Row(modifier = Modifier.fillMaxSize()) {
+                if (showSidebar) {
+                    PcStyleSidebar(
+                        navController = navController,
+                        currentRoute = currentRoute
+                    )
+                }
 
-        NavHost(
-            navController = navController,
+                NavHost(
+                    navController = navController,
             startDestination = Screen.Home.route,
             modifier = Modifier.weight(1f),
             enterTransition = { fadeIn(tween(200)) },
@@ -150,6 +147,9 @@ fun MainScreen(
             composable(Screen.Lan.route) { LanScreen(navController) }
             composable(Screen.Java.route) { JavaScreen(navController) }
             composable(Screen.Console.route) { ConsoleScreen(navController) }
+            composable("installed_versions") {
+                InstalledVersionsScreen(navController = navController)
+            }
             composable("version_settings/{versionId}") { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 VersionSettingsScreen(versionId = versionId, navController = navController)
@@ -160,23 +160,40 @@ fun MainScreen(
                 val versionUrl = backStackEntry.arguments?.getString("versionUrl") ?: ""
                 VersionDetailScreen(versionId, versionType, versionUrl, navController)
             }
-            composable("mod_detail/{projectId}") { backStackEntry ->
+            composable("mod_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-                ModDetailScreen(navController, projectId, "mod")
+                val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
+                ModDetailScreen(navController, projectId, "mod", source)
             }
-            composable("modpack_detail/{projectId}") { backStackEntry ->
+            composable("modpack_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-                ModDetailScreen(navController, projectId, "modpack")
+                val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
+                ModDetailScreen(navController, projectId, "modpack", source)
             }
-            composable("resourcepack_detail/{projectId}") { backStackEntry ->
+            composable("resourcepack_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-                ModDetailScreen(navController, projectId, "resourcepack")
+                val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
+                ModDetailScreen(navController, projectId, "resourcepack", source)
             }
-            composable("shader_detail/{projectId}") { backStackEntry ->
+            composable("shader_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-                ModDetailScreen(navController, projectId, "shader")
+                val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
+                ModDetailScreen(navController, projectId, "shader", source)
             }
         }
+        }
+    }
+}
+
+/**
+ * 侧栏标签切换：彻底清空现有返回栈后重建目标页，
+ * 避免 `popUpTo(startDestination)` + `restoreState` 组合在多次切页后
+ * 回到起始页时复现旧状态（如误显示上一页/无法回到主页）的问题。
+ */
+private fun navigateToTab(navController: NavHostController, route: String) {
+    navController.navigate(route) {
+        popUpTo(0) { inclusive = true }
+        launchSingleTop = true
     }
 }
 
@@ -247,11 +264,7 @@ private fun PcStyleSidebar(
                                         label = subScreen.title,
                                         isActive = isSubActive,
                                         onClick = {
-                                            navController.navigate(subScreen.route) {
-                                                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
+                                            navigateToTab(navController, subScreen.route)
                                         }
                                     )
                                 }
@@ -266,11 +279,7 @@ private fun PcStyleSidebar(
                             showIndicator = isActive,
                             onClick = {
                                 item.screen?.let { screen ->
-                                    navController.navigate(screen.route) {
-                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                                    navigateToTab(navController, screen.route)
                                 }
                             }
                         )
@@ -293,12 +302,8 @@ private fun PcStyleSidebar(
                 showIndicator = currentRoute == footerNavItem.screen?.route,
                 onClick = {
                     footerNavItem.screen?.let { screen ->
-                        navController.navigate(screen.route) {
-                            popUpTo(navController.graph.startDestinationId) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
+                    navigateToTab(navController, screen.route)
+                }
                 }
             )
         }

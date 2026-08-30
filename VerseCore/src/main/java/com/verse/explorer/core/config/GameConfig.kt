@@ -1,6 +1,7 @@
 package com.verse.explorer.core.config
 
 import android.content.Context
+import android.os.Environment
 import java.io.File
 
 object GameConfig {
@@ -14,13 +15,27 @@ object GameConfig {
     )
 
     fun getGameDir(context: Context): File {
-        // 使用 internal storage 避免 Android 11+ SELinux 限制
-        // 应用无法访问通过 adb shell 创建的文件（即使有 MANAGE_EXTERNAL_STORAGE 权限）
-        // internal storage 由应用自己管理，adb 可通过 run-as 推送文件
-        return File(context.filesDir, GAME_DIR_NAME)
+        // 对齐 FCL：游戏数据放在应用内部私有目录，保证 App 全程可读写。
+        // 曾用共享根 /sdcard/VerseExplorerX 与外部私有 /sdcard/Android/data/...，
+        // 二者在部分设备（ColorOS 等）的 FUSE 挂载上不可靠：共享根读取报
+        // Permission denied（JVM 载不到主类 => 启动 exit 6），外部私有写入报
+        // EACCES（分块下载 open failed）。内部 files 目录由系统保障读写，无上述问题。
+        val internal = File(context.filesDir, GAME_DIR_NAME)
+        try {
+            internal.mkdirs()
+            return internal
+        } catch (_: Exception) {
+            return getExternalGameDir(context)
+        }
     }
 
     fun getExternalGameDir(context: Context): File {
+        val externalBase = context.getExternalFilesDir(null)
+        if (externalBase != null) {
+            val external = File(externalBase, GAME_DIR_NAME)
+            external.mkdirs()
+            return external
+        }
         return File(context.filesDir, GAME_DIR_NAME)
     }
 

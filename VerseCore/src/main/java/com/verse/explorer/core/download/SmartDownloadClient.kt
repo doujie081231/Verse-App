@@ -2,6 +2,7 @@ package com.verse.explorer.core.download
 
 import android.content.Context
 import android.util.Log
+import com.verse.explorer.core.util.FileUtils
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -119,10 +120,13 @@ class SmartDownloadClient(
         targetFile: File,
         expectedSha1: String? = null,
         knownSize: Long = -1L,
+        isCancelled: () -> Boolean = { false },
         onProgress: (Progress) -> Unit = { _ -> }
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             targetFile.parentFile?.mkdirs()
+
+            if (isCancelled()) throw CancelledException()
 
             // 已存在且 SHA1 匹配则直接跳过
             if (targetFile.exists() && targetFile.length() > 0) {
@@ -142,10 +146,12 @@ class SmartDownloadClient(
 
             // 大文件（已知大小 >5MB）才走分块；其他全部顺序镜像列表，跳过 probe 开销
             val result = if (knownSize > CHUNKED_FILE_SIZE_THRESHOLD && urls.size > 1) {
-                downloadChunkedWithProbing(urls, targetFile, expectedSha1, knownSize, onProgress)
+                downloadChunkedWithProbing(urls, targetFile, expectedSha1, knownSize, isCancelled, onProgress)
             } else {
-                downloadWithMirrorFallback(urls, targetFile, expectedSha1, onProgress)
+                downloadWithMirrorFallback(urls, targetFile, expectedSha1, isCancelled, onProgress)
             }
+
+            if (isCancelled()) throw CancelledException()
 
             if (result) {
                 if (expectedSha1 != null) {
@@ -156,6 +162,15 @@ class SmartDownloadClient(
                         return@withContext Result.failure(Exception("SHA1 校验失败: ${targetFile.name}"))
                     }
                 }
+
+                // JAR 完整性校验（对齐 VersePC isJarIntactDeep）：目标为 .jar 时校验结构，
+                // 损坏则删除并抛错，由上层重试（mod/库/客户端 jar 均受益）
+                if (targetFile.name.endsWith(".jar") && !FileUtils.isValidJar(targetFile)) {
+                    Log.e(TAG, "JAR corrupted after download: ${targetFile.name}")
+                    targetFile.delete()
+                    return@withContext Result.failure(Exception("JAR 文件损坏: ${targetFile.name}"))
+                }
+
                 Result.success(targetFile)
             } else {
                 Result.failure(Exception("下载失败: ${targetFile.name}"))
@@ -292,6 +307,7 @@ class SmartDownloadClient(
         targetFile: File,
         expectedSha1: String?,
         totalSize: Long,
+        isCancelled: () -> Boolean,
         onProgress: (Progress) -> Unit
     ): Boolean {
         val availableUrls = filterAvailableMirrors(urls)
@@ -301,8 +317,11 @@ class SmartDownloadClient(
         Log.d(TAG, "Chunked download ranked: $rankedUrls")
 
         for (url in rankedUrls) {
+            if (isCancelled()) return false
             val success = try {
-                downloadChunked(url, targetFile, totalSize, onProgress)
+                downloadChunked(url, targetFile, totalSize, isCancelled, onProgress)
+            } catch (e: CancelledException) {
+                throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Chunked download from $url failed: ${e.message}")
                 false
@@ -326,13 +345,14 @@ class SmartDownloadClient(
         }
 
         Log.w(TAG, "All chunked downloads failed, fallback to single-stream for ${targetFile.name}")
-        return downloadWithMirrorFallback(urls, targetFile, expectedSha1, onProgress)
+        return downloadWithMirrorFallback(urls, targetFile, expectedSha1, isCancelled, onProgress)
     }
 
     private suspend fun downloadChunked(
         url: String,
         targetFile: File,
         totalSize: Long,
+        isCancelled: () -> Boolean,
         onProgress: (Progress) -> Unit
     ): Boolean {
         val chunkCount = calculateChunkCount(totalSize)
@@ -356,7 +376,7 @@ class SmartDownloadClient(
         val jobs = chunks.mapIndexed { idx, (start, end) ->
             scope.async {
                 try {
-                    downloadChunkRange(url, chunkFiles[idx], start, end)
+                    downloadChunkRange(url, chunkFiles[idx], start, end, isCancelled)
                     chunkProgress[idx] = end - start + 1
                     completedChunks[idx] = true
                 } catch (e: Exception) {
@@ -383,6 +403,12 @@ class SmartDownloadClient(
         jobs.forEach { it.join() }
         monitorJob.cancel()
 
+        if (isCancelled()) {
+            chunkFiles.forEach { it.delete() }
+            tempDir.delete()
+            throw CancelledException()
+        }
+
         if (failed.get() || completedChunks.size < chunks.size) {
             chunkFiles.forEach { it.delete() }
             tempDir.delete()
@@ -391,6 +417,7 @@ class SmartDownloadClient(
 
         RandomAccessFile(targetFile, "rw").use { raf ->
             chunkFiles.forEach { chunk ->
+                if (isCancelled()) throw CancelledException()
                 chunk.inputStream().use { input ->
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
@@ -413,7 +440,7 @@ class SmartDownloadClient(
         return bySize.coerceAtLeast(1)
     }
 
-    private fun downloadChunkRange(url: String, chunkFile: File, start: Long, end: Long) {
+    private fun downloadChunkRange(url: String, chunkFile: File, start: Long, end: Long, isCancelled: () -> Boolean) {
         val request = Request.Builder().url(url)
             .header("User-Agent", "VerseExplorerX/1.0")
             .header("Range", "bytes=$start-$end")
@@ -423,7 +450,14 @@ class SmartDownloadClient(
                 throw Exception("HTTP ${response.code} for range $start-$end")
             }
             response.body?.byteStream()?.use { input ->
-                chunkFile.outputStream().use { output -> input.copyTo(output) }
+                chunkFile.outputStream().use { output ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        if (isCancelled()) throw CancelledException()
+                        output.write(buffer, 0, bytesRead)
+                    }
+                }
             } ?: throw Exception("Empty body")
         }
     }
@@ -432,6 +466,7 @@ class SmartDownloadClient(
         urls: List<String>,
         targetFile: File,
         expectedSha1: String?,
+        isCancelled: () -> Boolean,
         onProgress: (Progress) -> Unit
     ): Boolean {
         val availableUrls = filterAvailableMirrors(urls)
@@ -439,10 +474,11 @@ class SmartDownloadClient(
 
         var lastError: Exception? = null
         for (url in availableUrls) {
+            if (isCancelled()) return false
             try {
                 // 小文件直接写目标文件，避免 .tmp rename 的 IO 开销
                 // 对齐 PC 端 _dlSingle 策略
-                val success = downloadSingleStreamWithLowSpeedDetection(url, targetFile, onProgress, url)
+                val success = downloadSingleStreamWithLowSpeedDetection(url, targetFile, isCancelled, onProgress, url)
                 if (success) {
                     if (expectedSha1 != null) {
                         val actualSha1 = calculateSHA1(targetFile)
@@ -459,6 +495,9 @@ class SmartDownloadClient(
                     targetFile.delete()
                     markMirrorFail(url)
                 }
+            } catch (e: CancelledException) {
+                targetFile.delete()
+                throw e
             } catch (e: Exception) {
                 lastError = e
                 markMirrorFail(url)
@@ -472,6 +511,7 @@ class SmartDownloadClient(
     private suspend fun downloadSingleStreamWithLowSpeedDetection(
         url: String,
         targetFile: File,
+        isCancelled: () -> Boolean,
         onProgress: (Progress) -> Unit,
         mirrorName: String
     ): Boolean = withContext(Dispatchers.IO) {
@@ -495,6 +535,7 @@ class SmartDownloadClient(
                     val buffer = ByteArray(8192)
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
+                        if (isCancelled()) throw CancelledException()
                         output.write(buffer, 0, bytesRead)
                         downloaded += bytesRead
 
@@ -530,6 +571,9 @@ class SmartDownloadClient(
     }
 
     private class LowSpeedException(val speedBps: Long) : Exception("Low speed: ${speedBps / 1024}KB/s")
+
+    /** 用户取消下载：抛出后由上层捕获，不再重试 */
+    private class CancelledException : Exception("下载已取消")
 
     private suspend fun filterAvailableMirrors(urls: List<String>): List<String> {
         val now = System.currentTimeMillis()

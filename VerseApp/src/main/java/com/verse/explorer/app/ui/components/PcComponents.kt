@@ -4,8 +4,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -68,6 +70,7 @@ import com.verse.explorer.app.ui.theme.VerseColors
 fun PageHeader(
     title: String,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -78,7 +81,7 @@ fun PageHeader(
         ) {
             Text(
                 text = title,
-                fontSize = 22.sp,
+                fontSize = if (compact) 17.sp else 22.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = VerseColors.PcTextPrimary
             )
@@ -88,7 +91,7 @@ fun PageHeader(
                 content = actions
             )
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(if (compact) 8.dp else 24.dp))
     }
 }
 
@@ -130,14 +133,15 @@ fun PcTabGroup(
     tabs: List<String>,
     selectedIndex: Int,
     onSelected: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
 ) {
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         color = VerseColors.PcBgTertiary
     ) {
-        Row(modifier = Modifier.padding(2.dp)) {
+        Row(modifier = Modifier.horizontalScroll(rememberScrollState()).padding(2.dp)) {
             tabs.forEachIndexed { index, label ->
                 val isSelected = index == selectedIndex
                 Surface(
@@ -152,10 +156,10 @@ fun PcTabGroup(
                 ) {
                     Text(
                         text = label,
-                        fontSize = 13.sp,
+                        fontSize = if (compact) 12.sp else 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = if (isSelected) VerseColors.PcAccentText else VerseColors.PcTextSecondary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 4.dp else 6.dp)
                     )
                 }
             }
@@ -534,14 +538,13 @@ fun PcLaunchOverlay(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Image(
-                painter = rememberAsyncImagePainter(model = R.mipmap.ic_launcher),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .size(80.dp)
-                    .scale(logoScale.value)
-            )
+            // 启动图标：玫瑰曲线加载动画（等价迁移自 versepc2 rose-loader.js）
+            Box(modifier = Modifier.size(96.dp)) {
+                RoseCurveLoader(
+                    modifier = Modifier.fillMaxSize(),
+                    color = VerseColors.PcAccent
+                )
+            }
 
             Box(
                 modifier = Modifier

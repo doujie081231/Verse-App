@@ -128,7 +128,6 @@ fun RuntimeSetupScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier

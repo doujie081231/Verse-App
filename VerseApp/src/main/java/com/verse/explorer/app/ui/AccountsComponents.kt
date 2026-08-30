@@ -19,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -31,7 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import coil.compose.AsyncImage
+import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -41,10 +40,12 @@ import com.verse.explorer.app.ui.components.pcTextFieldColors
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.account.Account
 import com.verse.explorer.core.account.AccountType
+import com.verse.explorer.core.account.AsyncStatus
 import com.verse.explorer.core.account.AuthlibProfile
 import com.verse.explorer.core.account.AuthResult
 import com.verse.explorer.core.account.DeviceCodeResponse
 import com.verse.explorer.core.account.ServerInfo
+import com.verse.explorer.app.viewmodel.MicrosoftLoginState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,11 +54,13 @@ internal fun AddAccountSheet(
     viewModel: AccountsViewModel,
     initialType: String,
     onDismiss: () -> Unit,
+    onMicrosoftWeb: (url: String) -> Unit = {},
     onProfilesAvailable: (serverUrl: String, username: String, password: String, profiles: List<AuthlibProfile>) -> Unit
 ) {
     var step by remember { mutableStateOf(1) }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val msaLoginState by viewModel.microsoftLoginState.collectAsState()
 
     var selectedType by remember { mutableStateOf(initialType) }
 
@@ -73,6 +76,55 @@ internal fun AddAccountSheet(
 
     var serverInfo by remember { mutableStateOf<ServerInfo?>(null) }
     var isVerifying by remember { mutableStateOf(false) }
+
+    // 微软登录流程状态（与 ZL2 的任务编排对应）：驱动进度文案与终态处理
+    LaunchedEffect(msaLoginState) {
+        when (val state = msaLoginState) {
+            is MicrosoftLoginState.Polling -> {
+                step = 2
+                authStatus = "等待在浏览器中完成授权..."
+            }
+            is MicrosoftLoginState.Authenticating -> {
+                step = 2
+                authStatus = when (state.status) {
+                    AsyncStatus.GETTING_ACCESS_TOKEN -> "获取访问令牌"
+                    AsyncStatus.GETTING_XBL_TOKEN -> "获取 XBL 令牌"
+                    AsyncStatus.GETTING_XSTS_TOKEN -> "获取 XSTS 令牌"
+                    AsyncStatus.AUTHENTICATE_MINECRAFT -> "验证 Minecraft 基本信息"
+                    AsyncStatus.VERIFY_GAME_OWNERSHIP -> "验证是否拥有 Minecraft"
+                    AsyncStatus.GETTING_PLAYER_PROFILE -> "获取玩家账户信息"
+                }
+            }
+            is MicrosoftLoginState.Success -> {
+                viewModel.resetMicrosoftLogin()
+                onDismiss()
+            }
+            is MicrosoftLoginState.Failed -> {
+                authError = formatMicrosoftError(
+                    AuthResult(
+                        success = false,
+                        error = state.message,
+                        needPurchase = state.needPurchase,
+                        needCreateProfile = state.needCreateProfile,
+                        needRelogin = state.needRelogin
+                    )
+                )
+                isAuthenticating = false
+                deviceCodeResult = null
+                step = 1
+                viewModel.resetMicrosoftLogin()
+            }
+            is MicrosoftLoginState.Cancelled -> {
+                // 与 ZL2 一致：离开浏览器页视为取消登录
+                authStatus = "您离开了浏览器页面，已取消微软登录流程"
+                isAuthenticating = false
+                deviceCodeResult = null
+                step = 1
+                viewModel.resetMicrosoftLogin()
+            }
+            MicrosoftLoginState.Idle -> {}
+        }
+    }
 
     AlertDialog(
         onDismissRequest = {
@@ -442,11 +494,41 @@ internal fun AddAccountSheet(
                 }
                 2 -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
-                            Modifier.size(24.dp),
-                            VerseColors.PcAccent,
-                            strokeWidth = 2.dp
-                        )
+                        // 与 ZL2 一致：轮询阶段醒目展示设备验证码
+                        val msaState = msaLoginState
+                        if (msaState is MicrosoftLoginState.Polling) {
+                            Text(
+                                "请在浏览器页面输入以下验证码",
+                                fontSize = 12.sp,
+                                color = VerseColors.PcTextSecondary
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = VerseColors.PcBgTertiary
+                            ) {
+                                Text(
+                                    msaState.deviceCode.userCode,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 3.sp,
+                                    color = VerseColors.PcAccent,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "验证码已复制到剪贴板；返回浏览器页将取消登录",
+                                fontSize = 10.sp,
+                                color = VerseColors.PcTextMuted
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                Modifier.size(24.dp),
+                                VerseColors.PcAccent,
+                                strokeWidth = 2.dp
+                            )
+                        }
                         Spacer(Modifier.height(12.dp))
                         Text(
                             authStatus.ifEmpty { "正在登录..." },
@@ -498,27 +580,17 @@ internal fun AddAccountSheet(
                                         scope.launch {
                                             try {
                                                 isAuthenticating = true
-                                                authStatus = "正在获取设备码..."
+                                                authStatus = "获取设备码"
                                                 authError = null
-                                                deviceCodeResult = viewModel.getDeviceCode()
-                                                authStatus = "请在浏览器中输入验证码: ${deviceCodeResult!!.userCode}"
-                                                step = 2
-                                                val token = viewModel.awaitDeviceAuth(
-                                                    deviceCodeResult!!.deviceCode,
-                                                    deviceCodeResult!!.interval
-                                                )
-                                                authStatus = "正在验证 Minecraft 身份..."
-                                                val result = viewModel.authenticateMicrosoft(token.accessToken)
-                                                if (result.success && result.account != null) {
-                                                    viewModel.addAccount(result.account!!.copy(selected = true))
-                                                    onDismiss()
-                                                } else {
-                                                    authError = formatMicrosoftError(result)
-                                                    isAuthenticating = false
-                                                    step = 1
-                                                }
+                                                val code = viewModel.getDeviceCode()
+                                                deviceCodeResult = code
+                                                // 与 ZL2 一致：设备码自动复制到剪贴板
+                                                clipboardManager.setText(AnnotatedString(code.userCode))
+                                                // 启动后台轮询 + 认证流程，并打开内置浏览器验证页
+                                                viewModel.startMicrosoftLogin(code)
+                                                onMicrosoftWeb(code.verificationUri)
                                             } catch (e: Exception) {
-                                                authError = e.message ?: "认证失败"
+                                                authError = e.message ?: "获取设备码失败"
                                                 isAuthenticating = false
                                                 step = 1
                                             }
@@ -623,14 +695,16 @@ internal fun AddAccountSheet(
 }
 
 private fun formatMicrosoftError(result: AuthResult): String {
-    return when {
-        result.needPurchase -> "该账号未购买 Minecraft，请先在微软商店购买 Minecraft Java Edition"
-        result.needCreateProfile -> "未找到 Minecraft 档案，请先在 Minecraft 官网创建角色名"
-        result.xerr != null && result.isRateLimit -> "Xbox 认证请求过于频繁，请等待 ${result.retryAfter ?: 60} 秒后重试"
-        result.xerr != null -> "Xbox 认证失败 (xerr: ${result.xerr})"
-        result.isRateLimit -> "请求过于频繁，请等待 ${result.retryAfter ?: 60} 秒后重试"
-        else -> result.error ?: "认证失败"
-    }
+    // 自 ZL2 迁移后，认证模块已针对各类失败（XErr 细分、频繁、IP 封禁、未购买等）
+    // 返回精确的中文错误文本，优先直接展示
+    return result.error
+        ?: if (result.needPurchase) {
+            "该账号未购买 Minecraft，请先在微软商店购买 Minecraft Java Edition"
+        } else if (result.needCreateProfile) {
+            "未找到 Minecraft 档案，请先在 Minecraft 官网创建角色名"
+        } else {
+            "认证失败"
+        }
 }
 
 @Composable
@@ -662,31 +736,10 @@ internal fun AccountCard(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(VerseColors.PcBgTertiary),
-                contentAlignment = Alignment.Center
-            ) {
-                if (!account.skinUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = account.skinUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(10.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = account.username.first().uppercase(),
-                        color = VerseColors.PcTextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 20.sp
-                    )
-                }
-            }
+            AccountAvatar(
+                account = account,
+                modifier = Modifier.size(48.dp)
+            )
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

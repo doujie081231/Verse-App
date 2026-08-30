@@ -6,7 +6,7 @@ import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.game.GameProfile
 import com.verse.explorer.launcher.bridge.ZLBridge
 import com.verse.explorer.launcher.renderer.RendererManager
-import com.verse.explorer.terracotta.TerracottaAndroidAPI
+import com.verse.explorer.jvmlauncher.JvmLauncherAPI
 import java.io.File
 
 data class LaunchConfiguration(
@@ -75,7 +75,7 @@ class MinecraftLauncher(private val context: Context, private val zlBridge: ZLBr
             // V3.7: Set debug log path to app's private directory (no permissions needed)
             // This allows viewing logs directly in-app without adb
             val logPath = File(context.filesDir, "verse_debug.log").absolutePath
-            TerracottaAndroidAPI.nativeSetLogPath(logPath)
+            JvmLauncherAPI.nativeSetLogPath(logPath)
             Log.i(TAG, "Debug log: $logPath")
             Log.i(TAG, "[launch] nativeSetLogPath done (${System.currentTimeMillis()-t0}ms)")
 

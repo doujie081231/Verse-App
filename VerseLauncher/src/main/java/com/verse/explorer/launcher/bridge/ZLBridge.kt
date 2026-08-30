@@ -7,12 +7,12 @@ import android.os.Build
 import android.util.Log
 import android.view.Surface
 import com.verse.explorer.core.java.JavaManager
-import com.verse.explorer.terracotta.TerracottaAndroidAPI
-import com.verse.explorer.terracotta.TerracottaExitCallback
+import com.verse.explorer.jvmlauncher.JvmLauncherAPI
+import com.verse.explorer.jvmlauncher.JvmExitCallback
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode
 import java.io.Serializable
 
-class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallback {
+class ZLBridge(private val context: Context) : Serializable, JvmExitCallback {
 
     companion object {
         const val DEFAULT_WIDTH = 1280
@@ -54,13 +54,13 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
 
         callback.onLog("Starting ZLBridge execution\n")
 
-        val errorCode = TerracottaAndroidAPI.nativeRedirectStdio(logPath ?: "/dev/null")
+        val errorCode = JvmLauncherAPI.nativeRedirectStdio(logPath ?: "/dev/null")
         if (errorCode != 0) {
             callback.onLog("Warning: redirectStdio failed with code $errorCode\n")
         }
 
         if (surface.isValid) {
-            TerracottaAndroidAPI.nativeSetupBridgeWindow(surface)
+            JvmLauncherAPI.nativeSetupBridgeWindow(surface)
         }
 
         callback.onLog("Bridge window ready\n")
@@ -111,19 +111,19 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
         android.util.Log.d("ZLBridge", "LD_LIBRARY_PATH: $mergedPath")
         android.util.Log.d("ZLBridge", "Java lib subdir: $javaLibSubdir, javaLibDir: $javaLibDir")
 
-        TerracottaAndroidAPI.nativeSetLdLibraryPath(mergedPath)
-        TerracottaAndroidAPI.nativeSetenv("JAVA_HOME", javaHome)
-        TerracottaAndroidAPI.nativeSetenv("HOME", gameDir)
+        JvmLauncherAPI.nativeSetLdLibraryPath(mergedPath)
+        JvmLauncherAPI.nativeSetenv("JAVA_HOME", javaHome)
+        JvmLauncherAPI.nativeSetenv("HOME", gameDir)
         val tmpDir = javaHomeFile.parentFile?.parentFile
         val tmpPath = if (tmpDir != null) "${tmpDir.absolutePath}/cache" else "${gameDir ?: "/data/local/tmp"}/cache"
-        TerracottaAndroidAPI.nativeSetenv("TMPDIR", tmpPath)
-        TerracottaAndroidAPI.nativeSetenv("POJAV_NATIVEDIR", nativeLibDir)
-        TerracottaAndroidAPI.nativeSetenv("FCL_NATIVEDIR", nativeLibDir)
-        TerracottaAndroidAPI.nativeSetenv("PATH", "$javaHome/bin:${System.getenv("PATH") ?: ""}")
-        TerracottaAndroidAPI.nativeSetenv("LD_LIBRARY_PATH", mergedPath)
-        TerracottaAndroidAPI.nativeSetenv("FORCE_VSYNC", "false")
-        TerracottaAndroidAPI.nativeSetenv("MOD_ANDROID_RUNTIME", modRuntimeDir)
-        TerracottaAndroidAPI.nativeSetenv("FCL_VERSION_CODE", "1")
+        JvmLauncherAPI.nativeSetenv("TMPDIR", tmpPath)
+        JvmLauncherAPI.nativeSetenv("POJAV_NATIVEDIR", nativeLibDir)
+        JvmLauncherAPI.nativeSetenv("FCL_NATIVEDIR", nativeLibDir)
+        JvmLauncherAPI.nativeSetenv("PATH", "$javaHome/bin:${System.getenv("PATH") ?: ""}")
+        JvmLauncherAPI.nativeSetenv("LD_LIBRARY_PATH", mergedPath)
+        JvmLauncherAPI.nativeSetenv("FORCE_VSYNC", "false")
+        JvmLauncherAPI.nativeSetenv("MOD_ANDROID_RUNTIME", modRuntimeDir)
+        JvmLauncherAPI.nativeSetenv("FCL_VERSION_CODE", "1")
 
         android.util.Log.d("ZLBridge", "Environment setup complete (FCL-style), JAVA_HOME=$javaHome")
     }
@@ -136,15 +136,15 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
         fixJrePermissionsAndConfig(jrePath)
         
         if (!gameDir.isNullOrEmpty()) {
-            TerracottaAndroidAPI.nativeChdir(gameDir!!)
+            JvmLauncherAPI.nativeChdir(gameDir!!)
             Log.i(TAG, "chdir to: $gameDir")
         }
         
         val tmpDir = java.io.File(gameDir ?: "", "cache/tmp")
         tmpDir.mkdirs()
         
-        TerracottaAndroidAPI.nativeSetupExitTrap(this)
-        val result = TerracottaAndroidAPI.nativeLaunchJVM(jrePath, args)
+        JvmLauncherAPI.nativeSetupExitTrap(this)
+        val result = JvmLauncherAPI.nativeLaunchJVM(jrePath, args)
         if (result != 0) {
             Log.e(TAG, "nativeLaunchJVM failed with code: $result")
             callback?.onLog("JVM launch failed with code: $result\n")
@@ -229,20 +229,20 @@ class ZLBridge(private val context: Context) : Serializable, TerracottaExitCallb
         }
     }
 
-    fun isJVMRunning(): Boolean = TerracottaAndroidAPI.nativeIsJVMRunning()
-    fun destroyJVM() = TerracottaAndroidAPI.nativeDestroyJVM()
-    fun getExitCode(): Int = TerracottaAndroidAPI.nativeGetExitCode()
-    fun getPid(): Int = TerracottaAndroidAPI.nativeGetPid()
+    fun isJVMRunning(): Boolean = JvmLauncherAPI.nativeIsJVMRunning()
+    fun destroyJVM() = JvmLauncherAPI.nativeDestroyJVM()
+    fun getExitCode(): Int = JvmLauncherAPI.nativeGetExitCode()
+    fun getPid(): Int = JvmLauncherAPI.nativeGetPid()
 
     fun release() {
         callback = null
         try {
-            TerracottaAndroidAPI.nativeReleaseExitCallback()
+            JvmLauncherAPI.nativeReleaseExitCallback()
         } catch (e: Throwable) {
             Log.e(TAG, "nativeReleaseExitCallback failed: ${e.message}")
         }
         try {
-            TerracottaAndroidAPI.nativeDestroyJVM()
+            JvmLauncherAPI.nativeDestroyJVM()
         } catch (e: Throwable) {
             Log.e(TAG, "nativeDestroyJVM failed: ${e.message}")
         }

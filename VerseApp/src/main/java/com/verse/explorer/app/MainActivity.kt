@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,8 +29,10 @@ import com.verse.explorer.app.ui.MainScreen
 import com.verse.explorer.app.ui.RuntimeSetupScreen
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameActivity
+import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.VerseExplorerTheme
+import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.java.JavaRuntimeManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -92,10 +95,14 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            // 启动时应用已保存的个性化黑白主题（对齐 PC data-theme）
+            LaunchedEffect(Unit) {
+                VerseColors.applyTheme(SettingsRepository.getThemeColor())
+            }
             VerseExplorerTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = VerseColors.PcBgPrimary
+                    color = Color.Transparent  // 背景交给 MainScreen（全景/玻璃），避免不透底遮住全景
                 ) {
                     val showEula = !eulaAgreed.value
                     val showPermission = eulaAgreed.value && !permissionGranted.value
@@ -207,8 +214,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         val settingsRepo = com.verse.explorer.app.data.SettingsRepository
-        val gameDirPath = settingsRepo.getGameDir()
-        val gameDir = File(if (gameDirPath.isNotEmpty()) gameDirPath else "/storage/emulated/0/VerseExplorerX")
+        val gameDir = GameConfig.getGameDir(this)
         val javaVerSetting = settingsRepo.getJavaVersion()
         val javaVer = javaVerSetting.toIntOrNull() ?: 17
 
@@ -315,6 +321,7 @@ class MainActivity : ComponentActivity() {
         intent.putExtra("javaHome", javaHome)
         intent.putExtra("versionId", targetVersion)
         intent.putExtra("gameDir", gameDir.absolutePath)
+        intent.putExtra("renderer", settingsRepo.getRenderer())
         startActivity(intent)
     }
 

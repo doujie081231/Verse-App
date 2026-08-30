@@ -48,7 +48,6 @@ fun ConsoleScreen(navController: NavHostController) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
             .padding(horizontal = 20.dp)
             .padding(top = 20.dp, bottom = 16.dp)
     ) {

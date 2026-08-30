@@ -18,7 +18,7 @@ import com.verse.explorer.launcher.fcl.game.VerseJavaVersion
 import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
 import com.verse.explorer.launcher.fcl.util.FCLPath
-import com.verse.explorer.terracotta.TerracottaAndroidAPI
+import com.verse.explorer.jvmlauncher.JvmLauncherAPI
 import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
 import kotlinx.coroutines.CancellationException
@@ -164,7 +164,7 @@ class GameLaunchOrchestrator(
     fun stopGame() {
         VerseLogger.info("stopGame 被调用", TAG)
         try {
-            TerracottaAndroidAPI.nativeDestroyJVM()
+            JvmLauncherAPI.nativeDestroyJVM()
         } catch (e: Exception) {
             VerseLogger.warn("nativeDestroyJVM 失败: ${e.message}", TAG)
         }
@@ -224,7 +224,12 @@ class GameLaunchOrchestrator(
 
     fun onSurfaceChanged(width: Int, height: Int) {
         VerseLogger.info("Surface changed: ${width}x${height}")
+        surfaceWidth = width
+        surfaceHeight = height
     }
+
+    private var surfaceWidth = 0
+    private var surfaceHeight = 0
 
     fun onSurfaceDestroyed() {
         VerseLogger.info("Surface destroyed, stopping game")
@@ -278,6 +283,15 @@ class GameLaunchOrchestrator(
 
         updateProgress("启动 Java 虚拟机...", "这可能需要几秒钟")
         val launcher = DefaultLauncher(activity, repository, fclVersion, authInfo, launchOptions)
+        launcher.setNativesDirectory(nativesDir.absolutePath)
+        // 诊断：JVM 的 stdout/stderr 在 Android 上默认丢弃（fd 指向 /dev/null），
+        // 重定向到文件便于排查启动期错误（复用既有 native 能力，非新增逻辑）。
+        runCatching {
+            System.loadLibrary("versejvm")
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio(
+                File(activity.filesDir, "verse_jvm_out.log").absolutePath
+            )
+        }
         val bridge = withContext(Dispatchers.IO) {
             launcher.launch()
         }
@@ -322,11 +336,15 @@ class GameLaunchOrchestrator(
     }
 
     private fun buildLaunchOptions(params: GameLaunchParams, javaVersion: JavaVersion): LaunchOptions {
+        val effectiveWidth = if (surfaceWidth > 0) surfaceWidth else params.gameWidth
+        val effectiveHeight = if (surfaceHeight > 0) surfaceHeight else params.gameHeight
+        // ZL2 式版本隔离：-Duser.home 与运行目录指向版本文件夹（与 getRunDirectory 一致）
+        val runDir = File(File(File(params.gameDirPath), "versions"), params.versionId).apply { mkdirs() }
         return LaunchOptions.Builder()
-            .setGameDir(File(params.gameDirPath))
+            .setGameDir(runDir)
             .setJava(javaVersion)
-            .setWidth(params.gameWidth)
-            .setHeight(params.gameHeight)
+            .setWidth(effectiveWidth)
+            .setHeight(effectiveHeight)
             .setMaxMemory(params.maxMemory)
             .setMinMemory(params.minMemory)
             .setRenderer(params.renderer)

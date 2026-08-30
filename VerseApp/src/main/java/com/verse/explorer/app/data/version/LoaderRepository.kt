@@ -68,9 +68,10 @@ object LoaderRepository {
     }
 
     fun fetchNeoForgeVersions(mcVersion: String): List<LoaderVersion> {
+        // 与 FCL NeoForgeBMCLVersionList 一致：/neoforge/list/{mcVersion}
         val urls = listOf(
-            "https://bmclapi2.bangbang93.com/neoforge/list?mcversion=$mcVersion",
-            "https://bmclapi.nofated.win/neoforge/list?mcversion=$mcVersion"
+            "https://bmclapi2.bangbang93.com/neoforge/list/$mcVersion",
+            "https://bmclapi.nofated.win/neoforge/list/$mcVersion"
         )
         for (url in urls) {
             try {
@@ -128,7 +129,14 @@ object LoaderRepository {
                         val body = resp.body?.string()
                         if (body != null) {
                             val list = gson.fromJson(body, Array<OptiFineEntry>::class.java)
-                            if (list.isNotEmpty()) return list.map { LoaderVersion(it.fileName.removePrefix("OptiFine_").removeSuffix(".jar"), "release") }
+                            if (list.isNotEmpty()) {
+                                // 与 FCL OptiFineBMCLVersionList 一致：version = type + "_" + patch，
+                                // 过滤预发布（patch 以 pre/alpha 开头）
+                                return list
+                                    .filter { !it.type.isNullOrBlank() && !it.patch.isNullOrBlank() }
+                                    .filter { isOptiFineStable(it.patch) }
+                                    .map { LoaderVersion("${it.type}_${it.patch}", "release") }
+                            }
                         }
                     }
                 }
@@ -136,4 +144,8 @@ object LoaderRepository {
         }
         return emptyList()
     }
+
+    /** 与 FCL OptiFineBMCLVersionList 的 isPre 判断相反：稳定版才进列表 */
+    private fun isOptiFineStable(patch: String): Boolean =
+        !patch.startsWith("pre") && !patch.startsWith("alpha")
 }

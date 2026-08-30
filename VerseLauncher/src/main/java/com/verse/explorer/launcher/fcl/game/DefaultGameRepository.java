@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -91,7 +92,10 @@ public class DefaultGameRepository implements GameRepository {
 
     @Override
     public File getRunDirectory(String id) {
-        return getBaseDirectory();
+        // ZL2 式版本隔离（对应 ZL2 Version.getGameDir 的 isIsolation 分支）：
+        // 运行目录固定为 versions/<id>，mods/saves/resourcepacks/shaderpacks 等随版本存放。
+        // 该值同时作为 FCLConfig.workingDir（bridge.chdir 的工作目录）与 ${game_directory} 参数。
+        return getVersionRoot(id);
     }
 
     @Override
@@ -162,29 +166,70 @@ public class DefaultGameRepository implements GameRepository {
     public void refreshVersions() {
         Map<String, Version> result = new TreeMap<>();
         File versionsDir = new File(getBaseDirectory(), "versions");
+        Log.d(TAG, "refreshVersions: baseDirectory=" + getBaseDirectory()
+                + ", versionsDirExists=" + versionsDir.exists()
+                + ", isDir=" + versionsDir.isDirectory());
         File[] files = versionsDir.listFiles();
+        if (files == null) {
+            Log.e(TAG, "refreshVersions: versionsDir.listFiles() returned null");
+        } else {
+            Log.d(TAG, "refreshVersions: found " + files.length + " entries");
+            for (File f : files) {
+                Log.d(TAG, "refreshVersions: entry=" + f.getAbsolutePath()
+                        + ", isDir=" + f.isDirectory());
+            }
+        }
         if (files != null) {
+            // FCL-style two-phase refresh: collect ALL versions first, then resolve.
+            // This allows child versions (e.g. "26.2-forge-65.1.3" inheritsFrom "26.2")
+            // to resolve their parents even when the parent is parsed later.
+            SimpleVersionProvider provider = new SimpleVersionProvider();
             for (File dir : files) {
                 if (!dir.isDirectory()) continue;
                 String id = dir.getName();
                 File json = new File(dir, id + ".json");
-                if (!json.exists()) continue;
+                if (!json.exists()) {
+                    Log.w(TAG, "refreshVersions: " + dir + " has no " + id + ".json");
+                    continue;
+                }
                 try {
                     Version version = readVersionJson(json);
                     if (!id.equals(version.getId())) {
                         version._setId(id);
                     }
-                    Version resolved = version.resolve(this);
-                    if (resolved.appliesToCurrentEnvironment()) {
-                        result.put(id, version);
+                    provider.addVersion(version);
+                } catch (Exception e) {
+                    Log.e(TAG, "refreshVersions: failed to read version " + id + " from " + json, e);
+                }
+            }
+
+            for (Version version : provider.getVersionMap().values()) {
+                try {
+                    Version resolved = version.resolve(provider);
+                    boolean ok = resolved.appliesToCurrentEnvironment();
+                    Log.d(TAG, "refreshVersions: " + version.getId() + " parsed, applies=" + ok
+                            + ", mainClass=" + resolved.getMainClass()
+                            + ", jvmArgs=" + resolved.getArguments()
+                                    .map(Arguments::getJvm)
+                                    .map(List::size)
+                                    .orElse(0));
+                    if (ok) {
+                        // Store the RESOLVED version so that child versions (e.g.
+                        // "26.2-forge-65.1.3" inheritsFrom "26.2") keep their merged
+                        // parent arguments (including "-cp ${classpath}"). Storing the
+                        // raw version would drop inherited JVM/game arguments and the
+                        // launcher would launch with an empty classpath.
+                        result.put(version.getId(), resolved);
                     }
                 } catch (Exception e) {
-                    Log.w(TAG, "Malformed version json " + id, e);
+                    Log.w(TAG, "Ignoring version " + version.getId()
+                            + " because it inherits from a nonexistent version.");
                 }
             }
         }
         gameVersions.clear();
         this.versions = result;
+        Log.d(TAG, "refreshVersions: final versions=" + result.keySet());
     }
 
     public Version readVersionJson(File file) throws IOException, JsonParseException {

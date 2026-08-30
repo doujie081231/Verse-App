@@ -147,8 +147,10 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.util.Debug=true")
         args.add("-Dorg.lwjgl.util.DebugLoader=true")
         val glLibName = effectiveRenderer.glName
-        // libname 只设置库名（不含路径），LWJGL 会从 java.library.path / org.lwjgl.librarypath 中查找
-        args.add("-Dorg.lwjgl.system.libname=libverseexec.so")
+        // 系统库使用真实 Pojav/FCL patched 的 liblwjgl.so（提供完整的 MemoryUtil/FFICIF/JNI.invoke 等系统原生方法），
+        // 避免手写 stub 缺失 FFICIF 等结构体访问方法导致 UnsatisfiedLinkError。
+        // glfw 保留自定义 libverseexec.so（提供基于 bionic 的 EGL/GLFW 实现与 CallbackBridge 钩子）。
+        args.add("-Dorg.lwjgl.system.libname=liblwjgl.so")
         args.add("-Dorg.lwjgl.glfw.libname=libverseexec.so")
         args.add("-Dorg.lwjgl.opengl.libname=$glLibName")
         args.add("-Dorg.lwjgl.freetype.libname=libfreetype.so")

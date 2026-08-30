@@ -13,7 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -38,7 +37,7 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.Top
@@ -47,11 +46,7 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     modifier = Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            Brush.linearGradient(
-                                listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.6f))
-                            )
-                        ),
+                        .background(VerseColors.PcBgTertiary),
                     contentAlignment = Alignment.Center
                 ) {
                     // 始终显示占位图标（加载失败时透出来）
@@ -330,12 +325,12 @@ internal fun ResourceDetailDialog(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(version.versionNumber, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = VerseColors.PcTextPrimary)
+                                        Text(version.versionNumber ?: "", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = VerseColors.PcTextPrimary)
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            version.gameVersions.take(2).forEach { v ->
+                                            (version.gameVersions ?: emptyList()).take(2).forEach { v ->
                                                 Text(v, fontSize = 10.sp, color = VerseColors.PcTextMuted)
                                             }
-                                            version.loaders.take(2).forEach { l ->
+                                            (version.loaders ?: emptyList()).take(2).forEach { l ->
                                                 Text(l, fontSize = 10.sp, color = VerseColors.PcTextMuted)
                                             }
                                         }

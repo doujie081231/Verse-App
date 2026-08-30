@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_version">VerseExplorerX</string>
+    <string name="installer_exit_code_invalid">安装器返回了异常的退出码</string>
+    <string name="installer_process_failed_to_start">安装器进程启动失败</string>
+    <string name="installer_process_no_exit_code">安装器进程未返回退出码</string>
+    <string name="installer_process_no_response">安装器进程无响应</string>
+    <string name="installer_process_retrying">安装器无响应，正在重试</string>
+    <string name="installer_process_start_error">无法启动安装器进程</string>
+    <string name="installer_recent_logs">最近的日志</string>
+    <string name="installer_running_processor">正在运行处理器（Java %1$s）</string>
+    <string name="notification_title">Verse 安装器进程</string>
+</resources>

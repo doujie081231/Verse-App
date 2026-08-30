@@ -3,6 +3,7 @@ package com.verse.explorer.app.ui.game
 import android.annotation.SuppressLint
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.util.Log
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode
 import com.tungsten.fclauncher.bridge.FCLBridge
@@ -21,7 +22,10 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
     private var lastTouchY = 0f
 
     fun handleTouchEvent(event: MotionEvent) {
-        val bridge = bridgeProvider() ?: return
+        val bridge = bridgeProvider() ?: run {
+            Log.d("VerseX", "[Input] handleTouchEvent: bridge is null")
+            return
+        }
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -33,6 +37,7 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                 isLongPress = false
                 val x = event.x.toInt()
                 val y = event.y.toInt()
+                Log.d("VerseX", "[Input] DOWN ($x,$y) grabbing=$isGrabbing")
                 bridge.pushEventPointer(x, y)
                 bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, true)
             }
@@ -40,15 +45,17 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                 val pointerIndex = event.actionIndex
                 val px = event.getX(pointerIndex).toInt()
                 val py = event.getY(pointerIndex).toInt()
+                Log.d("VerseX", "[Input] PTR_DOWN ($px,$py)")
                 bridge.pushEventPointer(px, py)
                 bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, true)
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = event.x - touchDownX
                 val dy = event.y - touchDownY
-                if (!isLongPress && System.currentTimeMillis() - touchDownTime > LONG_PRESS_THRESHOLD
+                if (isGrabbing && !isLongPress && System.currentTimeMillis() - touchDownTime > LONG_PRESS_THRESHOLD
                     && (dx * dx + dy * dy) < MOVE_THRESHOLD * MOVE_THRESHOLD) {
                     isLongPress = true
+                    Log.d("VerseX", "[Input] LONG_PRESS -> RIGHT_DOWN")
                     bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
                     bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, true)
                 }
@@ -57,8 +64,10 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                     val deltaY = (event.y - lastTouchY).toInt()
                     lastTouchX = event.x
                     lastTouchY = event.y
+                    Log.d("VerseX", "[Input] MOVE grabbing d($deltaX,$deltaY)")
                     CallbackBridge.sendCursorDelta(deltaX.toDouble(), deltaY.toDouble())
                 } else {
+                    Log.d("VerseX", "[Input] MOVE (${event.x.toInt()},${event.y.toInt()})")
                     bridge.pushEventPointer(event.x.toInt(), event.y.toInt())
                 }
             }
@@ -67,8 +76,10 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                     bridge.pushEventPointer(event.x.toInt(), event.y.toInt())
                 }
                 if (isLongPress) {
+                    Log.d("VerseX", "[Input] UP after LONG_PRESS -> RIGHT_UP")
                     bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
                 } else {
+                    Log.d("VerseX", "[Input] UP -> LEFT_UP")
                     bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
                 }
                 isLongPress = false
@@ -77,6 +88,7 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                 val upIndex = event.actionIndex
                 val upX = event.getX(upIndex).toInt()
                 val upY = event.getY(upIndex).toInt()
+                Log.d("VerseX", "[Input] PTR_UP ($upX,$upY)")
                 bridge.pushEventPointer(upX, upY)
                 bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, false)
             }

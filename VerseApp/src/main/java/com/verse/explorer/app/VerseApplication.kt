@@ -62,6 +62,10 @@ class VerseApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         writeBootLog("Application.onCreate started")
         instance = this
+        // 陶瓦联机：提供应用级 Context 供后台推送 VPN 通知状态
+        com.verse.explorer.app.terracotta.TerracottaController.appContext = this
+        // fclcore（FCL download 模块）宿主接入：FCLApp/FCLPath/处理器链路
+        com.verse.explorer.app.install.FclCoreHost.init(this)
         SettingsRepository.init(this)
         database = Room.databaseBuilder(this, AppDatabase::class.java, "verse_explorer.db")
             .fallbackToDestructiveMigration()
@@ -152,22 +156,26 @@ class VerseApplication : Application(), ImageLoaderFactory {
 
     private fun initAllJreRuntimes() {
         applicationScope.launch {
-            val versionKeys = listOf("java8", "java11", "java17", "java21", "java25")
+            val versionKeys = listOf("java8", "java17", "java21", "java25")
             Log.i("VerseApp", "开始自动初始化所有JRE运行时: ${versionKeys.joinToString()}")
-            for (key in versionKeys) {
-                try {
-                    val result = JavaRuntimeManager.installJre(this@VerseApplication, key) { progress ->
-                        Log.d("VerseApp", "JRE $key: ${progress.status} ${progress.progress}% - ${progress.message}")
+            // 各版本并行安装，避免某个版本解压校验失败走网络下载而阻塞后续版本。
+            // 游戏启动依赖 java17，必须先保证它不被其它版本拖住。
+            versionKeys.forEach { key ->
+                applicationScope.launch {
+                    try {
+                        val result = JavaRuntimeManager.installJre(this@VerseApplication, key) { progress ->
+                            Log.d("VerseApp", "JRE $key: ${progress.status} ${progress.progress}% - ${progress.message}")
+                        }
+                        result.fold(
+                            onSuccess = { dir -> Log.i("VerseApp", "JRE $key 初始化完成: ${dir.absolutePath}") },
+                            onFailure = { e -> Log.w("VerseApp", "JRE $key 初始化失败: ${e.message}") }
+                        )
+                    } catch (e: Exception) {
+                        Log.e("VerseApp", "JRE $key 初始化异常: ${e.message}")
                     }
-                    result.fold(
-                        onSuccess = { dir -> Log.i("VerseApp", "JRE $key 初始化完成: ${dir.absolutePath}") },
-                        onFailure = { e -> Log.w("VerseApp", "JRE $key 初始化失败: ${e.message}") }
-                    )
-                } catch (e: Exception) {
-                    Log.e("VerseApp", "JRE $key 初始化异常: ${e.message}")
                 }
             }
-            Log.i("VerseApp", "所有JRE运行时初始化流程结束")
+            Log.i("VerseApp", "所有JRE运行时初始化流程调度结束")
         }
     }
 

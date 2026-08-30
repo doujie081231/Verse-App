@@ -13,28 +13,20 @@ internal class ClasspathBuilder(private val context: Context) {
     fun buildFclClasspath(config: LaunchConfiguration, runtimeDir: File): String {
         val classpath = mutableListOf<String>()
 
-        // 检测MC是否自带LWJGL核心类（org.lwjgl:lwjgl:* 且非natives的库，如 :unsafe 或无classifier）
-        // MC 26.2+ 将核心类打包在 lwjgl-*-unsafe.jar 中，不再需要覆盖jar
-        val hasBuiltinLwjglCore = config.version.libraries.any { lib ->
-            lib.name.startsWith("org.lwjgl:lwjgl:") && !lib.name.contains("-natives-")
-        }
-
-        // FCL-style: LWJGL jar 排在最前面（仅当MC不自带核心类时）
-        if (!hasBuiltinLwjglCore) {
-            val lwjglDir = File(runtimeDir, "lwjgl")
-            val lwjglJar = File(lwjglDir, "lwjgl.jar")
-            if (lwjglJar.exists() && lwjglJar.length() > 1024) {
-                classpath.add(lwjglJar.absolutePath)
-            } else {
-                val lwjgl3Jar = File(runtimeDir, "lwjgl3/lwjgl.jar")
-                if (lwjgl3Jar.exists() && lwjgl3Jar.length() > 1024) {
-                    classpath.add(lwjgl3Jar.absolutePath)
-                } else {
-                    Log.w(TAG, "LWJGL override JAR not found at ${lwjglJar.absolutePath} or ${lwjgl3Jar.absolutePath}")
-                }
-            }
+        // 定制 LWJGL jar 始终排在 classpath 最前面，遮蔽 MC 自带的官方 LWJGL。
+        // 官方 LWJGL 的 ThreadLocalUtil.nsetupEnvData 与安卓 patched liblwjgl.so 的
+        // setupEnvData 符号不匹配，会导致 UnsatisfiedLinkError。
+        val lwjglDir = File(runtimeDir, "lwjgl")
+        val lwjglJar = File(lwjglDir, "lwjgl.jar")
+        if (lwjglJar.exists() && lwjglJar.length() > 1024) {
+            classpath.add(lwjglJar.absolutePath)
         } else {
-            Log.d(TAG, "MC自带LWJGL核心类，跳过覆盖jar: ${config.version.id}")
+            val lwjgl3Jar = File(runtimeDir, "lwjgl3/lwjgl.jar")
+            if (lwjgl3Jar.exists() && lwjgl3Jar.length() > 1024) {
+                classpath.add(lwjgl3Jar.absolutePath)
+            } else {
+                Log.w(TAG, "LWJGL override JAR not found at ${lwjglJar.absolutePath} or ${lwjgl3Jar.absolutePath}")
+            }
         }
 
         // 版本 JAR

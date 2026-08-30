@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -34,27 +33,10 @@ private fun extractResolution(categories: List<String>): String {
     return categories.firstOrNull { resolutionRegex.matches(it) } ?: ""
 }
 
-private val iconGradients = listOf(
-    listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcYellow, VerseColors.PcOrange.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcPurple, VerseColors.PcPurple.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcRed, VerseColors.PcOrange.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcPurple, VerseColors.PcPurple.copy(alpha = 0.8f)),
-    listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.6f)),
-    listOf(VerseColors.PcOrange, VerseColors.PcYellow.copy(alpha = 0.7f))
-)
-
-private fun gradientForId(id: String): List<Color> {
-    val index = Math.abs(id.hashCode()) % iconGradients.size
-    return iconGradients[index]
-}
-
 @Composable
 internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
     val resolution = extractResolution(hit.categories)
     val gameVersion = hit.gameVersions.firstOrNull() ?: ""
-    val gradient = gradientForId(hit.projectId)
 
     GlassCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -63,16 +45,14 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.Top
         ) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        Brush.linearGradient(gradient)
-                    ),
+                    .background(VerseColors.PcBgTertiary),
                 contentAlignment = Alignment.Center
             ) {
                 // 始终显示占位图标（加载失败时透出来）

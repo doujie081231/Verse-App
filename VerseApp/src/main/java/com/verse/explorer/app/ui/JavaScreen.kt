@@ -77,7 +77,6 @@ fun JavaScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         LazyColumn(
             modifier = Modifier

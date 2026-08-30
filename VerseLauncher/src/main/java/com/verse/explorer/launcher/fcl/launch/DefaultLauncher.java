@@ -55,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -67,6 +68,7 @@ import java.util.stream.Collectors;
 
 public class DefaultLauncher extends Launcher {
     private String jnaVersion;
+    private String nativesDirectory;
 
     public DefaultLauncher(Context context, GameRepository repository, Version version, AuthInfo authInfo, LaunchOptions options) {
         super(context, repository, version, authInfo, options);
@@ -130,6 +132,9 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Djava.io.tmpdir=", FCLPath.CACHE_DIR);
         res.addDefault("-Dos.name=", "Linux");
         res.addDefault("-Dos.version=Android-", Build.VERSION.RELEASE);
+        // 让 LWJGL 的 org.lwjgl.opengl 绑定加载渲染器的 GL 库（FCLauncher.rebaseArgs 会把 ${gl_lib_name}
+        // 替换为 renderer.getGLPath()）。缺少该参数时 LWJGL 默认找 libGL.so.1，Android 上不存在，导致
+        // GL.create 抛 UnsatisfiedLinkError: Failed to locate library: libGL.so.1。
         res.addDefault("-Dorg.lwjgl.opengl.libname=", "${gl_lib_name}");
         res.addDefault("-Dorg.lwjgl.freetype.libname=", context.getApplicationInfo().nativeLibraryDir + "/libfreetype.so");
         res.addDefault("-Dfml.earlyprogresswindow=", "false");
@@ -147,6 +152,24 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Djdk.lang.Process.launchMechanism=", "FORK");
         res.addDefault("-Dcpu.name=", FCLauncher.getSocName());
         NativeLibPlugin.getJVMEnv().forEach((k, v) -> res.addDefault(k + "=", v));
+        if (nativesDirectory != null && !nativesDirectory.isEmpty()) {
+            res.addDefault("-Djava.library.path=", nativesDirectory);
+            res.addDefault("-Dorg.lwjgl.librarypath=", nativesDirectory);
+        }
+        // LWJGL 分两个模块加载：
+        // 1) system 模块（org.lwjgl.libname=lwjgl）：加载 liblwjgl.so，提供 JNI.call* 等
+        //    ffi 桥接方法以及 ThreadLocalUtil.setupEnvData。
+        // 2) glfw 模块（org.lwjgl.glfw.libname=pojavexec）：加载 GLFW/EGL 桥接库，
+        //    glfwCreateWindow 渲染到 ANativeWindow 并提供输入桥接。
+        // classpath 中的官方 LWJGL jar 调用 nsetupEnvData，与原生库导出的 setupEnvData
+        // 符号不一致，必须由 replaceLwjglWithLocal 整体替换为适配版 jar。
+        //
+        // 注意：这里用裸名 "pojavexec"，不能带 "lib" 前缀或 ".so" 后缀，否则会被拼成
+        // liblibpojavexec.so.so 而加载失败。
+        res.addDefault("-Dorg.lwjgl.glfw.libname=", "pojavexec");
+        res.addDefault("-Dorg.lwjgl.libname=", "lwjgl");
+        res.addDefault("-Dorg.lwjgl.util.Debug=", "true");
+        res.addDefault("-Dorg.lwjgl.util.DebugLoader=", "true");
         File libJna = new File(FCLPath.RUNTIME_DIR, "jna");
         if (jnaVersion != null && !jnaVersion.isEmpty()) {
             libJna = new File(libJna, jnaVersion);
@@ -164,7 +187,8 @@ public class DefaultLauncher extends Launcher {
         res.add("-javaagent:" + FCLPath.LIB_PATCHER_PATH);
 
         Set<String> classpath = repository.getClasspath(version);
-        addLWJGLClassPath(classpath);
+        replaceJnaWithLocal(classpath);
+        replaceLwjglWithLocal(classpath);
         classpath.add(FCLPath.MIO_LAUNCH_WRAPPER);
         File jar = repository.getVersionJar(version);
         if (!jar.exists() || !jar.isFile()) {
@@ -181,15 +205,9 @@ public class DefaultLauncher extends Launcher {
         configuration.put("${game_assets}", gameAssets.toAbsolutePath().toString());
         configuration.put("${assets_root}", gameAssets.toAbsolutePath().toString());
 
-        configuration.put("${natives_directory}", "${natives_directory}");
+        configuration.put("${natives_directory}", nativesDirectory != null ? nativesDirectory : "");
         List<String> jvmArgs = Arguments.parseArguments(version.getArguments().map(Arguments::getJvm).orElseGet(this::getDefaultJVMArguments), configuration);
-        res.addAll(jvmArgs.stream().map(arg -> {
-            String result = arg;
-            if (arg.contains("-Dio.netty.native.workdir") || arg.contains("-Djna.tmpdir") || arg.contains("-Dorg.lwjgl.system.SharedLibraryExtractPath")) {
-                result = arg.replace("${natives_directory}", FCLPath.CACHE_DIR);
-            }
-            return result;
-        }).collect(Collectors.toList()));
+        res.addAll(jvmArgs);
         Arguments argumentsFromAuthInfo = authInfo.getLaunchArguments(options);
         if (argumentsFromAuthInfo != null && argumentsFromAuthInfo.getJvm() != null && !argumentsFromAuthInfo.getJvm().isEmpty())
             res.addAll(Arguments.parseArguments(argumentsFromAuthInfo.getJvm(), configuration));
@@ -235,14 +253,6 @@ public class DefaultLauncher extends Launcher {
 
         res.removeIf(it -> getForbiddens().containsKey(it) && getForbiddens().get(it).get());
         return res;
-    }
-
-    private void addLWJGLClassPath(Set<String> classpath) {
-        Set<String> temp = new LinkedHashSet<>();
-        temp.add(FCLPath.LWJGL_DIR + "/lwjgl.jar");
-        temp.addAll(classpath);
-        classpath.clear();
-        classpath.addAll(temp);
     }
 
     public static void getCacioJavaArgs(CommandBuilder res, Version version, LaunchOptions options) {
@@ -358,6 +368,49 @@ public class DefaultLauncher extends Launcher {
     protected void appendJvmArgs(CommandBuilder result) {
     }
 
+    /**
+     * 将 classpath 中 MC 自带的 jna 核心 jar 替换为 FCL 本地 Android 兼容版 jna.jar。
+     * MC 的 jna jar（如 1.20.1 的 jna-5.12.1）内 libjnidispatch.so 是 Linux glibc 版，
+     * 在 Android 上无法加载；而 FCL 的 jna.jar（7.x，native 7.0.4）为 Android 定制编译、可直接加载。
+     * 若同时保留 MC 的 jna jar 与 FCL 的 7.0.4 native，会触发 JNA 版本校验失败
+     * （Expected: 6.1.4, Found: 7.0.4）。因此需要把 Java 层也统一为本机 7.x jna.jar。
+     * jna-platform 保留 MC 原版（FCL jna.jar 不含 platform 类），其依赖的 jna 核心 API 在 7.x 中向后兼容。
+     */
+    private void replaceJnaWithLocal(Set<String> classpath) {
+        File localJna = new File(FCLPath.JNA_PATH, "jna.jar");
+        if (!localJna.exists()) return;
+        Set<String> temp = new LinkedHashSet<>();
+        for (String entry : classpath) {
+            if (entry.contains("net/java/dev/jna/jna/")) {
+                temp.add(localJna.getAbsolutePath());
+            } else {
+                temp.add(entry);
+            }
+        }
+        classpath.clear();
+        classpath.addAll(temp);
+    }
+
+    /**
+     * 将 classpath 中的官方 LWJGL 各模块 jar 替换为本地适配版 lwjgl.jar 并置于最前。
+     * 官方 jar 的 ThreadLocalUtil 调用 nsetupEnvData，而原生库 liblwjgl.so 导出的
+     * 是 setupEnvData，符号不一致会在 GL.createCapabilities 时抛 UnsatisfiedLinkError。
+     * 适配版 jar 同时包含全部模块类（system/glfw/opengl/stb 等），其 GLFW 与 OpenGL
+     * 绑定按函数指针方式调用，与 pojavexec 桥接库及 gl4es 的加载方式匹配。
+     */
+    private void replaceLwjglWithLocal(Set<String> classpath) {
+        File localLwjgl = new File(FCLPath.LWJGL_DIR, "lwjgl.jar");
+        if (!localLwjgl.exists() || !localLwjgl.isFile()) return;
+        Set<String> temp = new LinkedHashSet<>();
+        temp.add(localLwjgl.getAbsolutePath());
+        for (String entry : classpath) {
+            if (entry.contains("org/lwjgl/lwjgl")) continue;
+            temp.add(entry);
+        }
+        classpath.clear();
+        classpath.addAll(temp);
+    }
+
     private boolean isUsingLog4j() {
         return GameVersionNumber.compare(repository.getGameVersion(version).orElse("1.7"), "1.7") >= 0;
     }
@@ -434,6 +487,12 @@ public class DefaultLauncher extends Launcher {
         Renderer renderer = options.getRenderer() != null
                 ? Renderer.valueOf(options.getRenderer())
                 : Renderer.GLES;
+        // zink 依赖 Vulkan。现代 Android 模拟器（host GPU / swiftshader_indirect）
+        // 均提供 vulkan.ranchu.so，因此 zink 可正常工作；仅当系统确无 Vulkan 驱动
+        // 时才回退到不依赖 Vulkan 的 NGGL4ES（软 GL 渲染，走 GLES3）。
+        if (renderer.isEqual(Renderer.ID_ZINK) && isEmulator() && !hasVulkanDriver()) {
+            renderer = Renderer.valueOf(Renderer.ID_NGGL4ES);
+        }
         FCLConfig config = new FCLConfig(
                 context,
                 FCLPath.LOG_DIR,
@@ -452,5 +511,35 @@ public class DefaultLauncher extends Launcher {
 
     public void setJnaVersion(String jnaVersion) {
         this.jnaVersion = jnaVersion;
+    }
+
+    public void setNativesDirectory(String nativesDirectory) {
+        this.nativesDirectory = nativesDirectory;
+    }
+
+    private static boolean isEmulator() {
+        String hardware = Build.HARDWARE == null ? "" : Build.HARDWARE.toLowerCase();
+        return hardware.contains("ranchu") || hardware.contains("goldfish");
+    }
+
+    /** 检测系统是否存在可用的 Vulkan 驱动（模拟器 host GPU 提供 vulkan.ranchu.so） */
+    private static boolean hasVulkanDriver() {
+        try {
+            final String[] drivers = new String[]{
+                    "/system/lib64/hw/vulkan.ranchu.so",
+                    "/vendor/lib64/hw/vulkan.ranchu.so",
+                    "/system/lib64/vulkan/vulkan.ranchu.so",
+                    "/vendor/lib64/vulkan/vulkan.ranchu.so"
+            };
+            for (String driver : drivers) {
+                if (new File(driver).exists()) return true;
+            }
+            // Android 13+ 通过 VK_ICD_FILENAMES / apex 提供驱动，避免硬编码路径时直接放行
+            // （GRALLOC/ramd 均已被 SurfaceFlinger 断言，模拟器容器默认配置了 Vulkan loader）
+            return System.getProperty("ro.hardware.vulkan") != null ||
+                    android.os.Build.VERSION.SDK_INT >= 33;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 }

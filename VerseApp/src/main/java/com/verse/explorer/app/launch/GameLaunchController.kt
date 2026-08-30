@@ -64,7 +64,7 @@ class GameLaunchController(private val context: Context) {
 
                 val maxMemory = settingsRepo.getMaxMemory()
                 val gcType = settingsRepo.getGcType()
-                val renderer = settingsRepo.getRenderer()
+                val renderer = resolveRendererForVersion(version.id, settingsRepo.getRenderer())
                 val launchMethod = settingsRepo.getLaunchMethod()
                 VerseLogger.info("Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer", "LaunchController")
 
@@ -96,6 +96,8 @@ class GameLaunchController(private val context: Context) {
                     putExtra("renderer", renderer)
                     putExtra("launchMethod", launchMethod)
                     putExtra("username", account.username)
+                    // 与 FCL 的 LauncherHelper 对应：把账户名作为联机身份传给游戏内联机菜单
+                    putExtra("TERRACOTTA_PLAYER", account.username)
                     putExtra("uuid", account.uuid)
                     putExtra("accessToken", account.accessToken)
                     putExtra("userType", when (account.type.name) {
@@ -150,14 +152,35 @@ class GameLaunchController(private val context: Context) {
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, "正在检查账户状态...")
         delay(200)
 
-        val account = VerseApplication.accountManager.selectedAccount.value
+        var account = VerseApplication.accountManager.selectedAccount.value
         if (account == null) {
-            steps[stepIdx] = LaunchStep("账户验证", "失败", "error")
-            criticalErrors.add("未选择账户，请先在账户页面添加账户")
+            // 离线模式：未选择账户时自动创建并选中默认离线账户
+            account = VerseApplication.accountManager.createOfflineAccount("Player")
+            steps[stepIdx] = LaunchStep("账户验证", "自动创建离线账户", "check")
         } else {
+            val currentAccount = account!!
+            // 微软账号：启动前用 refresh token 自动刷新访问令牌（对齐 FCL）
+            if (currentAccount.type == com.verse.explorer.core.account.AccountType.MICROSOFT &&
+                currentAccount.refreshToken.isNotBlank()
+            ) {
+                steps[stepIdx] = LaunchStep("账户验证", "正在刷新微软令牌...", "person")
+                emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, "正在刷新微软令牌...")
+                val refreshResult = VerseApplication.microsoftAuthenticator.refresh(currentAccount.refreshToken)
+                if (refreshResult.success && refreshResult.account != null) {
+                    val refreshed = refreshResult.account!!
+                    account = refreshed.copy(
+                        id = currentAccount.id,
+                        selected = true,
+                        refreshToken = refreshed.refreshToken.ifBlank { currentAccount.refreshToken }
+                    )
+                    VerseApplication.accountManager.updateAccount(account)
+                } else {
+                    VerseLogger.warn("微软令牌刷新失败: ${refreshResult.error}", "Launch")
+                }
+            }
             steps[stepIdx] = LaunchStep("账户验证", "完成 (${account.username})", "check")
-            cachedAccount = account
         }
+        cachedAccount = account
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, steps[stepIdx].status)
 
         // ========== 版本解析 ==========
@@ -190,16 +213,10 @@ class GameLaunchController(private val context: Context) {
             steps[stepIdx] = LaunchStep("Java 检查", "跳过 (前置失败)", "skip")
         } else {
             val rawJsonJavaVer = resolveVersionJsonJavaVersion(cachedVersion.id)
-            // Java 21/25 在 aarch64 上存在 stub 生成 bug（assembler_aarch64.hpp:245 立即数溢出），
-            // 崩溃发生在 JNI_CreateJavaVM 初始化阶段，-XX:TieredStopAtLevel=1 无法解决。
-            // 仅在 aarch64 架构下强制降级到 Java 17；x86_64 架构可正常运行 Java 21+。
-            val currentArch = JavaRuntimeManager.getArchName()
-            val jsonJavaVer = if (rawJsonJavaVer != null && rawJsonJavaVer >= 21 && currentArch == "aarch64") {
-                VerseLogger.warn("版本JSON要求 Java $rawJsonJavaVer，aarch64 架构降级到 Java 17 规避 stub 生成 bug", "Launch")
-                17
-            } else {
-                rawJsonJavaVer
-            }
+            // 26.2 需要 java-runtime-epsilon (Java 25)；arm64 真机直接使用 JSON 要求的版本。
+            // 模拟器时代针对 x86_64 的降级 hack 不适用于真机 arm64，迁移 Pojav/FCL 行为：
+            // 严格采用版本 JSON 声明的 Java 版本（26.2 -> Java 25 -> jre25）。
+            val jsonJavaVer = rawJsonJavaVer
             val recommendedJava = jsonJavaVer?.let { JavaVersion.fromMajorVersion(it) }
                 ?: JavaVersion.getRecommended(cachedVersion.id)
             cachedRecommendedJava = recommendedJava
@@ -321,6 +338,44 @@ class GameLaunchController(private val context: Context) {
     }
 
     // ========== FCL-style: 辅助方法 ==========
+
+    /**
+     * 根据游戏版本自动选择渲染器。
+     * GL4ES（ES2 模式）最高支持 MC 1.21.4；26.x 及更高版本引入了
+     * glMapBufferRange/持久化缓冲映射等 ES3/GL3 API，ES2 下会
+     * "Failed to map buffer"，因此自动切换到 NGGL4ES(ES3)。
+     */
+    private fun resolveRendererForVersion(versionId: String, selectedRenderer: String): String {
+        val resolved = selectedRenderer.ifBlank { "gl4es" }
+        if (resolved.equals("gl4es", ignoreCase = true) && versionNewerThan(versionId, "1.21.4")) {
+            VerseLogger.warn("版本 $versionId 需要 ES3 渲染，gl4es 自动切换为 nggl4es", "Launch")
+            return "nggl4es"
+        }
+        return resolved
+    }
+
+    private fun versionNewerThan(versionId: String, base: String): Boolean {
+        try {
+            val a = numericPrefix(versionId)
+            val b = numericPrefix(base)
+            if (a.isNotEmpty() && b.isNotEmpty()) {
+                val len = maxOf(a.size, b.size)
+                for (i in 0 until len) {
+                    val x = if (i < a.size) a[i] else 0
+                    val y = if (i < b.size) b[i] else 0
+                    if (x != y) return x > y
+                }
+                return false
+            }
+        } catch (_: Exception) {}
+        return versionId.startsWith("26.") || versionId.startsWith("25.") ||
+            versionId.startsWith("24.") || versionId.startsWith("1.22.")
+    }
+
+    private fun numericPrefix(v: String): List<Int> {
+        val m = Regex("""\d+(\.\d+)*""").find(v) ?: return emptyList()
+        return m.value.split(".").mapNotNull { it.toIntOrNull() }
+    }
 
     private fun selectBestRuntime(runtimes: List<JavaRuntime>, requiredVersion: Int): JavaRuntime? {
         val exactMatch = runtimes.find { it.version == requiredVersion }

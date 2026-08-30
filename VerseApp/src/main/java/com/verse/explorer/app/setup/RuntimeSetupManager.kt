@@ -186,9 +186,18 @@ object RuntimeSetupManager {
             RuntimeComponent.JAVA_8 -> "8"
             RuntimeComponent.JAVA_17 -> "17"
             RuntimeComponent.JAVA_21 -> "21"
+            RuntimeComponent.JAVA_25 -> "25"
             else -> "17"
         }
-        File(targetDir, "release").writeText("JAVA_VERSION=\"$versionNum\"\nOS_NAME=\"android\"\n")
+        // FCL/Pojav 的 JRE release 文件规范包含 OS_ARCH 字段，FCLauncher.getJavaLibDir()
+        // 依赖它计算 lib 路径（archAsInt 对 null 会抛 NPE）。此处保持与 OpenJDK release
+        // 文件格式一致；lib/<arch> 子目录不存在时 getJavaLibDir 回退到默认 /lib。
+        val osArch = when (getArchName()) {
+            "arm64" -> "aarch64"
+            "arm" -> "arm"
+            else -> getArchName()
+        }
+        File(targetDir, "release").writeText("JAVA_VERSION=\"$versionNum\"\nOS_NAME=\"android\"\nOS_ARCH=\"$osArch\"\n")
 
         Log.i(TAG, "Installed Java ${component.displayName}")
     }

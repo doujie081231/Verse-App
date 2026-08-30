@@ -16,9 +16,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.version.LoaderRepository
 import com.verse.explorer.app.domain.model.version.*
+import com.verse.explorer.app.ui.components.InstallFlowCard
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.install.InstallStage
@@ -93,7 +95,8 @@ fun VersionDetailScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgSecondary)
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Header
@@ -104,19 +107,19 @@ fun VersionDetailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = { navController.popBackStack() },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", Modifier.size(20.dp), VerseColors.PcTextPrimary)
                     }
                     Spacer(Modifier.width(8.dp))
                     VersionTypeIcon(
                         versionType = versionType,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(32.dp)
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
@@ -299,62 +302,7 @@ fun VersionDetailScreen(
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
                     if (isDownloading) {
-                        // PC端风格进度信息
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = when (installState.stage) {
-                                    InstallStage.PREPARING -> "准备安装..."
-                                    InstallStage.DOWNLOADING_VERSION -> "下载版本信息"
-                                    InstallStage.DOWNLOADING_CLIENT -> "下载游戏客户端"
-                                    InstallStage.DOWNLOADING_LIBRARIES -> "下载依赖库"
-                                    InstallStage.DOWNLOADING_ASSETS -> "下载资源文件"
-                                    InstallStage.EXTRACTING_NATIVES -> "解压原生库"
-                                    InstallStage.COMPLETED -> "安装完成"
-                                    InstallStage.FAILED -> "安装失败"
-                                    else -> "处理中..."
-                                },
-                                color = VerseColors.PcTextSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            if (installState.progress > 0f) {
-                                Text(
-                                    text = "${(installState.progress * 100).toInt()}%",
-                                    color = VerseColors.PcAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        LinearProgressIndicator(
-                            progress = { installState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp)),
-                            color = VerseColors.PcAccent,
-                            trackColor = VerseColors.PcBgHover,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = installState.message.ifEmpty { "准备中..." },
-                            color = VerseColors.PcTextSecondary,
-                            fontSize = 10.sp,
-                            maxLines = 1
-                        )
-                        if (installState.currentFile.isNotEmpty()) {
-                            Text(
-                                text = installState.currentFile,
-                                color = VerseColors.PcTextMuted,
-                                fontSize = 9.sp,
-                                maxLines = 1
-                            )
-                        }
-                        Spacer(Modifier.height(6.dp))
+                        // 下载进度已移入弹窗安装流程卡片（InstallFlowCard），此处不再内嵌展示
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -401,7 +349,10 @@ fun VersionDetailScreen(
                             },
                             modifier = Modifier.weight(1.5f),
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = VerseColors.PcAccent),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VerseColors.PcAccent,
+                                contentColor = VerseColors.PcAccentText
+                            ),
                             enabled = !isDownloading
                         ) {
                             Text(if (isDownloading) "下载中..." else "确认下载", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -411,11 +362,39 @@ fun VersionDetailScreen(
             }
         }
     }
+
+    // 下载/安装进度弹窗（分阶段动画流程卡片，进度内嵌卡片已移除）
+    if (installState.isInstalling && installState.versionId == versionId) {
+        Dialog(onDismissRequest = {}) {
+            InstallFlowCard(
+                state = installState,
+                onCancel = {
+                    viewModel.cancelInstall()
+                    viewModel.resetInstallState()
+                },
+                onRetry = {
+                    viewModel.cancelInstall()
+                    viewModel.resetInstallState()
+                    viewModel.installVersion(
+                        com.verse.explorer.core.version.MinecraftVersion(
+                            id = versionId,
+                            type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
+                            url = versionUrl,
+                            releaseTime = ""
+                        ),
+                        if (selectedLoader.isNotEmpty()) selectedLoader else null,
+                        selectedLoaderVersion
+                    )
+                }
+            )
+        }
+    }
 }
 
 fun getVersionTypeLabel(type: String): String {
     return when {
         type.equals("snapshot", ignoreCase = true) -> "快照版"
+        type.equals("special", ignoreCase = true) -> "愚人节版"
         type.equals("old_beta", ignoreCase = true) -> "旧测试版"
         type.equals("old_alpha", ignoreCase = true) -> "旧内测版"
         else -> "正式版"

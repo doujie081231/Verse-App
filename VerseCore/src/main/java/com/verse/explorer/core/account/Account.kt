@@ -48,6 +48,7 @@ data class AuthResult(
     val profiles: List<AuthlibProfile>? = null,
     val needPurchase: Boolean = false,
     val needCreateProfile: Boolean = false,
+    val needRelogin: Boolean = false,
     val xerr: Int? = null,
     val isRateLimit: Boolean = false,
     val retryAfter: Int? = null

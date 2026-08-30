@@ -14,16 +14,15 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
 
+        // 与 JvmLauncher 一致：外部 CMake 构建 verseexec（JVMLoader native）
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
-                arguments += "-DANDROID_STL=c++_shared"
-                abiFilters += listOf("x86_64")
+                abiFilters += listOf("x86_64", "arm64-v8a")
             }
         }
-
         ndk {
-            abiFilters += listOf("x86_64")
+            abiFilters += listOf("x86_64", "arm64-v8a")
         }
     }
 
@@ -64,7 +63,8 @@ tasks.register<Copy>("copyBootstrapJarToAssets") {
 
 dependencies {
     implementation(project(":VerseCore"))
-    implementation(project(":Terracotta"))
+    implementation(project(":JvmLauncher"))
+    implementation(project(":FclCore"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")

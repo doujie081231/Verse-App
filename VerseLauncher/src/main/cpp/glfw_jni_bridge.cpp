@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cstdlib>
 #include "glfw_hook.h"
+#include "verse_compat.h"
 
 #define LOG_TAG "GLFW_JNI_Bridge"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -285,13 +286,35 @@ Java_org_lwjgl_glfw_GLFW_nglfwGetMouseButton(JNIEnv* env, jclass cls, jlong wind
 }
 
 JNIEXPORT void JNICALL
-Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPos(JNIEnv* env, jclass cls, jlong window, jlong xpos, jlong ypos) {
-    if (window && xpos && ypos) {
-        double x = 0, y = 0;
-        glfwGetCursorPos((GLFWwindow*)(intptr_t)window, &x, &y);
-        *(double*)(intptr_t)xpos = x;
-        *(double*)(intptr_t)ypos = y;
+Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPos(JNIEnv* env, jclass cls, jlong window, jobject xpos, jobject ypos) {
+    double x = 0.0, y = 0.0;
+    verseGetCursorPos(&x, &y);
+    if (xpos) {
+        double* p = (double*)env->GetDirectBufferAddress(xpos);
+        if (p) *p = x;
     }
+    if (ypos) {
+        double* p = (double*)env->GetDirectBufferAddress(ypos);
+        if (p) *p = y;
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPosA(JNIEnv* env, jclass cls, jlong window, jdoubleArray xpos, jdoubleArray ypos) {
+    double x = 0.0, y = 0.0;
+    verseGetCursorPos(&x, &y);
+    if (xpos) env->SetDoubleArrayRegion(xpos, 0, 1, &x);
+    if (ypos) env->SetDoubleArrayRegion(ypos, 0, 1, &y);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_GLFW_glfwSetCursorPos(JNIEnv* env, jclass cls, jlong window, jdouble xpos, jdouble ypos) {
+    verseSetCursorPosValue(xpos, ypos);
+}
+
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_GLFW_nglfwSetShowingWindow(JNIEnv* env, jclass cls, jlong window) {
+    verseSetShowingWindow((long)window);
 }
 
 JNIEXPORT void JNICALL
@@ -439,9 +462,7 @@ Java_org_lwjgl_glfw_GLFW_nglfwSetWindowPosCallback(JNIEnv* env, jclass cls, jlon
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetWindowSizeCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetWindowSizeCallback((GLFWwindow*)(intptr_t)window, (GLFWwindowsizefun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_WINDOW_SIZE, callback);
 }
 
 JNIEXPORT jlong JNICALL
@@ -481,9 +502,7 @@ Java_org_lwjgl_glfw_GLFW_nglfwSetWindowMaximizeCallback(JNIEnv* env, jclass cls,
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetFramebufferSizeCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetFramebufferSizeCallback((GLFWwindow*)(intptr_t)window, (GLFWframebuffersizefun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_FRAMEBUFFER_SIZE, callback);
 }
 
 JNIEXPORT jlong JNICALL
@@ -495,51 +514,37 @@ Java_org_lwjgl_glfw_GLFW_nglfwSetWindowContentScaleCallback(JNIEnv* env, jclass 
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetKeyCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetKeyCallback((GLFWwindow*)(intptr_t)window, (GLFWkeyfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_KEY, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetCharCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetCharCallback((GLFWwindow*)(intptr_t)window, (GLFWcharfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_CHAR, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetCharModsCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetCharModsCallback((GLFWwindow*)(intptr_t)window, (GLFWcharmodsfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_CHAR_MODS, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetMouseButtonCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetMouseButtonCallback((GLFWwindow*)(intptr_t)window, (GLFWmousebuttonfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_MOUSE_BUTTON, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetCursorPosCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetCursorPosCallback((GLFWwindow*)(intptr_t)window, (GLFWcursorposfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_CURSOR_POS, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetCursorEnterCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetCursorEnterCallback((GLFWwindow*)(intptr_t)window, (GLFWcursorenterfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_CURSOR_ENTER, callback);
 }
 
 JNIEXPORT jlong JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetScrollCallback(JNIEnv* env, jclass cls, jlong window, jlong callback) {
-    if (window)
-        glfwSetScrollCallback((GLFWwindow*)(intptr_t)window, (GLFWscrollfun)(intptr_t)callback);
-    return 0;
+    return verseSetCallback(VERSE_CB_SCROLL, callback);
 }
 
 JNIEXPORT jlong JNICALL

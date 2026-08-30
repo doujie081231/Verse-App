@@ -3,105 +3,132 @@ package com.verse.explorer.core.java
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.InputStream
 
 private const val TAG = "JavaRuntimeManager"
 
 internal object JreInstaller {
 
+    /**
+     * JRE 安装互斥锁：VerseApplication.initAllJreRuntimes 的后台预装任务与
+     * 启动检查/版本安装触发的 JRE 安装可能并发执行，两者会同时读写同一
+     * jre-<version>-<arch> 目录（删除、解包写入）。若不串行化，
+     * 一个协程删除目录时另一个协程正在写入，会触发 FileTreeWalk 竞态导致进程崩溃。
+     * 全局互斥（而非按目录）足够且最稳妥：JRE 安装是低频操作，串行代价可忽略。
+     */
+    private val installMutex = Mutex()
+
     suspend fun installJre(
         context: Context,
         javaVersion: String = "java17",
         onProgress: (JavaInstallProgress) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
-        try {
-            val arch = JavaRuntimeManager.getArchName()
-            val jreDir = JavaRuntimeManager.getJreDir(context)
-            if (!jreDir.exists()) jreDir.mkdirs()
+        installMutex.withLock {
+            try {
+                val arch = JavaRuntimeManager.getArchName()
+                val jreDir = JavaRuntimeManager.getJreDir(context)
+                if (!jreDir.exists()) jreDir.mkdirs()
 
-            val versionNum = JavaRuntimeManager.JRE_VERSIONS[javaVersion] ?: 17
-            val targetDir = File(jreDir, "jre-$versionNum-$arch")
+                val versionNum = JavaRuntimeManager.JRE_VERSIONS[javaVersion] ?: 17
+                val targetDir = File(jreDir, "jre-$versionNum-$arch")
 
-            if (targetDir.exists()) {
-                val javaBin = File(targetDir, "bin/java")
-                val javaSh = File(targetDir, "bin/java.sh")
-                if ((javaBin.exists() || javaSh.exists()) && JreValidator.isAndroidCompatibleJre(targetDir)) {
-                    onProgress(JavaInstallProgress(
-                        JavaInstallStatus.COMPLETED, 100, "Java运行时已安装"
-                    ))
-                    return@withContext Result.success(targetDir)
-                } else {
-                    onProgress(JavaInstallProgress(
-                        JavaInstallStatus.PENDING, 0,
-                        "检测到不兼容的JRE，正在替换..."
-                    ))
-                    targetDir.deleteRecursively()
-                }
-            }
-
-            val allJreDirs = jreDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
-            for (oldDir in allJreDirs) {
-                val dirName = oldDir.name.lowercase()
-                if (dirName.contains("jre$versionNum") || dirName.contains("java$versionNum") ||
-                    dirName.contains("$versionNum")) {
-                    if (!JreValidator.isAndroidCompatibleJre(oldDir)) {
+                if (targetDir.exists()) {
+                    val javaBin = File(targetDir, "bin/java")
+                    val javaSh = File(targetDir, "bin/java.sh")
+                    if ((javaBin.exists() || javaSh.exists()) && JreValidator.isAndroidCompatibleJre(targetDir)) {
+                        onProgress(JavaInstallProgress(
+                            JavaInstallStatus.COMPLETED, 100, "Java运行时已安装"
+                        ))
+                        return@withContext Result.success(targetDir)
+                    } else {
                         onProgress(JavaInstallProgress(
                             JavaInstallStatus.PENDING, 0,
-                            "正在替换不兼容的JRE: ${oldDir.name}..."
+                            "检测到不兼容的JRE，正在替换..."
                         ))
-                        oldDir.deleteRecursively()
+                        deleteRecursivelySafe(targetDir)
                     }
                 }
-            }
 
-            val fclResult = extractFclJreFromAssets(context, javaVersion, arch, targetDir, onProgress)
-            if (fclResult) {
+                val allJreDirs = jreDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
+                for (oldDir in allJreDirs) {
+                    val dirName = oldDir.name.lowercase()
+                    if (dirName.contains("jre$versionNum") || dirName.contains("java$versionNum") ||
+                        dirName.contains("$versionNum")) {
+                        if (!JreValidator.isAndroidCompatibleJre(oldDir)) {
+                            onProgress(JavaInstallProgress(
+                                JavaInstallStatus.PENDING, 0,
+                                "正在替换不兼容的JRE: ${oldDir.name}..."
+                            ))
+                            deleteRecursivelySafe(oldDir)
+                        }
+                    }
+                }
+
+                val fclResult = extractFclJreFromAssets(context, javaVersion, arch, targetDir, onProgress)
+                if (fclResult) {
+                    onProgress(JavaInstallProgress(
+                        JavaInstallStatus.COMPLETED, 100,
+                        "Java $versionNum 运行时安装完成！"
+                    ))
+                    return@withContext Result.success(targetDir)
+                }
+
+                val pojavResult = extractPojavJreFromAssets(context, javaVersion, arch, targetDir, onProgress)
+                if (pojavResult) {
+                    onProgress(JavaInstallProgress(
+                        JavaInstallStatus.COMPLETED, 100,
+                        "Java $versionNum 运行时安装完成！"
+                    ))
+                    return@withContext Result.success(targetDir)
+                }
+
                 onProgress(JavaInstallProgress(
-                    JavaInstallStatus.COMPLETED, 100,
-                    "Java $versionNum 运行时安装完成！"
+                    JavaInstallStatus.DOWNLOADING, 0,
+                    "正在从网络下载 Java $versionNum..."
                 ))
-                return@withContext Result.success(targetDir)
-            }
 
-            val pojavResult = extractPojavJreFromAssets(context, javaVersion, arch, targetDir, onProgress)
-            if (pojavResult) {
+                val downloadResult = JreDownloader.downloadJreFromNetwork(context, javaVersion, arch, targetDir, onProgress)
+                if (downloadResult) {
+                    onProgress(JavaInstallProgress(
+                        JavaInstallStatus.COMPLETED, 100,
+                        "Java $versionNum 运行时安装完成！"
+                    ))
+                    return@withContext Result.success(targetDir)
+                }
+
                 onProgress(JavaInstallProgress(
-                    JavaInstallStatus.COMPLETED, 100,
-                    "Java $versionNum 运行时安装完成！"
+                    JavaInstallStatus.FAILED, 0,
+                    "安装失败: Java $versionNum 运行时无法获取"
                 ))
-                return@withContext Result.success(targetDir)
-            }
+                Result.failure(Exception("Java $versionNum 运行时无法获取"))
 
-            onProgress(JavaInstallProgress(
-                JavaInstallStatus.DOWNLOADING, 0,
-                "正在从网络下载 Java $versionNum..."
-            ))
-
-            val downloadResult = JreDownloader.downloadJreFromNetwork(context, javaVersion, arch, targetDir, onProgress)
-            if (downloadResult) {
+            } catch (e: Exception) {
                 onProgress(JavaInstallProgress(
-                    JavaInstallStatus.COMPLETED, 100,
-                    "Java $versionNum 运行时安装完成！"
+                    JavaInstallStatus.FAILED, 0, "安装失败: ${e.message}"
                 ))
-                return@withContext Result.success(targetDir)
+                Result.failure(e)
             }
-
-            onProgress(JavaInstallProgress(
-                JavaInstallStatus.FAILED, 0,
-                "安装失败: Java $versionNum 运行时无法获取"
-            ))
-            Result.failure(Exception("Java $versionNum 运行时无法获取"))
-
-        } catch (e: Exception) {
-            onProgress(JavaInstallProgress(
-                JavaInstallStatus.FAILED, 0, "安装失败: ${e.message}"
-            ))
-            Result.failure(e)
         }
     }
 
+    /**
+     * 按 FCL 原版 RuntimeUtils.installJava 语义从 assets 安装 JRE：
+     * 1. 删除目标目录并重建（FCL: FileUtils.deleteDirectory + mkdirs）
+     * 2. 直接把 universal.tar.xz 解压到目标目录（FCL: uncompressTarXZ(universal)）
+     * 3. 直接把 bin-<arch>.tar.xz 解压到目标目录（FCL: uncompressTarXZ(bin-arch)）
+     * 4. 写入 version 文件（FCL: writeText(version)）
+     * 5. patchJava（FCL: Pack200Utils.unpack + libfreetype/libawt 修正）
+     *
+     * assets 归档的顶层就是标准 JRE 根（bin/ lib/ conf/ legal/ release），
+     * 与 FCL 原版一致，无需任何 findJreRootDir/moveDirReliably/mergeStrayJreSubdir
+     * 之类的猜测逻辑——那些自研步骤正是反复安装时污染 JRE 目录的根源。
+     */
     fun extractFclJreFromAssets(
         context: Context,
         javaVersion: String,
@@ -116,10 +143,10 @@ internal object JreInstaller {
         val archPath = "app_runtime/java/jre$versionNum/bin-$fclArch.tar.xz"
 
         val universalStream: InputStream?
-
         try {
             universalStream = context.assets.open(universalPath)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "FCL JRE $versionNum assets missing at $universalPath: ${e.message}")
             return false
         }
 
@@ -129,31 +156,21 @@ internal object JreInstaller {
                 "正在解压 Java $versionNum 通用文件..."
             ))
 
-            val tempDir = File(context.cacheDir, "fcl_jre_$versionNum")
-            if (tempDir.exists()) tempDir.deleteRecursively()
-            tempDir.mkdirs()
+            // FCL 原版：先清空旧目录，直接解压到目标目录
+            if (targetDir.exists()) deleteRecursivelySafe(targetDir)
+            targetDir.mkdirs()
 
-            val extractDir = File(tempDir, "extracted")
-            extractDir.mkdirs()
-
-            val universalFile = File(tempDir, "universal.tar.xz")
-            universalFile.outputStream().use { output -> universalStream.copyTo(output) }
-            universalStream.close()
-
-            if (universalFile.length() < 1024) {
-                tempDir.deleteRecursively()
-                return false
-            }
-
-            JreExtractor.extractTarXz(universalFile, extractDir) { current, total ->
-                val progress = 5 + (if (total > 0) ((current * 40) / total).toInt() else 0)
+            // 第一步：universal.tar.xz -> targetDir（FCL uncompressTarXZ 1）
+            uncompressTarXZ(universalStream, targetDir) { index, total ->
+                val progress = 5 + (if (total > 0) ((index * 40) / total).toInt() else 0)
                 onProgress(JavaInstallProgress(
                     JavaInstallStatus.EXTRACTING, progress,
-                    "正在解压通用文件... ($current/$total)"
+                    "正在解压通用文件... ($index/$total)"
                 ))
             }
-            universalFile.delete()
+            universalStream.close()
 
+            // 第二步：bin-<arch>.tar.xz -> targetDir（FCL uncompressTarXZ 2）
             var archStream: InputStream?
             try {
                 archStream = context.assets.open(archPath)
@@ -166,52 +183,20 @@ internal object JreInstaller {
                     JavaInstallStatus.EXTRACTING, 50,
                     "正在解压 Java $versionNum 架构文件..."
                 ))
-
-                val archFile = File(tempDir, "bin-$fclArch.tar.xz")
-                archFile.outputStream().use { output -> archStream.copyTo(output) }
-                archStream.close()
-
-                if (archFile.length() < 1024) {
-                    tempDir.deleteRecursively()
-                    return false
-                }
-
-                JreExtractor.extractTarXz(archFile, extractDir) { current, total ->
-                    val progress = 50 + (if (total > 0) ((current * 35) / total).toInt() else 0)
+                uncompressTarXZ(archStream, targetDir) { index, total ->
+                    val progress = 50 + (if (total > 0) ((index * 35) / total).toInt() else 0)
                     onProgress(JavaInstallProgress(
                         JavaInstallStatus.EXTRACTING, progress,
-                        "正在解压架构文件... ($current/$total)"
+                        "正在解压架构文件... ($index/$total)"
                     ))
                 }
-                archFile.delete()
+                archStream.close()
             } else {
                 onProgress(JavaInstallProgress(
                     JavaInstallStatus.EXTRACTING, 50,
                     "使用通用JRE归档 (无专用架构文件)..."
                 ))
             }
-
-            if (targetDir.exists()) targetDir.deleteRecursively()
-
-            val jreRoot = JreExtractor.findJreRootDir(extractDir)
-            val moveSuccess = if (jreRoot != null && jreRoot != extractDir) {
-                JreExtractor.moveDirReliably(jreRoot, targetDir)
-            } else {
-                JreExtractor.moveDirReliably(extractDir, targetDir)
-            }
-
-            if (!moveSuccess || !targetDir.exists()) {
-                Log.e(TAG, "FCL JRE extraction: failed to move extracted files to target dir")
-                tempDir.deleteRecursively()
-                return false
-            }
-
-            tempDir.deleteRecursively()
-
-            // 合并嵌入式 JRE 子目录（如 jdk-25/）的内容到 targetDir
-            // 当 universal.tar.xz 和 bin-*.tar.xz 的路径前缀不一致时，
-            // universal 的内容会被提取到子目录中而丢失
-            JreExtractor.mergeStrayJreSubdir(targetDir)
 
             onProgress(JavaInstallProgress(
                 JavaInstallStatus.PATCHING, 90,
@@ -220,50 +205,81 @@ internal object JreInstaller {
 
             JrePatcher.patchJava(context, targetDir)
 
-            // FCL-style: write version file with version number from assets
+            // FCL 原版：写入 assets 里的 version 文件内容
             try {
                 val versionAssetPath = "app_runtime/java/jre$versionNum/version"
                 val versionStream = context.assets.open(versionAssetPath)
                 val versionText = versionStream.bufferedReader().readText().trim()
                 versionStream.close()
-                val versionFile = File(targetDir, "version")
-                versionFile.writeText(versionText)
+                File(targetDir, "version").writeText(versionText)
                 Log.d(TAG, "Wrote version file: $versionText for Java $versionNum")
             } catch (_: Exception) {
-                // Fallback: write our own version number
                 File(targetDir, "version").writeText(versionNum.toString())
             }
 
-            // Write release file for compatibility detection
+            // 写 release 文件（若不存在），供 FCL JavaManager 扫描识别
             val releaseFile = File(targetDir, "release")
             if (!releaseFile.exists()) {
                 try {
-                    releaseFile.writeText("JAVA_VERSION=\"$versionNum\"\n" +
-                        "OS_NAME=\"android\"\n")
+                    releaseFile.writeText("JAVA_VERSION=\"$versionNum\"\nOS_NAME=\"android\"\n")
                 } catch (_: Exception) {}
             } else {
                 try {
                     val existing = releaseFile.readText()
                     if (!existing.contains("OS_NAME", ignoreCase = true)) {
-                        releaseFile.writeText("$existing\n" +
-                            "OS_NAME=\"android\"\n")
+                        releaseFile.writeText("$existing\nOS_NAME=\"android\"\n")
                     }
                 } catch (_: Exception) {}
             }
 
             if (!JreValidator.verifyJreInstallation(targetDir)) {
                 Log.e(TAG, "FCL JRE extraction: verification failed after extraction")
-                targetDir.deleteRecursively()
+                deleteRecursivelySafe(targetDir)
                 return false
             }
 
             JreExtractor.setExecutableRecursive(File(targetDir, "bin"))
             true
         } catch (e: Exception) {
+            Log.e(TAG, "FCL JRE $versionNum extraction FAILED: ${e.message}", e)
             false
         }
     }
 
+    /**
+     * 安全删除目录：`File.deleteRecursively()` 在目标被并发修改 / 已变为非目录 /
+     * 符号链接时抛 `AssertionError: rootDir must be verified to be directory beforehand`。
+     * 多 JRE 并行初始化时多个协程可能同时清理同一目录，删除前校验 + 捕获所有异常
+     * 防止应用崩溃（对齐 FCL/Pojav 的稳健性）。
+     */
+    private fun deleteRecursivelySafe(dir: File) {
+        try {
+            if (dir.exists() && dir.isDirectory) {
+                dir.deleteRecursively()
+            } else {
+                Log.w(TAG, "deleteRecursivelySafe skipped (not a directory): ${dir.absolutePath}")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "deleteRecursivelySafe failed: ${dir.absolutePath} - ${t.message}")
+        }
+    }
+
+    /**
+     * 解压 .tar.xz 到目标目录，保留符号链接（对应 FCL 原版 RuntimeUtils.uncompressTarXZ，
+     * 由 JreExtractor.extractTarXz 提供实现）。
+     */
+    private fun uncompressTarXZ(
+        inputStream: InputStream,
+        dest: File,
+        onProgress: (Int, Int) -> Unit
+    ) {
+        JreExtractor.extractTarXz(inputStream, dest, onProgress)
+    }
+
+    /**
+     * Pojav jre zip 归档安装（FCL/Pojav 的 jre<ver>-pojav.zip 形式）。
+     * 与 FCL 原版一致：解包 zip 后把内部 .tar.xz 直接解压到目标目录。
+     */
     fun extractPojavJreFromAssets(
         context: Context,
         javaVersion: String,
@@ -287,7 +303,6 @@ internal object JreInstaller {
         )
 
         var inputStream: InputStream? = null
-
         for (path in assetsPaths) {
             try {
                 inputStream = context.assets.open(path)
@@ -317,32 +332,52 @@ internal object JreInstaller {
             }
 
             val tempExtractDir = File(context.cacheDir, "pojav_extract_$versionNum")
-            if (tempExtractDir.exists()) tempExtractDir.deleteRecursively()
+            deleteRecursivelySafe(tempExtractDir)
             tempExtractDir.mkdirs()
 
             JreExtractor.extractPojavJreZip(tempZip, tempExtractDir, pojavArch, onProgress)
             tempZip.delete()
 
-            if (targetDir.exists()) targetDir.deleteRecursively()
+            if (targetDir.exists()) deleteRecursivelySafe(targetDir)
+            targetDir.mkdirs()
 
-            val jreRoot = JreExtractor.findJreRootDir(tempExtractDir)
-            val moveSuccess = if (jreRoot != null) {
-                JreExtractor.moveDirReliably(jreRoot, targetDir)
-            } else {
-                val extractedDirs = tempExtractDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
-                if (extractedDirs.size == 1) {
-                    JreExtractor.moveDirReliably(extractedDirs[0], targetDir)
-                } else {
-                    JreExtractor.moveDirReliably(tempExtractDir, targetDir)
+            // pojav zip 内部为 universal.tar.xz + bin-<arch>.tar.xz，直接解到目标目录
+            val universalTar = JreExtractor.findFileInDir(tempExtractDir, "universal.tar.xz")
+            val archTar = JreExtractor.findFileInDir(tempExtractDir, "bin-$pojavArch.tar.xz")
+
+            if (universalTar != null) {
+                onProgress(JavaInstallProgress(
+                    JavaInstallStatus.EXTRACTING, 40,
+                    "正在解压通用文件... Pojav"
+                ))
+                FileInputStream(universalTar).use { fis ->
+                    uncompressTarXZ(fis, targetDir) { index, total ->
+                        val progress = 40 + (if (total > 0) ((index * 30) / total).toInt() else 0)
+                        onProgress(JavaInstallProgress(
+                            JavaInstallStatus.EXTRACTING, progress,
+                            "正在解压通用文件... ($index/$total)"
+                        ))
+                    }
                 }
             }
 
-            if (!moveSuccess || !targetDir.exists()) {
-                Log.e(TAG, "Pojav JRE extraction: failed to move extracted files to target dir")
+            if (archTar != null) {
+                onProgress(JavaInstallProgress(
+                    JavaInstallStatus.EXTRACTING, 70,
+                    "正在解压架构文件... Pojav"
+                ))
+                FileInputStream(archTar).use { fis ->
+                    uncompressTarXZ(fis, targetDir) { index, total ->
+                        val progress = 70 + (if (total > 0) ((index * 15) / total).toInt() else 0)
+                        onProgress(JavaInstallProgress(
+                            JavaInstallStatus.EXTRACTING, progress,
+                            "正在解压架构文件... ($index/$total)"
+                        ))
+                    }
+                }
             }
 
-            val tempExtractDirCheck = File(context.cacheDir, "pojav_extract_$versionNum")
-            if (tempExtractDirCheck.exists()) tempExtractDirCheck.deleteRecursively()
+            deleteRecursivelySafe(tempExtractDir)
 
             onProgress(JavaInstallProgress(
                 JavaInstallStatus.PATCHING, 90,
@@ -351,28 +386,18 @@ internal object JreInstaller {
 
             JrePatcher.patchJava(context, targetDir)
 
-            // Write version file (FCL-style)
-            try {
-                File(targetDir, "version").writeText(versionNum.toString())
-            } catch (_: Exception) {}
+            File(targetDir, "version").writeText(versionNum.toString())
 
             val releaseFile = File(targetDir, "release")
             if (!releaseFile.exists()) {
                 try {
                     releaseFile.writeText("JAVA_VERSION=\"$versionNum\"\nOS_NAME=\"android\"\n")
                 } catch (_: Exception) {}
-            } else {
-                try {
-                    val existing = releaseFile.readText()
-                    if (!existing.contains("OS_NAME", ignoreCase = true)) {
-                        releaseFile.writeText("$existing\nOS_NAME=\"android\"\n")
-                    }
-                } catch (_: Exception) {}
             }
 
             if (!JreValidator.verifyJreInstallation(targetDir)) {
                 Log.e(TAG, "Pojav JRE extraction: verification failed after extraction")
-                targetDir.deleteRecursively()
+                deleteRecursivelySafe(targetDir)
                 return false
             }
 

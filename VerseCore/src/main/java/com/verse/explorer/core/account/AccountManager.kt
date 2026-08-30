@@ -83,6 +83,15 @@ class AccountManager(private val accountDao: AccountDao) {
         }
     }
 
+    suspend fun updateAccountSkinUrl(accountId: Int, skinUrl: String?, skinModel: String) {
+        withContext(Dispatchers.IO) {
+            val account = accountDao.getById(accountId) ?: return@withContext
+            val updated = account.copy(skinUrl = skinUrl, skinModel = skinModel)
+            accountDao.update(updated)
+            loadAccounts()
+        }
+    }
+
     private fun AccountEntity.toAccount() = Account(
         id = id,
         username = username,

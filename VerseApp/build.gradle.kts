@@ -1,8 +1,23 @@
+import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+import com.android.build.gradle.tasks.MergeSourceSetFolders
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
+}
+
+val localProperties = Properties().apply {
+    val localPropsFile = rootProject.file("local.properties")
+    if (localPropsFile.exists()) {
+        localPropsFile.inputStream().use { load(it) }
+    }
+}
+// 支持命令行 -Darch=arm64 或 local.properties 里的 arch=arm64
+if (System.getProperty("arch") == null) {
+    localProperties.getProperty("arch")?.let { System.setProperty("arch", it) }
 }
 
 android {
@@ -20,8 +35,21 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
-        ndk {
-            abiFilters += listOf("x86_64")
+    }
+
+    splits {
+        val arch = System.getProperty("arch", "all")
+        if (arch != "all") {
+            abi {
+                isEnable = true
+                reset()
+                when (arch) {
+                    "arm" -> include("armeabi-v7a")
+                    "arm64" -> include("arm64-v8a")
+                    "x86" -> include("x86")
+                    "x86_64" -> include("x86_64")
+                }
+            }
         }
     }
 
@@ -55,6 +83,49 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+        // FCL 对齐：把原生库物理解压到 nativeLibraryDir，保证
+        // 1) 设置页 availableRenderers 能通过 File.exists() 检测到渲染器库（否则子菜单展不开）
+        // 2) NativesDeployer 能遍历 nativeLibraryDir 复制渲染器库到启动目录（否则启动时加载失败崩溃）
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
+                val abi = output.getFilter(ABI)?.identifier ?: "all"
+                output.outputFileName =
+                    "Verse-${android.defaultConfig.versionName}-${variant.buildType}-${abi}.apk"
+
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                afterEvaluate {
+                    val task =
+                        tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
+                    // 把 arch 作为输入属性，切换 -Darch 时强制重新 merge assets，确保 JRE 包被正确过滤
+                    task.inputs.property("verseArch", System.getProperty("arch", "all"))
+                    task.doLast {
+                        val arch = System.getProperty("arch", "all")
+                        val assetsDir = task.outputDir.get().asFile
+                        val jreList = listOf("jre8", "jre11", "jre17", "jre21", "jre25")
+                        jreList.forEach { jre ->
+                            val runtimeDir = File(assetsDir, "app_runtime/java/$jre")
+                            runtimeDir.listFiles()?.forEach { file ->
+                                if (arch != "all" &&
+                                    file.name != "version" &&
+                                    !file.name.contains("universal") &&
+                                    file.name != "bin-${arch}.tar.xz"
+                                ) {
+                                    file.delete()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -68,8 +139,10 @@ dependencies {
     implementation(project(":VerseCore"))
     implementation(project(":VerseLibrary"))
     implementation(project(":VerseLauncher"))
-    implementation(project(":Terracotta"))
+    implementation(project(":JvmLauncher"))
     implementation(project(":LayerController"))
+    implementation(project(":Terracotta"))
+    implementation(project(":FclCore"))
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
@@ -87,6 +160,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("org.tukaani:xz:1.10")
+    // Markdown 渲染（对齐 PC marked 库：Modrinth body 是 CommonMark）
+    implementation("io.noties.markwon:core:4.6.2")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

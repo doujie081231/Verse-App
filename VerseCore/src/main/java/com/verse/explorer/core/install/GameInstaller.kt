@@ -14,10 +14,17 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipInputStream
 
 data class InstallProgress(
@@ -25,7 +32,10 @@ data class InstallProgress(
     val message: String,
     val progress: Float = 0f,
     val currentFile: String = "",
-    val mirrorName: String = ""
+    val mirrorName: String = "",
+    val speed: Long = 0L,
+    val downloaded: Long = 0L,
+    val totalBytes: Long = 0L
 )
 
 enum class InstallStage {
@@ -63,6 +73,12 @@ class GameInstaller(private val context: Context) {
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
 
+    // 全局下载聚合：各阶段实时累计已下载字节与速度（供进度 UI 显示）
+    private val downloadAgg = DownloadAggregator()
+
+    // assets 小文件并发数（对齐 PC 端默认 64 线程）
+    private val concurrentAssets = 64
+
     @Volatile
     var cancelled = false
 
@@ -75,6 +91,41 @@ class GameInstaller(private val context: Context) {
     }
 
     class CancelledInstallException : Exception("安装已取消")
+
+    /** 并发下载聚合器：按文件累计已下载字节，500ms 窗口估算速度（供进度 UI 显示） */
+    private class DownloadAggregator {
+        private val lastByKey = ConcurrentHashMap<String, Long>()
+        private val bytesNow = AtomicLong()
+        private val lastTime = AtomicLong(System.currentTimeMillis())
+        private val lastBytes = AtomicLong()
+
+        @Volatile var speed: Long = 0L; private set
+        @Volatile var downloaded: Long = 0L; private set
+
+        fun reset() {
+            lastByKey.clear()
+            bytesNow.set(0L)
+            downloaded = 0L
+            speed = 0L
+            lastTime.set(System.currentTimeMillis())
+            lastBytes.set(0L)
+        }
+
+        fun report(key: String, fileDownloaded: Long) {
+            val last = lastByKey.put(key, fileDownloaded) ?: 0L
+            if (fileDownloaded <= last) return
+            val total = bytesNow.addAndGet(fileDownloaded - last)
+            downloaded = total
+            val now = System.currentTimeMillis()
+            val dt = now - lastTime.get()
+            if (dt >= 500) {
+                val db = total - lastBytes.get()
+                speed = db * 1000 / dt
+                lastBytes.set(total)
+                lastTime.set(now)
+            }
+        }
+    }
 
     suspend fun installVersion(
         version: MinecraftVersion,
@@ -133,6 +184,7 @@ class GameInstaller(private val context: Context) {
                 val downloadsBlock = versionJson.get("downloads")?.asJsonObject
 
                 checkCancelled()
+                downloadAgg.reset()
                 progressCallback(InstallProgress(InstallStage.DOWNLOADING_CLIENT, "下载游戏客户端...", 0.05f))
 
                 val clientDownload = downloadsBlock?.get("client")?.asJsonObject
@@ -153,12 +205,17 @@ class GameInstaller(private val context: Context) {
                                 originalUrl = clientUrl,
                                 targetFile = clientJar,
                                 expectedSha1 = clientSha1,
-                                knownSize = clientSize
+                                knownSize = clientSize,
+                                isCancelled = { cancelled }
                             ) { progress ->
                                 val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
                                 val sizeStr = formatSize(progress.downloaded) + "/" + formatSize(progress.total)
                                 val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})"
-                                progressCallback(InstallProgress(InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f, "${version.id}.jar", progress.mirrorName))
+                                progressCallback(InstallProgress(
+                                    InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f,
+                                    "${version.id}.jar", progress.mirrorName,
+                                    speed = progress.speed, downloaded = progress.downloaded, totalBytes = progress.total
+                                ))
                             }
                             if (result.isFailure) {
                                 Log.e("GameInstaller", "Client jar smart download failed: ${result.exceptionOrNull()?.message}")
@@ -200,8 +257,9 @@ class GameInstaller(private val context: Context) {
                                     val result = smartClient.download(
                                         originalUrl = url,
                                         targetFile = libFile,
-                                        expectedSha1 = sha1
-                                    )
+                                        expectedSha1 = sha1,
+                                        isCancelled = { cancelled }
+                                    ) { p -> downloadAgg.report(path, p.downloaded) }
                                     if (result.isFailure) {
                                         Log.w("GameInstaller", "Lib failed: $path - ${result.exceptionOrNull()?.message}")
                                     }
@@ -218,13 +276,15 @@ class GameInstaller(private val context: Context) {
                         InstallStage.DOWNLOADING_LIBRARIES,
                         "下载库文件 ($completedLibs/${missingLibs.size})...",
                         progress,
-                        "智能混合下载"
+                        "智能混合下载",
+                        speed = downloadAgg.speed,
+                        downloaded = downloadAgg.downloaded
                     ))
                 }
 
                 progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "下载原生库文件...", 0.60f))
-                downloadNativeClassifiers(versionJson) { p, msg ->
-                    progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, msg, 0.60f + p * 0.05f))
+                downloadNativeClassifiers(versionJson) { p, msg, speed, downloaded ->
+                    progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, msg, 0.60f + p * 0.05f, speed = speed, downloaded = downloaded))
                 }
                 checkCancelled()
 
@@ -240,7 +300,8 @@ class GameInstaller(private val context: Context) {
                         val result = smartClient.download(
                             originalUrl = assetUrl,
                             targetFile = assetFile,
-                            expectedSha1 = assetSha1
+                            expectedSha1 = assetSha1,
+                            isCancelled = { cancelled }
                         ) { progress ->
                             val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
                             progressCallback(InstallProgress(
@@ -248,7 +309,10 @@ class GameInstaller(private val context: Context) {
                                 "下载资源索引... (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})",
                                 0.65f + p * 0.03f,
                                 assetFile.name,
-                                progress.mirrorName
+                                progress.mirrorName,
+                                speed = progress.speed,
+                                downloaded = progress.downloaded,
+                                totalBytes = progress.total
                             ))
                         }
                         if (result.isFailure) {
@@ -275,45 +339,26 @@ class GameInstaller(private val context: Context) {
                                 val hash = entry.value.asJsonObject.get("hash")?.asString ?: return@forEach
                                 val subDir = hash.substring(0, 2)
                                 val assetPath = File(assetsDir, "objects/$subDir/$hash")
-                                if (!assetPath.exists() || assetPath.length() < 1024) {
+                                if (!assetPath.exists() || assetPath.length() == 0L) {
                                     val originalUrl = "https://resources.download.minecraft.net/$subDir/$hash"
                                     missingAssets.add(originalUrl to assetPath)
                                 }
                             }
 
-                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (64 threads, smart)")
+                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (sliding window, smart)")
 
-                            var completedAssets = 0
-                            val batchSize = 64
-                            for (i in missingAssets.indices step batchSize) {
-                                checkCancelled()
-                                val batch = missingAssets.subList(i, minOf(i + batchSize, missingAssets.size))
-
-                                coroutineScope {
-                                    batch.map { (url, assetPath) ->
-                                        async {
-                                            try {
-                                                val result = smartClient.download(
-                                                    originalUrl = url,
-                                                    targetFile = assetPath
-                                                )
-                                                if (result.isFailure) {
-                                                    Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${result.exceptionOrNull()?.message}")
-                                                }
-                                            } catch (e: Exception) {
-                                                Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${e.message}")
-                                            }
-                                        }
-                                    }.forEach { it.await() }
-                                }
-
-                                completedAssets += batch.size
-                                val progress = 0.68f + (0.22f * completedAssets / missingAssets.size.coerceAtLeast(1))
+                            // 对齐 PC 端 download.js：滑动窗口并发调度。
+                            // 始终保持 64 个活跃下载，一个完成立即补下一个（而非分批等待整批完成），
+                            // 避免慢文件拖住整批导致"下一下卡一下"。
+                            downloadAssetsSlidingWindow(missingAssets) { completed, total ->
+                                val progress = 0.68f + (0.22f * completed / total.coerceAtLeast(1))
                                 progressCallback(InstallProgress(
                                     InstallStage.DOWNLOADING_ASSETS,
-                                    "下载资源 ($completedAssets/${missingAssets.size})...",
+                                    "下载资源 ($completed/$total)...",
                                     progress,
-                                    "智能混合下载"
+                                    "智能混合下载",
+                                    speed = downloadAgg.speed,
+                                    downloaded = downloadAgg.downloaded
                                 ))
                             }
                         }
@@ -323,15 +368,47 @@ class GameInstaller(private val context: Context) {
                 progressCallback(InstallProgress(InstallStage.EXTRACTING_NATIVES, "提取原生库...", 0.90f))
                 extractNatives(versionJson)
 
+                // 加载器安装（自 FCL fclcore/download 模块迁移：Forge 新/旧版、Fabric、NeoForge、OptiFine）
+                if (!loaderType.isNullOrBlank() && !loaderVersion.isNullOrBlank()) {
+                    checkCancelled()
+                    progressCallback(InstallProgress(
+                        InstallStage.DOWNLOADING_LIBRARIES,
+                        "安装 $loaderType $loaderVersion...",
+                        0.92f
+                    ))
+                    val loaderResult = com.verse.explorer.core.install.loader.FclLoaderInstaller.installFcl(
+                        gameDir = gameDir,
+                        versionId = version.id,
+                        loaderType = loaderType,
+                        loaderVersion = loaderVersion
+                    ) { message, p ->
+                        progressCallback(InstallProgress(
+                            InstallStage.DOWNLOADING_LIBRARIES,
+                            message,
+                            0.92f + 0.06f * p.coerceIn(0f, 1f)
+                        ))
+                    }
+                    loaderResult.getOrThrow()
+                    progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "$loaderType 安装完成", 0.98f))
+                }
+
                 progressCallback(InstallProgress(InstallStage.COMPLETED, "安装完成", 1f))
                 true
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 协程取消必须原样抛出，交给上层（installJob.cancel）处理，不能被当成普通下载失败吞掉
+                throw e
             } catch (e: CancelledInstallException) {
                 Log.i("GameInstaller", "Install cancelled by user")
                 progressCallback(InstallProgress(InstallStage.FAILED, "已取消下载"))
                 false
             } catch (e: Exception) {
-                Log.e("GameInstaller", "Install failed: ${e.message}", e)
-                progressCallback(InstallProgress(InstallStage.FAILED, "安装失败: ${e.message}"))
+                if (cancelled) {
+                    Log.i("GameInstaller", "Install cancelled (download aborted)")
+                    progressCallback(InstallProgress(InstallStage.FAILED, "已取消下载"))
+                } else {
+                    Log.e("GameInstaller", "Install failed: ${e.message}", e)
+                    progressCallback(InstallProgress(InstallStage.FAILED, "安装失败: ${e.message}"))
+                }
                 false
             }
         }
@@ -620,7 +697,12 @@ class GameInstaller(private val context: Context) {
     }
 
     // 对齐 PC 端：assets 小文件使用专用快速客户端（10s 连接超时 + 30s 读取超时）
-    private suspend fun downloadAssetFile(url: String, targetFile: File) {
+    private suspend fun downloadAssetFile(
+        url: String,
+        targetFile: File,
+        onBytes: (Long, Long) -> Unit = { _, _ -> },
+        isCancelled: () -> Boolean = { false }
+    ) {
         targetFile.parentFile?.mkdirs()
         val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
         val request = okhttp3.Request.Builder().url(url)
@@ -631,8 +713,25 @@ class GameInstaller(private val context: Context) {
             fastHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
                 val body = response.body ?: throw Exception("Empty body: $url")
+                val totalBytes = body.contentLength().coerceAtLeast(-1L)
                 body.byteStream().use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                    tempFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var bytesRead: Int
+                        var downloaded = 0L
+                        var lastReport = System.currentTimeMillis()
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            if (isCancelled()) throw CancelledInstallException()
+                            output.write(buffer, 0, bytesRead)
+                            downloaded += bytesRead
+                            val now = System.currentTimeMillis()
+                            if (now - lastReport >= 300) {
+                                onBytes(downloaded, totalBytes)
+                                lastReport = now
+                            }
+                        }
+                        onBytes(downloaded, totalBytes)
+                    }
                 }
             }
             targetFile.delete()
@@ -643,6 +742,74 @@ class GameInstaller(private val context: Context) {
         } catch (e: Exception) {
             tempFile.delete()
             throw e
+        }
+    }
+
+    /**
+     * 对齐 PC 端 download.js 的滑动窗口并发调度：
+     * 始终保持 [concurrentAssets] 个活跃下载，一个完成立即补下一个，
+     * 而非分批等待整批完成（避免慢文件拖住整批导致"下一下卡一下"）。
+     *
+     * 每个文件按镜像列表顺序（BMCLAPI/MCBBS 优先）用共享连接池直连下载，
+     * 全部镜像失败后回退 SmartDownloadClient 多源重试，保证健壮性的同时最大化吞吐。
+     */
+    private suspend fun downloadAssetsSlidingWindow(
+        assets: List<Pair<String, File>>,
+        onProgress: (completed: Int, total: Int) -> Unit
+    ) {
+        if (assets.isEmpty()) return
+        val total = assets.size
+        val completed = AtomicInteger(0)
+        val semaphore = Semaphore(concurrentAssets)
+
+        coroutineScope {
+            val worker = this
+            assets.forEach { (url, assetPath) ->
+                worker.launch {
+                    semaphore.withPermit {
+                        checkCancelled()
+                        // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
+                        val urls = MirrorSourceManager.getMirrorUrls(context, url)
+                        var success = false
+                        for (mirrorUrl in urls) {
+                            if (cancelled) throw CancelledInstallException()
+                            try {
+                                downloadAssetFile(
+                                    mirrorUrl,
+                                    assetPath,
+                                    onBytes = { d, _ -> downloadAgg.report(assetPath.name, d) },
+                                    isCancelled = { cancelled }
+                                )
+                                success = true
+                                break
+                            } catch (e: CancelledInstallException) {
+                                throw e
+                            } catch (_: Exception) {
+                                // 尝试下一个镜像
+                            }
+                        }
+                        if (!success) {
+                            // 全部镜像直连失败：回退多源镜像重试
+                            try {
+                                val result = smartClient.download(
+                                    originalUrl = url,
+                                    targetFile = assetPath,
+                                    isCancelled = { cancelled }
+                                ) { p -> downloadAgg.report(assetPath.name, p.downloaded) }
+                                if (result.isFailure) {
+                                    Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${result.exceptionOrNull()?.message}")
+                                }
+                            } catch (e2: Exception) {
+                                Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${e2.message}")
+                            }
+                        }
+                        val done = completed.incrementAndGet()
+                        if (done % 8 == 0 || done == total) {
+                            onProgress(done, total)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -659,6 +826,24 @@ class GameInstaller(private val context: Context) {
             if (rules != null && !evaluateRules(rules.map { it.asJsonObject })) continue
 
             val downloads = lib.get("downloads")?.asJsonObject ?: continue
+
+            // 26.x 新格式：natives 为独立 library 条目（name 形如 org.lwjgl:lwjgl:3.4.1:natives-linux）
+            val libName = lib.get("name")?.asString ?: ""
+            if (libName.contains("natives-linux")) {
+                val artifact = downloads.get("artifact")?.asJsonObject ?: continue
+                val nativePath = artifact.get("path")?.asString ?: continue
+                val nativeFile = File(librariesDir, nativePath)
+                if (nativeFile.exists() && nativeFile.length() > 1024) {
+                    try {
+                        extractNativeJarToDir(nativeFile, nativesDir)
+                        extractedCount++
+                    } catch (e: Exception) {
+                        Log.w("GameInstaller", "Failed to extract ${nativeFile.name}: ${e.message}")
+                    }
+                }
+                continue
+            }
+
             val classifiers = downloads.get("classifiers")?.asJsonObject
             val nativesObj = lib.get("natives")?.asJsonObject
 
@@ -693,7 +878,7 @@ class GameInstaller(private val context: Context) {
 
     private suspend fun downloadNativeClassifiers(
         versionJson: JsonObject,
-        onProgress: (Float, String) -> Unit
+        onProgress: (Float, String, speed: Long, downloaded: Long) -> Unit
     ) {
         val libsArray = versionJson.get("libraries")?.asJsonArray ?: return
 
@@ -705,6 +890,28 @@ class GameInstaller(private val context: Context) {
             if (rules != null && !evaluateRules(rules.map { it.asJsonObject })) continue
 
             val downloads = lib.get("downloads")?.asJsonObject ?: continue
+
+            // 26.x 新格式：独立 natives-linux 条目（name 带 natives-linux 后缀，走 artifact 下载）
+            val libName = lib.get("name")?.asString ?: ""
+            if (libName.contains("natives-linux")) {
+                val artifact = downloads.get("artifact")?.asJsonObject ?: continue
+                val nativePath = artifact.get("path")?.asString ?: continue
+                val nativeUrl = artifact.get("url")?.asString ?: continue
+                val nativeSha1 = artifact.get("sha1")?.asString
+                val nativeFile = File(librariesDir, nativePath)
+
+                val needDownload = if (!nativeFile.exists()) true
+                else if (nativeSha1 != null) {
+                    try { calculateSHA1(nativeFile).lowercase() != nativeSha1.lowercase() } catch (_: Exception) { true }
+                } else false
+
+                if (needDownload) {
+                    missingNatives.add(Triple(nativeUrl, nativePath, nativeSha1))
+                    if (nativeFile.exists()) nativeFile.delete()
+                }
+                continue
+            }
+
             val classifiers = downloads.get("classifiers")?.asJsonObject ?: continue
             val nativesObj = lib.get("natives")?.asJsonObject
 
@@ -750,12 +957,13 @@ class GameInstaller(private val context: Context) {
                 val result = smartClient.download(
                     originalUrl = originalUrl,
                     targetFile = nativeFile,
-                    expectedSha1 = sha1
-                )
+                    expectedSha1 = sha1,
+                    isCancelled = { cancelled }
+                ) { p -> downloadAgg.report(path, p.downloaded) }
                 if (result.isSuccess) successCount++
             } catch (_: Exception) {}
 
-            onProgress(index.toFloat() / missingNatives.size, "下载原生库 (${index + 1}/${missingNatives.size})...")
+            onProgress(index.toFloat() / missingNatives.size, "下载原生库 (${index + 1}/${missingNatives.size})...", downloadAgg.speed, downloadAgg.downloaded)
         }
 
         Log.d("GameInstaller", "Native classifiers: $successCount/${missingNatives.size} downloaded")
@@ -822,7 +1030,8 @@ class GameInstaller(private val context: Context) {
                 val result = smartClient.download(
                     originalUrl = url,
                     targetFile = targetFile,
-                    expectedSha1 = sha1
+                    expectedSha1 = sha1,
+                    isCancelled = { cancelled }
                 )
                 if (result.isSuccess) downloadedCount++
             } catch (e: Exception) {

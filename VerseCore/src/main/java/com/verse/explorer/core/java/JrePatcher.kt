@@ -13,6 +13,11 @@ internal object JrePatcher {
     fun patchJava(context: Context, javaPath: File) {
         if (!javaPath.exists()) return
 
+        // 与 FCL patchJava 首行 Pack200Utils.unpack 对应：
+        // jre8 等旧版运行时把 jar 以 pack200 压缩（rt.jar.pack / jce.jar.pack 等），
+        // 必须先用 APK 自带的 libunpack200.so 还原为 .jar 才能被 JVM 加载。
+        unpackPack200(context, javaPath)
+
         var libFolder = findLibFolder(javaPath)
 
         // FCL-style: JDK8 has jre/ prefix in its lib path
@@ -103,6 +108,41 @@ internal object JrePatcher {
             } catch (_: Exception) {}
         }
         return false
+    }
+
+    /**
+     * 与 FCL pack200 还原对应（Pack200Utils.unpack）：
+     * jre8 等旧版 JRE 的 jar 以 pack200 压缩（*.pack），缺 .jar 无法作为启动类路径。
+     * 复用 APK lib 里的 libunpack200.so（C 实现，无需先启动 JVM）逐个还原。
+     */
+    private fun unpackPack200(context: Context, javaPath: File) {
+        if (!javaPath.exists()) return
+        try {
+            val packFiles = javaPath.walkTopDown()
+                .filter { it.isFile && it.extension.equals("pack", ignoreCase = true) }
+                .toList()
+            if (packFiles.isEmpty()) return
+            val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
+            for (packFile in packFiles) {
+                runCatching {
+                    val outJar = packFile.absolutePath.removeSuffix(".pack")
+                    val process = ProcessBuilder(
+                        "./libunpack200.so", "-r",
+                        packFile.absolutePath, outJar
+                    ).directory(nativeLibDir).start()
+                    val exitCode = process.waitFor()
+                    if (exitCode != 0) {
+                        Log.w(TAG, "unpack200 exit=$exitCode for ${packFile.absolutePath}")
+                    } else {
+                        Log.d(TAG, "unpacked ${packFile.name}")
+                    }
+                }.onFailure { e ->
+                    Log.w(TAG, "unpack200 failed for ${packFile.absolutePath}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "unpackPack200 failed: ${e.message}")
+        }
     }
 
     private fun findLibFolder(javaPath: File): String {

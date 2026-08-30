@@ -41,7 +41,9 @@ data class ModrinthSearchHit(
     val dateModified: String = "",
     @SerializedName("game_versions")
     val gameVersions: List<String> = emptyList(),
-    val loaders: List<String> = emptyList()
+    val loaders: List<String> = emptyList(),
+    /** 数据来源："modrinth" / "curseforge" */
+    val source: String = "modrinth"
 )
 
 data class ModrinthProject(
@@ -73,7 +75,24 @@ data class ModrinthProject(
     val dateModified: String = "",
     val status: String = "",
     val license: ModrinthLicense? = null,
-    val team: String = ""
+    val team: String = "",
+    // 以下链接字段 Modrinth 可能不返回（如 Indium 无 wiki/source 链接），Gson 会塞 null，
+    // 必须声明为可空并在映射层兜底，否则 Kotlin 非空校验抛 "Parameter specified as non-null is null"
+    @SerializedName("source_url")
+    val sourceUrl: String? = null,
+    @SerializedName("issues_url")
+    val issuesUrl: String? = null,
+    @SerializedName("wiki_url")
+    val wikiUrl: String? = null,
+    @SerializedName("discord_url")
+    val discordUrl: String? = null,
+    val gallery: List<ModrinthGallery>? = null
+)
+
+/** Modrinth 画廊项（project.gallery：url + title） */
+data class ModrinthGallery(
+    val url: String = "",
+    val title: String = ""
 )
 
 data class ModrinthLicense(
@@ -83,27 +102,28 @@ data class ModrinthLicense(
 )
 
 data class ModrinthVersion(
-    val id: String = "",
+    val id: String? = null,
     @SerializedName("project_id")
-    val projectId: String = "",
-    val name: String = "",
+    val projectId: String? = null,
+    val name: String? = null,
     @SerializedName("version_number")
-    val versionNumber: String = "",
-    val changelog: String = "",
+    val versionNumber: String? = null,
+    val changelog: String? = null,
     @SerializedName("changelog_url")
     val changelogUrl: String? = null,
     @SerializedName("date_published")
-    val datePublished: String = "",
+    val datePublished: String? = null,
     val downloads: Int = 0,
     @SerializedName("version_type")
-    val versionType: String = "release",
-    val files: List<ModrinthFile> = emptyList(),
-    val dependencies: List<ModrinthDependency> = emptyList(),
+    val versionType: String? = null,
+    // Gson 可注入 null（绕过 Kotlin 默认值），集合字段必须可空并在映射层 orEmpty()
+    val files: List<ModrinthFile>? = null,
+    val dependencies: List<ModrinthDependency>? = null,
     @SerializedName("game_versions")
-    val gameVersions: List<String> = emptyList(),
-    val loaders: List<String> = emptyList(),
+    val gameVersions: List<String>? = null,
+    val loaders: List<String>? = null,
     val featured: Boolean = false,
-    val status: String = ""
+    val status: String? = null
 )
 
 data class ModrinthDependency(
@@ -114,13 +134,13 @@ data class ModrinthDependency(
     @SerializedName("file_name")
     val fileName: String? = null,
     @SerializedName("dependency_type")
-    val dependencyType: String = "required"
+    val dependencyType: String? = null
 )
 
 data class ModrinthFile(
-    val hashes: Map<String, String> = emptyMap(),
-    val url: String = "",
-    val filename: String = "",
+    val hashes: Map<String, String>? = null,
+    val url: String? = null,
+    val filename: String? = null,
     val primary: Boolean = false,
     val size: Long = 0,
     @SerializedName("file_type")
@@ -272,10 +292,17 @@ object ModrinthApi {
                     .build()
                 val response = client.newCall(request).execute()
                 try {
-                    val body = response.body?.string() ?: throw Exception("Empty response")
+                    val body = response.body?.string() ?: throw Exception("Empty response body for $url")
                     if (response.isSuccessful) {
                         val listType = object : com.google.gson.reflect.TypeToken<List<ModrinthVersion>>() {}.type
-                        return@withContext gson.fromJson(body, listType)
+                        // gson.fromJson 对空串/"null" 字面量返回 null（已本地复现），
+                        // 若放行到调用侧会变成"对 null 调 map"的 NPE（message=null），表现为版本列表静默为空。
+                        // 这里显式转成带信息的异常，方便日志/UI 定位网络层问题。
+                        val parsed: List<ModrinthVersion> = gson.fromJson(body, listType)
+                            ?: throw Exception("Modrinth 版本接口返回空 body (len=${body.length}, url=$url)")
+                        return@withContext parsed
+                    } else {
+                        throw Exception("HTTP ${response.code} for $url")
                     }
                 } finally {
                     response.close()

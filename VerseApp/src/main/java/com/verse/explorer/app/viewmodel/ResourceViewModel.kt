@@ -4,9 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.core.resource.ModrinthApi
 import com.verse.explorer.core.resource.ModrinthSearchHit
-import com.verse.explorer.core.resource.ModrinthSearchResult
+import com.verse.explorer.core.resource.ResourceRepository
+import com.verse.explorer.core.resource.ResourceSearchResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +19,8 @@ data class ResourceUiState(
     val currentPage: Int = 0,
     val totalHits: Int = 0,
     val selectedLoader: String = "全部",
-    val selectedVersion: String = "全部"
+    val selectedVersion: String = "全部",
+    val selectedSource: String = ""  // "" = 全部, "modrinth", "curseforge"
 )
 
 class ResourceViewModel(
@@ -27,8 +28,10 @@ class ResourceViewModel(
     private val projectType: String
 ) : AndroidViewModel(application) {
 
-    private val settingsRepo = SettingsRepository
-    private val useMirror = settingsRepo.getDownloadSource() != "mojang"
+    private val repository = ResourceRepository(
+        application,
+        useMirror = SettingsRepository.getDownloadSource() != "mojang"
+    )
 
     private val _uiState = MutableStateFlow(ResourceUiState())
     val uiState: StateFlow<ResourceUiState> = _uiState.asStateFlow()
@@ -36,7 +39,8 @@ class ResourceViewModel(
     private val _results = MutableStateFlow<List<ModrinthSearchHit>>(emptyList())
     val results: StateFlow<List<ModrinthSearchHit>> = _results.asStateFlow()
 
-    private val pageSize = 20
+    // 对齐 PC searchMods：单页 15 条，offset = page * 15，上一页/下一页替换结果
+    private val pageSize = 15
 
     init {
         search()
@@ -46,12 +50,11 @@ class ResourceViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, searchQuery = query, currentPage = 0)
             try {
-                val result = doSearch(query, 0)
-                _results.value = result.hits
+                val res = doSearch(query, 0)
+                _results.value = res.hits
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    totalHits = result.totalHits,
-                    currentPage = 0
+                    totalHits = res.total
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
@@ -59,26 +62,31 @@ class ResourceViewModel(
         }
     }
 
-    fun loadMore() {
+    /** 翻页：替换结果（对齐 PC 上一页/下一页，不做累积） */
+    fun goToPage(page: Int) {
         val current = _uiState.value
         if (current.isLoading) return
-        val nextOffset = (current.currentPage + 1) * pageSize
-        if (nextOffset >= current.totalHits) return
+        if (page < 0) return
+        if (page * pageSize >= current.totalHits && current.totalHits > 0) return
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, currentPage = page)
             try {
-                val result = doSearch(current.searchQuery, nextOffset)
-                _results.value = _results.value + result.hits
+                val res = doSearch(current.searchQuery, page * pageSize)
+                _results.value = res.hits
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
-                    totalHits = result.totalHits,
-                    currentPage = current.currentPage + 1
+                    totalHits = if (res.total > 0) res.total else current.totalHits
                 )
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
+                _uiState.value = _uiState.value.copy(isLoading = false, error = e.message, currentPage = current.currentPage)
             }
         }
+    }
+
+    /** 下一页（兼容旧调用点；翻页语义与 goToPage 一致，对齐 PC 下一页） */
+    fun loadMore() {
+        goToPage(_uiState.value.currentPage + 1)
     }
 
     fun setSelectedLoader(loader: String) {
@@ -91,16 +99,21 @@ class ResourceViewModel(
         search()
     }
 
+    fun setSelectedSource(source: String) {
+        _uiState.value = _uiState.value.copy(selectedSource = source)
+        search()
+    }
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
 
-    private suspend fun doSearch(query: String, offset: Int): ModrinthSearchResult {
+    private suspend fun doSearch(query: String, offset: Int): ResourceSearchResult {
         val state = _uiState.value
         val loaders = if (state.selectedLoader != "全部") listOf(state.selectedLoader.lowercase()) else emptyList()
         val gameVersions = if (state.selectedVersion != "全部") listOf(state.selectedVersion) else emptyList()
 
-        return ModrinthApi.searchProjects(
+        return repository.search(
             query = query,
             projectType = projectType,
             loaders = loaders,
@@ -108,7 +121,7 @@ class ResourceViewModel(
             sort = if (query.isEmpty()) "downloads" else "relevance",
             limit = pageSize,
             offset = offset,
-            useMirror = useMirror
+            source = state.selectedSource
         )
     }
 }

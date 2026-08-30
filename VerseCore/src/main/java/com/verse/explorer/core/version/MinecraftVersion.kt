@@ -5,6 +5,7 @@ import com.google.gson.annotations.SerializedName
 enum class VersionType {
     @SerializedName("release") RELEASE,
     @SerializedName("snapshot") SNAPSHOT,
+    SPECIAL,
     @SerializedName("old_alpha") OLD_ALPHA,
     @SerializedName("old_beta") OLD_BETA
 }

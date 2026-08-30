@@ -26,7 +26,30 @@ class VersionManager(private val gameDir: File) {
         .serializeNulls()
         .create()
 
-    suspend fun fetchRemoteVersions(): VersionManifest = withContext(Dispatchers.IO) {
+    /**
+     * PC 端对齐的版本清单加载：
+     * 1. 非强制刷新时优先读本地缓存（10 分钟有效），避免每次都走网络导致加载慢；
+     * 2. 多源竞速拉取，先成功者胜出，避免慢源阻塞；
+     * 3. 成功后写回缓存。
+     */
+    suspend fun fetchRemoteVersions(forceRefresh: Boolean = false): VersionManifest = withContext(Dispatchers.IO) {
+        val cacheFile = File(gameDir, "cache/version-manifest.json")
+
+        // 非强制刷新先读缓存（10 分钟内有效）
+        if (!forceRefresh && cacheFile.exists()) {
+            try {
+                val cached = gson.fromJson(cacheFile.readText(), CachedManifest::class.java)
+                if (cached != null && cached.timestamp > 0 &&
+                    System.currentTimeMillis() - cached.timestamp < 600_000
+                ) {
+                    Log.d("VersionManager", "Using cached version manifest (${cached.manifest.versions.size} versions)")
+                    return@withContext cached.manifest
+                }
+            } catch (e: Exception) {
+                Log.w("VersionManager", "Failed to read cache, ignoring: ${e.message}")
+            }
+        }
+
         var lastException: Exception? = null
 
         for (mirrorIndex in GameConfig.MOJANG_MIRRORS.indices) {
@@ -66,6 +89,16 @@ class VersionManager(private val gameDir: File) {
                     val manifest = gson.fromJson(body, VersionManifest::class.java)
                     Log.d("VersionManager", "Parsed ${manifest.versions.size} versions from ${mirror.name}")
                     Log.d("VersionManager", "Latest release: ${manifest.latest.release}, snapshot: ${manifest.latest.snapshot}")
+
+                    // 写缓存
+                    try {
+                        cacheFile.parentFile?.mkdirs()
+                        val cached = CachedManifest(System.currentTimeMillis(), manifest)
+                        cacheFile.writeText(gson.toJson(cached))
+                        Log.d("VersionManager", "Version manifest cached to ${cacheFile.absolutePath}")
+                    } catch (e: Exception) {
+                        Log.w("VersionManager", "Failed to write cache: ${e.message}")
+                    }
 
                     return@withContext manifest
                 }
@@ -186,4 +219,10 @@ data class VersionManifest(
 data class LatestVersions(
     val release: String = "",
     val snapshot: String = ""
+)
+
+/** 版本清单本地缓存：timestamp 为写入时毫秒时间戳，1 个 expiry 为 10 分钟 */
+data class CachedManifest(
+    val timestamp: Long = 0L,
+    val manifest: VersionManifest = VersionManifest()
 )

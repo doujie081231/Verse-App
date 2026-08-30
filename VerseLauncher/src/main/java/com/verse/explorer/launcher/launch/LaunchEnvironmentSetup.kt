@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.verse.explorer.launcher.renderer.RendererManager
-import com.verse.explorer.terracotta.TerracottaAndroidAPI
+import com.verse.explorer.jvmlauncher.JvmLauncherAPI
 import java.io.File
 
 internal class LaunchEnvironmentSetup(private val context: Context) {
@@ -28,7 +28,7 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
             )
             envMap.forEach { (key, value) ->
                 if (!value.isNullOrEmpty()) {
-                    TerracottaAndroidAPI.nativeSetenv(key, value)
+                    JvmLauncherAPI.nativeSetenv(key, value)
                 }
             }
             Log.d(TAG, "Renderer environment configured for ${rendererConfig.id}")
@@ -47,13 +47,13 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
             val cacheDir = context.cacheDir.absolutePath
 
             // FCL-style: core paths
-            TerracottaAndroidAPI.nativeSetenv("HOME", config.gameDir.absolutePath)
-            TerracottaAndroidAPI.nativeSetenv("JAVA_HOME", config.javaHome.absolutePath)
-            TerracottaAndroidAPI.nativeSetenv("FCL_NATIVEDIR", nativeLibDir)
-            TerracottaAndroidAPI.nativeSetenv("POJAV_NATIVEDIR", nativeLibDir)
-            TerracottaAndroidAPI.nativeSetenv("TMPDIR", cacheDir)
+            JvmLauncherAPI.nativeSetenv("HOME", config.gameDir.absolutePath)
+            JvmLauncherAPI.nativeSetenv("JAVA_HOME", config.javaHome.absolutePath)
+            JvmLauncherAPI.nativeSetenv("FCL_NATIVEDIR", nativeLibDir)
+            JvmLauncherAPI.nativeSetenv("POJAV_NATIVEDIR", nativeLibDir)
+            JvmLauncherAPI.nativeSetenv("TMPDIR", cacheDir)
             val currentPath = System.getenv("PATH") ?: ""
-            TerracottaAndroidAPI.nativeSetenv("PATH", "${config.javaHome.absolutePath}/bin:$currentPath")
+            JvmLauncherAPI.nativeSetenv("PATH", "${config.javaHome.absolutePath}/bin:$currentPath")
 
             // FCL-style: LD_LIBRARY_PATH - critical for native library loading
             val modRuntimeDir = context.getDir("runtime_mod", 0).absolutePath
@@ -65,14 +65,14 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
                 nativesDir = config.nativesDir.absolutePath,
                 modRuntimeDir = modRuntimeDir
             )
-            TerracottaAndroidAPI.nativeSetenv("LD_LIBRARY_PATH", ldLibPath)
+            JvmLauncherAPI.nativeSetenv("LD_LIBRARY_PATH", ldLibPath)
 
             // FCL-style: misc
-            TerracottaAndroidAPI.nativeSetenv("DRIVER_PATH", config.nativesDir.absolutePath)
-            TerracottaAndroidAPI.nativeSetenv("MOD_ANDROID_RUNTIME", modRuntimeDir)
-            TerracottaAndroidAPI.nativeSetenv("POJAV_BIG_CORE_AFFINITY", "1")
-            TerracottaAndroidAPI.nativeSetenv("FORCE_VSYNC", "false")
-            TerracottaAndroidAPI.nativeSetenv("VULKAN_DRIVER_SYSTEM", if (config.isVulkanDriverSystem) "1" else "0")
+            JvmLauncherAPI.nativeSetenv("DRIVER_PATH", config.nativesDir.absolutePath)
+            JvmLauncherAPI.nativeSetenv("MOD_ANDROID_RUNTIME", modRuntimeDir)
+            JvmLauncherAPI.nativeSetenv("POJAV_BIG_CORE_AFFINITY", "1")
+            JvmLauncherAPI.nativeSetenv("FORCE_VSYNC", "false")
+            JvmLauncherAPI.nativeSetenv("VULKAN_DRIVER_SYSTEM", if (config.isVulkanDriverSystem) "1" else "0")
 
             Log.d(TAG, "Common environment configured: FCL_NATIVEDIR=$nativeLibDir, JAVA_HOME=${config.javaHome.absolutePath}, DRIVER_PATH=${config.nativesDir.absolutePath}")
             true

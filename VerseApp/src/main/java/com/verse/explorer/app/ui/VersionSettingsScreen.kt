@@ -33,7 +33,6 @@ fun VersionSettingsScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgSecondary)
     ) {
         Column(
             modifier = Modifier

@@ -64,6 +64,7 @@ object SettingsRepository {
         private const val KEY_VERIFY_SSL = "verify_ssl"
         private const val KEY_COMMUNITY_RESOURCES = "community_resources"
         private const val KEY_THEME_COLOR = "theme_color"
+        private const val KEY_BACKGROUND_STYLE = "background_style"
         private const val KEY_WINDOW_TITLE = "window_title"
         private const val KEY_CUSTOM_INFO = "custom_info"
         private const val KEY_LAUNCHER_VISIBILITY = "launcher_visibility"
@@ -379,6 +380,13 @@ object SettingsRepository {
 
     fun setThemeColor(color: String) {
         prefs().edit().putString(KEY_THEME_COLOR, color).apply()
+    }
+
+    /** 背景风格（对齐 PC `versepc_wallpaper`：none / panorama / image / solid） */
+    fun getBackgroundStyle(): String = prefs().getString(KEY_BACKGROUND_STYLE, "none") ?: "none"
+
+    fun setBackgroundStyle(style: String) {
+        prefs().edit().putString(KEY_BACKGROUND_STYLE, style).apply()
     }
 
     fun getWindowTitle(): String = prefs().getString(KEY_WINDOW_TITLE, DEFAULT_WINDOW_TITLE) ?: DEFAULT_WINDOW_TITLE

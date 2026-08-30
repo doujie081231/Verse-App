@@ -57,7 +57,7 @@ fun SettingsScreen(navController: NavHostController) {
     var launcherVisibility by remember { mutableStateOf(settingsRepo.getLauncherVisibility()) }
     var showSnapshots by remember { mutableStateOf(false) }
     var themeColor by remember { mutableStateOf(settingsRepo.getThemeColor()) }
-    var backgroundStyle by remember { mutableStateOf("none") }
+    var backgroundStyle by remember { mutableStateOf(settingsRepo.getBackgroundStyle()) }
 
     fun saveAll() {
         settingsRepo.apply {
@@ -94,7 +94,7 @@ fun SettingsScreen(navController: NavHostController) {
         showSnapshots = false; themeColor = "black"; backgroundStyle = "none"
     }
 
-    Row(modifier = Modifier.fillMaxSize().background(VerseColors.PcBgPrimary)) {
+    Row(modifier = Modifier.fillMaxSize()) {
         // 左侧边栏：160dp 宽，PcBgSecondary 背景
         Column(
             modifier = Modifier
@@ -387,12 +387,18 @@ fun SettingsScreen(navController: NavHostController) {
                                     label = "黑色",
                                     color = VerseColors.PcTextPrimary,
                                     selected = themeColor == "black"
-                                ) { themeColor = "black" }
+                                ) {
+                                    themeColor = "black"
+                                    VerseColors.applyTheme("black")
+                                }
                                 ThemeColorOption(
                                     label = "白色",
                                     color = VerseColors.PcBgPrimary,
                                     selected = themeColor == "white"
-                                ) { themeColor = "white" }
+                                ) {
+                                    themeColor = "white"
+                                    VerseColors.applyTheme("white")
+                                }
                             }
                         }
                     }
@@ -410,17 +416,11 @@ fun SettingsScreen(navController: NavHostController) {
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                BackgroundStyleOption("无背景", backgroundStyle == "none") { backgroundStyle = "none" }
-                                BackgroundStyleOption("MC全景", backgroundStyle == "panorama") { backgroundStyle = "panorama" }
-                                BackgroundStyleOption("自定义图片", backgroundStyle == "image") { backgroundStyle = "image" }
-                                BackgroundStyleOption("纯色", backgroundStyle == "solid") { backgroundStyle = "solid" }
+                                BackgroundStyleOption("无背景", backgroundStyle == "none") {
+                                    backgroundStyle = "none"
+                                    settingsRepo.setBackgroundStyle("none")
+                                }
                             }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "背景风格仅为预览，暂未实际生效",
-                                fontSize = 11.sp,
-                                color = VerseColors.PcTextMuted
-                            )
                         }
                     }
                 }

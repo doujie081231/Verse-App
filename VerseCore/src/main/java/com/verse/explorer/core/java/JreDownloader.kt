@@ -103,7 +103,13 @@ internal object JreDownloader {
                 "正在解压 Java $versionNum..."
             ))
 
-            JreExtractor.extractTarXz(universalFile, extractDir) { current, total ->
+            // 与 FCL 原版 RuntimeUtils.installJava 一致：删除旧目录后，
+            // 直接把两个 tar.xz 解压到目标目录（顶层即标准 JRE 结构），
+            // 不再使用 findJreRootDir/moveDirReliably 等自研猜测逻辑。
+            if (targetDir.exists()) targetDir.deleteRecursively()
+            targetDir.mkdirs()
+
+            JreExtractor.extractTarXz(universalFile, targetDir) { current, total ->
                 val progress = 50 + (if (total > 0) ((current * 20) / total).toInt() else 0)
                 onProgress(JavaInstallProgress(
                     JavaInstallStatus.EXTRACTING, progress,
@@ -111,27 +117,12 @@ internal object JreDownloader {
                 ))
             }
 
-            JreExtractor.extractTarXz(archFile, extractDir) { current, total ->
+            JreExtractor.extractTarXz(archFile, targetDir) { current, total ->
                 val progress = 70 + (if (total > 0) ((current * 15) / total).toInt() else 0)
                 onProgress(JavaInstallProgress(
                     JavaInstallStatus.EXTRACTING, progress,
                     "正在解压架构文件... ($current/$total)"
                 ))
-            }
-
-            if (targetDir.exists()) targetDir.deleteRecursively()
-
-            val jreRoot = JreExtractor.findJreRootDir(extractDir)
-            val moveSuccess = if (jreRoot != null && jreRoot != extractDir) {
-                JreExtractor.moveDirReliably(jreRoot, targetDir)
-            } else {
-                JreExtractor.moveDirReliably(extractDir, targetDir)
-            }
-
-            if (!moveSuccess || !targetDir.exists()) {
-                Log.e(TAG, "Failed to move extracted JRE to target directory")
-                tempDir.deleteRecursively()
-                return false
             }
 
             tempDir.deleteRecursively()

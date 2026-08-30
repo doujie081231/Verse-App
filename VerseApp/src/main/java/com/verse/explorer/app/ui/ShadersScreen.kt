@@ -28,6 +28,7 @@ import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
 import com.verse.explorer.core.resource.ModrinthSearchHit
@@ -52,7 +53,6 @@ fun ShadersScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -60,7 +60,7 @@ fun ShadersScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 0.dp)
         ) {
-            PageHeader(title = "光影包管理")
+            PageHeader(title = "光影包管理", compact = true)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -95,7 +95,7 @@ fun ShadersScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(40.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -109,7 +109,7 @@ fun ShadersScreen(
 
                 GlassCard(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp)
                         .clickable {},
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -118,13 +118,39 @@ fun ShadersScreen(
                             imageVector = Icons.Outlined.FolderOpen,
                             contentDescription = null,
                             tint = VerseColors.PcTextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
+                sources.forEach { (label, value) ->
+                    val isSelected = uiState.selectedSource == value
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
+                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier
@@ -147,7 +173,7 @@ fun ShadersScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             if (uiState.error != null) {
                 GlassCard(
@@ -198,7 +224,7 @@ fun ShadersScreen(
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
                     items(results, key = { it.projectId }) { hit ->
-                        ShaderCard(hit, onClick = { navController.navigate("shader_detail/${hit.projectId}") })
+                        ShaderCard(hit, onClick = { navController.navigate("shader_detail/${hit.projectId}?source=${hit.source}") })
                     }
 
                     if (uiState.isLoading && results.isNotEmpty()) {
@@ -218,29 +244,15 @@ fun ShadersScreen(
                         }
                     }
 
-                    if (!uiState.isLoading && results.size < uiState.totalHits) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                FilledTonalButton(
-                                    onClick = { viewModel.loadMore() },
-                                    shape = RoundedCornerShape(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = VerseColors.PcBgCard,
-                                        contentColor = VerseColors.PcTextSecondary
-                                    )
-                                ) {
-                                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("加载更多", fontSize = 12.sp)
-                                }
-                            }
-                        }
+                    // PC 式分页（对齐 .pagination：上一页/页码/下一页）
+                    item {
+                        PcPagination(
+                            currentPage = uiState.currentPage,
+                            totalHits = uiState.totalHits,
+                            pageSize = 15,
+                            onPrev = { viewModel.goToPage(uiState.currentPage - 1) },
+                            onNext = { viewModel.goToPage(uiState.currentPage + 1) }
+                        )
                     }
                 }
 
@@ -288,7 +300,7 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                     modifier = Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(VerseColors.PcPurple.copy(alpha = 0.15f)),
+                        .background(VerseColors.PcBgTertiary),
                     contentAlignment = Alignment.Center
                 ) {
                     // 始终显示占位图标（加载失败时透出来）

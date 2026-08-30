@@ -26,9 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.ui.components.PageHeader
-import com.verse.explorer.app.ui.components.PcButton
-import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcTabGroup
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
@@ -49,77 +46,80 @@ fun VersionsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val releaseVersions by viewModel.releaseVersions.collectAsStateWithLifecycle()
     val snapshotVersions by viewModel.snapshotVersions.collectAsStateWithLifecycle()
+    val specialVersions by viewModel.specialVersions.collectAsStateWithLifecycle()
+    val oldVersions by viewModel.oldVersions.collectAsStateWithLifecycle()
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
-    val tabs = listOf("正式版", "快照", "已安装")
+    val tabs = listOf("正式版", "快照版", "愚人节版", "远古版", "已安装")
 
     val displayVersions = when (selectedTab) {
         0 -> releaseVersions
         1 -> snapshotVersions
-        2 -> localVersions
+        2 -> specialVersions
+        3 -> oldVersions
+        4 -> localVersions
         else -> emptyList()
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .padding(top = 12.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
-            PageHeader(
-                title = "版本管理",
-                actions = {
-                    PcButton(
-                        text = "刷新",
-                        onClick = { viewModel.fetchRemoteVersions() },
-                        variant = PcButtonVariant.GHOST,
-                        icon = Icons.Outlined.Refresh
-                    )
-                }
-            )
-
-            Text(
-                text = "下载源: $sourceLabel",
-                style = MaterialTheme.typography.labelSmall,
-                color = VerseColors.PcTextMuted,
-                fontSize = 11.sp
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            PcTabGroup(
-                tabs = tabs,
-                selectedIndex = selectedTab,
-                onSelected = { selectedTab = it }
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
+            // 紧凑单行控制条：下载源 + 数量 + 刷新，避免压缩版本列表可视高度
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(
+                    text = "源: $sourceLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VerseColors.PcTextMuted,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (uiState.isLoading) "加载中..." else "共 ${displayVersions.size} 个版本",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextMuted,
-                    fontSize = 11.sp
+                    fontSize = 10.sp,
+                    maxLines = 1
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(
+                    onClick = { viewModel.fetchRemoteVersions(forceRefresh = true) },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(Icons.Outlined.Refresh, "刷新", Modifier.size(16.dp), VerseColors.PcTextSecondary)
+                }
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+
+            PcTabGroup(
+                tabs = tabs,
+                selectedIndex = selectedTab,
+                onSelected = { selectedTab = it },
+                compact = true
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
             if (uiState.error != null) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = VerseColors.PcRed.copy(alpha = 0.1f)
@@ -138,14 +138,14 @@ fun VersionsScreen(
                             fontSize = 12.sp,
                             modifier = Modifier.weight(1f)
                         )
-                        TextButton(onClick = { viewModel.clearError(); viewModel.fetchRemoteVersions() }) {
+                        TextButton(onClick = { viewModel.clearError(); viewModel.fetchRemoteVersions(forceRefresh = true) }) {
                             Text("重试", fontSize = 11.sp, color = VerseColors.PcAccent)
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (uiState.isLoading && displayVersions.isEmpty()) {
                 Box(
@@ -164,16 +164,16 @@ fun VersionsScreen(
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 16.dp)
+                    contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
                     items(displayVersions) { version ->
                         VersionItem(
                             version = version,
-                            isInInstalledTab = selectedTab == 2,
+                            isInInstalledTab = selectedTab == 4,
                             onClick = {
-                                if (selectedTab == 2) {
+                                if (selectedTab == 4) {
                                     navController.navigate("version_settings/${version.id}")
                                 } else {
                                     navController.navigate("version_detail/${version.id}?type=${version.type.name.lowercase()}&url=${java.net.URLEncoder.encode(version.url, "UTF-8")}")
@@ -225,11 +225,13 @@ private fun VersionItem(
 ) {
     val context = LocalContext.current
     val iconBg = when (version.type) {
+        VersionType.SPECIAL -> VerseColors.PcOrange.copy(alpha = 0.15f)
         VersionType.SNAPSHOT -> VerseColors.PcOrange.copy(alpha = 0.15f)
         VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
         else -> VerseColors.PcGreen.copy(alpha = 0.15f)
     }
     val iconAssetPath = when (version.type) {
+        VersionType.SPECIAL -> "icons/version_icon_cobblestone.png"
         VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
         VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
         else -> "icons/version_icon_grass.png"
@@ -243,11 +245,13 @@ private fun VersionItem(
     }
 
     val typeBadgeColor = when (version.type) {
+        VersionType.SPECIAL -> VerseColors.PcOrange
         VersionType.SNAPSHOT -> VerseColors.PcOrange
         VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple
         else -> VerseColors.PcGreen
     }
     val typeBadgeLabel = when (version.type) {
+        VersionType.SPECIAL -> "愚人节"
         VersionType.SNAPSHOT -> "快照"
         VersionType.OLD_ALPHA -> "Old Alpha"
         VersionType.OLD_BETA -> "Old Beta"
@@ -265,12 +269,12 @@ private fun VersionItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 16.dp),
+                .padding(vertical = 6.dp, horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(36.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(iconBg),
                 contentAlignment = Alignment.Center
@@ -279,36 +283,41 @@ private fun VersionItem(
                     Image(
                         bitmap = iconBitmap,
                         contentDescription = null,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(24.dp),
                         contentScale = ContentScale.Fit
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = version.id,
                     style = MaterialTheme.typography.bodyMedium,
                     color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
-                Text(
-                    text = buildVersionMetaText(version),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.PcTextMuted,
-                    fontSize = 12.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Surface(
-                    shape = RoundedCornerShape(3.dp),
-                    color = typeBadgeColor.copy(alpha = 0.15f)
-                ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = typeBadgeColor.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = typeBadgeLabel,
+                            fontSize = 9.sp,
+                            color = typeBadgeColor,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = typeBadgeLabel,
-                        fontSize = 10.sp,
-                        color = typeBadgeColor,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        text = versionMetaTail(version),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1
                     )
                 }
             }
@@ -326,19 +335,8 @@ private fun VersionItem(
     }
 }
 
-private fun buildVersionMetaText(version: MinecraftVersion): String {
-    val parts = mutableListOf<String>()
-    val typeLabel = when (version.type) {
-        VersionType.SNAPSHOT -> "快照"
-        VersionType.OLD_ALPHA -> "Old Alpha"
-        VersionType.OLD_BETA -> "Old Beta"
-        else -> "正式版"
-    }
-    parts.add(typeLabel)
-    if (version.releaseTime.isNotEmpty()) {
-        parts.add(formatDate(version.releaseTime))
-    }
-    return parts.joinToString(" · ")
+private fun versionMetaTail(version: MinecraftVersion): String {
+    return if (version.releaseTime.isNotEmpty()) formatDate(version.releaseTime) else ""
 }
 
 private fun formatDate(dateStr: String): String {

@@ -5,17 +5,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
+/**
+ * 全局色板（对齐 versepc2 themes.css 的 dark/light 两套 CSS 变量）。
+ * `Pc*` 系列是响应式 getter：组合期间读取会订阅内部主题状态，
+ * 切换黑白主题（VerseColors.applyTheme）时全 UI 自动重组，与 PC 即时换肤一致。
+ */
 object VerseColors {
 
-    // ==================== 游戏平台色 ====================
+    // ==================== 平台色（跨主题不变）====================
     val FabricGreen = Color(0xFF30B25A)
     val ForgeColor = Color(0xFFEA580C)
     val NeoForgeRed = Color(0xFFEF4444)
     val QuiltPurple = Color(0xFFA855F7)
 
-    // ==================== Minecraft 主题色（仅保留实际被引用的项）====================
+    // ==================== Minecraft 主题色（历史遗留，跨主题不变）====================
     val McGreen = Color(0xFF5D8C3E)
     val McGreenDark = Color(0xFF4A7030)
     val McGreenLight = Color(0xFF7BAF58)
@@ -36,43 +44,118 @@ object VerseColors {
     val McTextMuted = Color(0xFF787890)
     val McTextDim = Color(0xFF555568)
 
-    // ==================== PC 端主题色（对齐 VersePC light 主题）====================
-    val PcBgPrimary = Color(0xFFFFFFFF)       // 主背景
-    val PcBgSecondary = Color(0xFFF5F5F7)     // 次背景
-    val PcBgTertiary = Color(0xFFEEEEF0)      // 三级背景（输入框、tab 组）
-    val PcBgCard = Color(0xFFFAFAFA)          // 卡片背景
-    val PcBgHover = Color(0xFFE8E8ED)         // 悬停背景
-    val PcBgActive = Color(0xFFDDDDE5)        // 激活背景
+    // ==================== 主题状态 ====================
+    private var isDarkState = mutableStateOf(true)
 
-    val PcTextPrimary = Color(0xFF1A1A1A)     // 主文字
-    val PcTextSecondary = Color(0xFF4A4A4A)   // 次文字
-    val PcTextMuted = Color(0xFF8A8A8A)       // 弱文字
+    /** 当前是否为黑（深色）主题 */
+    var isDark: Boolean
+        get() = isDarkState.value
+        set(value) {
+            isDarkState.value = value
+        }
 
-    val PcAccent = Color(0xFF1A1A1A)          // 强调色（黑色，非品牌色）
-    val PcAccentHover = Color(0xFF333333)     // 强调悬停
-    val PcAccentText = Color(0xFFFFFFFF)      // 强调色上的文字
-    val PcAccentGlow = Color(0x1A000000)      // 强调光晕（10% 黑）
+    /** 应用个性化主题颜色（"black" / "white"），对齐 PC data-theme 切换即时生效 */
+    fun applyTheme(color: String) {
+        isDark = color != "white"
+    }
 
-    val PcBorder = Color(0x1A000000)          // 边框（10% 黑）
-    val PcBorderSubtle = Color(0x0D000000)    // 细边框（5% 黑）
+    // ==================== PC dark（对齐 [data-theme="dark"]）====================
+    private object Dark {
+        val bgPrimary = Color(0xFF0A0A0A)
+        val bgSecondary = Color(0xFF141414)
+        val bgTertiary = Color(0xFF1C1C1C)
+        val bgCard = Color(0xFF181818)
+        val bgHover = Color(0xFF242424)
+        val bgActive = Color(0xFF2E2E2E)
+        val textPrimary = Color(0xFFF0F0F0)
+        val textSecondary = Color(0xFFA0A0A0)
+        val textMuted = Color(0xFF666666)
+        val accent = Color(0xFFFFFFFF)
+        val accentHover = Color(0xFFD0D0D0)
+        val accentGlow = Color(0x26FFFFFF)
+        val accentText = Color(0xFF0A0A0A)
+        val border = Color(0x14FFFFFF)
+        val borderSubtle = Color(0x0AFFFFFF)
+        val green = Color(0xFF4CAF50)
+        val red = Color(0xFFEF5350)
+        val orange = Color(0xFFFF9800)
+        val yellow = Color(0xFFFFC107)
+        val purple = Color(0xFFAB47BC)
+        val shadow = Color(0x80000000)
+        val shadowLarge = Color(0x99000000)
+        val glassBg = Color(0xD90A0A0A)
+        val glassCardBg = Color(0xB3181818)
+        val launchGradientStart = Color(0xFFF5F5F5)
+        val launchGradientEnd = Color(0xFFD0D0D0)
+    }
 
-    val PcGreen = Color(0xFF16A34A)           // 成功/启动按钮
-    val PcRed = Color(0xFFDC2626)             // 危险/错误
-    val PcOrange = Color(0xFFEA580C)          // 警告
-    val PcPurple = Color(0xFF7C3AED)          // 实验性/外置登录
-    val PcYellow = Color(0xFFB8860B)          // 黄色
+    // ==================== PC light（对齐 [data-theme="light"]）====================
+    private object Light {
+        val bgPrimary = Color(0xFFFFFFFF)
+        val bgSecondary = Color(0xFFF5F5F7)
+        val bgTertiary = Color(0xFFEEEEF0)
+        val bgCard = Color(0xFFFAFAFA)
+        val bgHover = Color(0xFFE8E8ED)
+        val bgActive = Color(0xFFDDDDE5)
+        val textPrimary = Color(0xFF1A1A1A)
+        val textSecondary = Color(0xFF4A4A4A)
+        val textMuted = Color(0xFF8A8A8A)
+        val accent = Color(0xFF1A1A1A)
+        val accentHover = Color(0xFF333333)
+        val accentGlow = Color(0x1A000000)
+        val accentText = Color(0xFFFFFFFF)
+        val border = Color(0x1A000000)
+        val borderSubtle = Color(0x0A000000)
+        val green = Color(0xFF16A34A)
+        val red = Color(0xFFDC2626)
+        val orange = Color(0xFFEA580C)
+        val yellow = Color(0xFFB8860B)
+        val purple = Color(0xFF7C3AED)
+        val shadow = Color(0x0F000000)
+        val shadowLarge = Color(0x14000000)
+        val glassBg = Color(0xD9F5F5F7)
+        val glassCardBg = Color(0xB3FAFAFA)
+        val launchGradientStart = Color(0xFF1A1A1A)
+        val launchGradientEnd = Color(0xFF333333)
+    }
 
-    val PcShadow = Color(0x0F000000)          // 主阴影（6% 黑）
-    val PcShadowLarge = Color(0x14000000)     // 大阴影（8% 黑）
+    private val isDarkTheme: Boolean get() = isDark
 
-    val PcGlassBg = Color(0xF5F5F5F7)         // 玻璃拟态背景（侧边栏/标题栏）
-    val PcGlassCardBg = Color(0xB3FAFAFA)     // 玻璃卡片背景（70% 不透明）
+    // ==================== PC 端主题色（响应式，对齐 VersePC 黑白主题）====================
+    val PcBgPrimary: Color get() = if (isDarkTheme) Dark.bgPrimary else Light.bgPrimary
+    val PcBgSecondary: Color get() = if (isDarkTheme) Dark.bgSecondary else Light.bgSecondary
+    val PcBgTertiary: Color get() = if (isDarkTheme) Dark.bgTertiary else Light.bgTertiary
+    val PcBgCard: Color get() = if (isDarkTheme) Dark.bgCard else Light.bgCard
+    val PcBgHover: Color get() = if (isDarkTheme) Dark.bgHover else Light.bgHover
+    val PcBgActive: Color get() = if (isDarkTheme) Dark.bgActive else Light.bgActive
 
-    // 启动按钮渐变色
-    val PcLaunchGradientStart = Color(0xFF22C55E)
-    val PcLaunchGradientEnd = Color(0xFF16A34A)
-    val PcLaunchRunningStart = Color(0xFFEF5350)
-    val PcLaunchRunningEnd = Color(0xFFC62828)
+    val PcTextPrimary: Color get() = if (isDarkTheme) Dark.textPrimary else Light.textPrimary
+    val PcTextSecondary: Color get() = if (isDarkTheme) Dark.textSecondary else Light.textSecondary
+    val PcTextMuted: Color get() = if (isDarkTheme) Dark.textMuted else Light.textMuted
+
+    val PcAccent: Color get() = if (isDarkTheme) Dark.accent else Light.accent
+    val PcAccentHover: Color get() = if (isDarkTheme) Dark.accentHover else Light.accentHover
+    val PcAccentText: Color get() = if (isDarkTheme) Dark.accentText else Light.accentText
+    val PcAccentGlow: Color get() = if (isDarkTheme) Dark.accentGlow else Light.accentGlow
+
+    val PcBorder: Color get() = if (isDarkTheme) Dark.border else Light.border
+    val PcBorderSubtle: Color get() = if (isDarkTheme) Dark.borderSubtle else Light.borderSubtle
+
+    val PcGreen: Color get() = if (isDarkTheme) Dark.green else Light.green
+    val PcRed: Color get() = if (isDarkTheme) Dark.red else Light.red
+    val PcOrange: Color get() = if (isDarkTheme) Dark.orange else Light.orange
+    val PcPurple: Color get() = if (isDarkTheme) Dark.purple else Light.purple
+    val PcYellow: Color get() = if (isDarkTheme) Dark.yellow else Light.yellow
+
+    val PcShadow: Color get() = if (isDarkTheme) Dark.shadow else Light.shadow
+    val PcShadowLarge: Color get() = if (isDarkTheme) Dark.shadowLarge else Light.shadowLarge
+
+    val PcGlassBg: Color get() = if (isDarkTheme) Dark.glassBg else Light.glassBg
+    val PcGlassCardBg: Color get() = if (isDarkTheme) Dark.glassCardBg else Light.glassCardBg
+
+    // 启动按钮渐变（对齐 .btn-primary background: var(--accent)：dark 白渐变黑字 / light 深渐变白字）
+    val PcLaunchGradientStart: Color get() = if (isDarkTheme) Dark.launchGradientStart else Light.launchGradientStart
+    val PcLaunchGradientEnd: Color get() = if (isDarkTheme) Dark.launchGradientEnd else Light.launchGradientEnd
 }
 
 val LightColorScheme = lightColorScheme(

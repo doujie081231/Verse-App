@@ -1,23 +1,8 @@
-# LWJGL ARM64 Native Libraries
+# Native Libraries
 
-This directory contains ARM64 native libraries for LWJGL, extracted from official LWJGL releases.
+原生库（LWJGL、渲染器、JNA、OpenAL、jemalloc 等）不再放置在 `assets/natives/` 根目录。
 
-## Included Libraries
+它们由各模块按 ABI 打包进 APK 的 `lib/<abi>/`（配合 `abiFilters` + `splits.abi` 按架构出包），
+运行时由 `NativesDeployer` 从 APK `lib/<当前ABI>/` 提取正确架构的版本并部署到内部存储。
 
-- liblwjgl.so - Core LWJGL library
-- liblwjgl_opengl.so - OpenGL bindings
-- liblwjgl_glfw.so - GLFW window management
-- liblwjgl_openal.so - OpenAL audio
-- liblwjgl_stb.so - STB libraries (image loading, fonts, etc.)
-- liblwjgl_jemalloc.so - JEMalloc memory allocator
-- libglfw.so - GLFW native library
-- libopenal.so - OpenAL native library
-
-## Source
-
-These libraries are extracted from LWJGL 3.3.3 natives-linux-arm64 releases:
-https://github.com/LWJGL/lwjgl3/releases
-
-## License
-
-LWJGL is licensed under the BSD 3-Clause License.
+因此 `assets/natives/` 目录刻意留空，避免把某个架构的 .so 错放到其他架构的安装包中。

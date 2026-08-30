@@ -21,6 +21,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.FilterRow
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
 
@@ -36,12 +37,11 @@ fun ResourcePacksScreen(
 
     var searchQuery by remember { mutableStateOf("") }
     val versions = listOf("全部", "1.21", "1.20", "1.19", "1.18", "1.17", "1.16")
-    val totalPages = if (uiState.totalHits > 0) (uiState.totalHits + 19) / 20 else 1
+    val totalPages = if (uiState.totalHits > 0) (uiState.totalHits + 14) / 15 else 1
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
@@ -49,7 +49,7 @@ fun ResourcePacksScreen(
                 .padding(horizontal = 16.dp)
                 .padding(top = 0.dp)
         ) {
-            PageHeader(title = "材质包管理")
+            PageHeader(title = "材质包管理", compact = true)
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -87,7 +87,7 @@ fun ResourcePacksScreen(
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(48.dp),
+                    modifier = Modifier.weight(1f).height(40.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -101,7 +101,7 @@ fun ResourcePacksScreen(
 
                 GlassCard(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(40.dp)
                         .clickable { viewModel.search(searchQuery) },
                     shape = RoundedCornerShape(8.dp)
                 ) {
@@ -110,43 +110,52 @@ fun ResourcePacksScreen(
                             imageVector = Icons.Outlined.Search,
                             contentDescription = null,
                             tint = VerseColors.PcTextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // 对齐模组页：筛选去竖排 label，并排两行 FilterRow
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterRow(versions, uiState.selectedVersion, onSelect = { viewModel.setSelectedVersion(it) }, modifier = Modifier.weight(1f))
+                val resolutions = listOf("全部", "8x", "16x", "32x", "64x", "128x", "256x", "512x")
+                var selectedResolution by remember { mutableStateOf("全部") }
+                FilterRow(resolutions, selectedResolution, onSelect = { selectedResolution = it }, modifier = Modifier.weight(1f))
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "游戏版本",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 10.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    FilterRow(versions, uiState.selectedVersion) { viewModel.setSelectedVersion(it) }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "分辨率",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 10.sp
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val resolutions = listOf("全部", "8x", "16x", "32x", "64x", "128x", "256x", "512x")
-                    var selectedResolution by remember { mutableStateOf("全部") }
-                    FilterRow(resolutions, selectedResolution) { selectedResolution = it }
+                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
+                sources.forEach { (label, value) ->
+                    val isSelected = uiState.selectedSource == value
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
+                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
+                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
@@ -169,7 +178,7 @@ fun ResourcePacksScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (uiState.error != null && results.isEmpty()) {
                 Box(
@@ -230,12 +239,12 @@ fun ResourcePacksScreen(
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
                     items(results) { hit ->
-                        ResourcePackCard(hit, onClick = { navController.navigate("resourcepack_detail/${hit.projectId}") })
+                        ResourcePackCard(hit, onClick = { navController.navigate("resourcepack_detail/${hit.projectId}?source=${hit.source}") })
                     }
                     if (uiState.isLoading) {
                         item {
@@ -269,63 +278,23 @@ fun ResourcePacksScreen(
                                         fontSize = 12.sp
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    TextButton(onClick = { viewModel.loadMore() }) {
+                                    TextButton(onClick = { viewModel.goToPage(uiState.currentPage) }) {
                                         Text("重试", color = VerseColors.PcAccent, fontSize = 12.sp)
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 10.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilledTonalButton(
-                    onClick = { viewModel.search(searchQuery) },
-                    enabled = uiState.currentPage > 0,
-                    shape = RoundedCornerShape(8.dp, 0.dp, 0.dp, 8.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = VerseColors.PcBgCard,
-                        contentColor = VerseColors.PcTextSecondary,
-                        disabledContainerColor = VerseColors.PcBgCard,
-                        disabledContentColor = VerseColors.PcTextMuted
-                    )
-                ) {
-                    Icon(Icons.Outlined.ChevronLeft, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("上一页", fontSize = 12.sp)
-                }
-
-                Text(
-                    text = " ${uiState.currentPage + 1} / $totalPages ",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.PcTextSecondary,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
-
-                FilledTonalButton(
-                    onClick = { viewModel.loadMore() },
-                    enabled = uiState.currentPage + 1 < totalPages && !uiState.isLoading,
-                    shape = RoundedCornerShape(0.dp, 8.dp, 8.dp, 0.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = VerseColors.PcBgCard,
-                        contentColor = VerseColors.PcTextSecondary,
-                        disabledContainerColor = VerseColors.PcBgCard,
-                        disabledContentColor = VerseColors.PcTextMuted
-                    )
-                ) {
-                    Text("下一页", fontSize = 12.sp)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.ChevronRight, null, Modifier.size(16.dp))
+                    // 分页控件并入列表末尾，避免固定占据列表空间（对齐 PC .pagination：上一页/页码/下一页）
+                    item {
+                        PcPagination(
+                            currentPage = uiState.currentPage,
+                            totalHits = uiState.totalHits,
+                            pageSize = 15,
+                            onPrev = { viewModel.goToPage(uiState.currentPage - 1) },
+                            onNext = { viewModel.goToPage(uiState.currentPage + 1) }
+                        )
+                    }
                 }
             }
         }

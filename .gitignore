@@ -18,3 +18,21 @@ temp_homescreen.ps1
 # Module build directories
 **/build/
 VersePC/
+
+# --- root-level diagnosis / test junk (keep repo clean) ---
+/*.png
+/*.xml
+/*.json
+/*.bin
+/*.db
+/*.log
+/*.txt
+/*.tar.xz
+/mc_files/
+/test_screenshots/
+/tmp_extract/
+/tmp_jna_aar/
+/org/
+/META-INF/
+/push_libs.ps1
+/parse_ui.ps1

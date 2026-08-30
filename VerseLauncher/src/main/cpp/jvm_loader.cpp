@@ -26,6 +26,20 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 
+// Android 10+ 的 fdsan（FD 消毒器）会把部分 JDK/JRE（含 FCL 打包的旧构建）初始化期
+// 合法的 close 判定为 double close（"attempted to close file descriptor N, expected
+// to be unowned, actually owned by FILE*"）并直接 SIGABRT，导致 JVM 无法启动。
+// verseexec 由 :jvm 安装器进程与游戏进程在启动 JVM 前加载，这里在库加载时把
+// fdsan 降级为 WARN（1），仅放行访问，不改变其他行为（社区对 Pojav/FCL 旧 JVM 的
+// 标准规避手段）。用 dlsym 解析以兼容 Android 9 及更低版本（无该符号时忽略）。
+static void __attribute__((constructor)) verseexec_disable_fdsan() {
+    typedef int (*fdsan_set_level_fn)(int level);
+    void *libc = dlopen("libc.so", RTLD_NOLOAD);
+    if (!libc) return;
+    fdsan_set_level_fn fn = (fdsan_set_level_fn)dlsym(libc, "android_fdsan_set_error_level");
+    if (fn) fn(1); // ANDROID_FDSAN_ERROR_LEVEL_WARN
+}
+
 typedef int (*JLI_Launch_t)(int argc, char **argv, int jreargc, const char **jreargv,
                             int appclasspathc, const char **appclasspathv,
                             const char *const version, const char *const classname,

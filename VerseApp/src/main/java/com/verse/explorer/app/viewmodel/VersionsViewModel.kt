@@ -34,7 +34,10 @@ data class InstallState(
     val isInstalling: Boolean = false,
     val isCompleted: Boolean = false,
     val isFailed: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val speed: Long = 0L,
+    val downloaded: Long = 0L,
+    val totalBytes: Long = 0L
 )
 
 class VersionsViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +61,12 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
     private val _snapshotVersions = MutableStateFlow<List<MinecraftVersion>>(emptyList())
     val snapshotVersions: StateFlow<List<MinecraftVersion>> = _snapshotVersions.asStateFlow()
 
+    private val _specialVersions = MutableStateFlow<List<MinecraftVersion>>(emptyList())
+    val specialVersions: StateFlow<List<MinecraftVersion>> = _specialVersions.asStateFlow()
+
+    private val _oldVersions = MutableStateFlow<List<MinecraftVersion>>(emptyList())
+    val oldVersions: StateFlow<List<MinecraftVersion>> = _oldVersions.asStateFlow()
+
     private val _downloadingVersions = MutableStateFlow<Set<String>>(emptySet())
     val downloadingVersions: StateFlow<Set<String>> = _downloadingVersions.asStateFlow()
 
@@ -71,19 +80,29 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         fetchRemoteVersions()
     }
 
-    fun fetchRemoteVersions() {
+    fun fetchRemoteVersions(forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
             try {
-                val manifest = versionManager.fetchRemoteVersions()
+                val manifest = versionManager.fetchRemoteVersions(forceRefresh)
                 _remoteVersions.value = manifest.versions
 
-                _releaseVersions.value = manifest.versions.filter {
+                // PC 端对齐分类：愚人节版本官方 type 多为 snapshot/release，按已知 ID 统一标记为 special
+                val categorized = manifest.versions.map {
+                    if (isAprilFoolsId(it.id)) it.copy(type = VersionType.SPECIAL) else it
+                }
+                _releaseVersions.value = categorized.filter {
                     it.type == VersionType.RELEASE
                 }
-                _snapshotVersions.value = manifest.versions.filter {
+                _snapshotVersions.value = categorized.filter {
                     it.type == VersionType.SNAPSHOT
+                }
+                _specialVersions.value = categorized.filter {
+                    it.type == VersionType.SPECIAL
+                }
+                _oldVersions.value = categorized.filter {
+                    it.type == VersionType.OLD_ALPHA || it.type == VersionType.OLD_BETA
                 }
 
                 _uiState.value = _uiState.value.copy(isLoading = false)
@@ -93,6 +112,16 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
                     error = "获取版本列表失败: ${e.message}"
                 )
             }
+        }
+    }
+
+    /** 愚人节版本识别（与 PC 端 versions.rs 已知 ID 集合对齐） */
+    private fun isAprilFoolsId(id: String): Boolean {
+        return when (id) {
+            "26.1.1", "26w14a", "25w14craftmine", "24w14potato",
+            "23w13a_or_b", "22w13oneblockatatime", "20w14infinite",
+            "3D Shareware v1.34", "15w14a", "1.RV-Pre1" -> true
+            else -> false
         }
     }
 
@@ -120,17 +149,23 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
 
             try {
                 val success = gameInstaller.installVersion(version, loaderType, loaderVersion) { progress ->
-                    _installState.value = InstallState(
-                        versionId = version.id,
-                        stage = progress.stage,
-                        message = progress.message,
-                        progress = progress.progress,
-                        currentFile = progress.currentFile,
-                        isInstalling = progress.stage != InstallStage.COMPLETED && progress.stage != InstallStage.FAILED,
-                        isCompleted = progress.stage == InstallStage.COMPLETED,
-                        isFailed = progress.stage == InstallStage.FAILED,
-                        error = if (progress.stage == InstallStage.FAILED) progress.message else null
-                    )
+                    // 取消/关闭后忽略后台残留进度回调，避免弹窗二次弹出（一次性取消）
+                    if (installJob?.isActive == true) {
+                        _installState.value = InstallState(
+                            versionId = version.id,
+                            stage = progress.stage,
+                            message = progress.message,
+                            progress = progress.progress,
+                            currentFile = progress.currentFile,
+                            isInstalling = progress.stage != InstallStage.COMPLETED && progress.stage != InstallStage.FAILED,
+                            isCompleted = progress.stage == InstallStage.COMPLETED,
+                            isFailed = progress.stage == InstallStage.FAILED,
+                            error = if (progress.stage == InstallStage.FAILED) progress.message else null,
+                            speed = progress.speed,
+                            downloaded = progress.downloaded,
+                            totalBytes = progress.totalBytes
+                        )
+                    }
                 }
 
                 if (success) {
