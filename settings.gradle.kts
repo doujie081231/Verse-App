@@ -11,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven("https://jitpack.io") // 解析 com.github.steveice10:opennbt 等 GitHub 托管依赖
     }
 }
 

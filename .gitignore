@@ -35,3 +35,27 @@ VersePC/
 /META-INF/
 /push_libs.ps1
 /parse_ui.ps1
+
+# --- temporary debug / migration artifacts (keep repo clean) ---
+/.fcl-temp/
+/.pojav-src/
+/.kotlin/
+/.trae/
+/.codex/
+/.temp-debug/
+/.tmp-*/
+/.tmp_lwjgl/
+/.tmp*.jar
+/.tmp*.py
+/.tmp*.so
+/*.jar
+/*.zip
+/*.so
+/*.sh
+/*.ps1
+/*.py
+/*.sql
+/com/
+/javassist/
+/libs/
+/mc_filesassets*

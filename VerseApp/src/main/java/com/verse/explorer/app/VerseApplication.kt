@@ -34,6 +34,9 @@ class VerseApplication : Application(), ImageLoaderFactory {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** 应用级协程作用域：供跨页面长任务（如整合包安装）使用，不随页面销毁而取消 */
+    val appScope: CoroutineScope get() = applicationScope
+
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         registerCrashHandler()

@@ -39,6 +39,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.FavoritesRepository
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.ui.components.GlassCard
@@ -49,13 +50,16 @@ import com.verse.explorer.app.ui.components.VerseVersionItem
 import com.verse.explorer.app.ui.components.VersionPickerDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.install.modpack.ModpackInstaller
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceVersion
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
 import io.noties.markwon.Markwon
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -72,6 +76,8 @@ fun ModDetailScreen(
         ResourceRepository(context.applicationContext as Application)
     }
     val scope = rememberCoroutineScope()
+    // 整合包安装是长任务：挂到 Application 级作用域，离开详情页（Composable 销毁）不会中断
+    val appScope = (context.applicationContext as VerseApplication).appScope
     val clipboardManager = LocalClipboardManager.current
     var project by remember { mutableStateOf<ResourceDetail?>(null) }
     var versions by remember { mutableStateOf<List<ResourceVersion>>(emptyList()) }
@@ -199,9 +205,44 @@ fun ModDetailScreen(
                 }
             )
             downloading = false
-            result.onSuccess {
-                downloadDone = true
-                downloadText = "下载完成"
+            result.onSuccess { file ->
+                if (projectType == "modpack") {
+                    // 整合包：下载 .mrpack 完成后走 FCL 原版整合包安装链路
+                    // （ModrinthInstallTask = 安装游戏本体 + 加载器 + 解压 overrides + 依赖模组）
+                    // 安装是长任务，挂到 Application 级作用域：离开详情页也不会被取消
+                    val gameDir = GameConfig.getGameDir(context.applicationContext)
+                    downloading = true
+                    downloadText = "下载完成，开始安装整合包..."
+                    appScope.launch {
+                        val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+                        ModpackInstaller.installModpack(
+                            gameDir = gameDir,
+                            zipFile = file,
+                            name = project?.title,
+                            progress = { msg, p ->
+                                uiScope.launch {
+                                    downloadText = msg
+                                    downloadProgress = p
+                                }
+                            }
+                        ).onSuccess {
+                            uiScope.launch {
+                                downloading = false
+                                downloadDone = true
+                                downloadText = "整合包安装完成"
+                            }
+                        }.onFailure { e ->
+                            uiScope.launch {
+                                downloading = false
+                                downloadError = e.message ?: "整合包安装失败"
+                                downloadText = downloadError ?: "整合包安装失败"
+                            }
+                        }
+                    }
+                } else {
+                    downloadDone = true
+                    downloadText = "下载完成"
+                }
             }.onFailure { e ->
                 downloadError = e.message ?: "下载失败"
                 downloadText = downloadError ?: "下载失败"

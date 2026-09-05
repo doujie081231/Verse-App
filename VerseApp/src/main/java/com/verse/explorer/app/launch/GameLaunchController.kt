@@ -64,7 +64,7 @@ class GameLaunchController(private val context: Context) {
 
                 val maxMemory = settingsRepo.getMaxMemory()
                 val gcType = settingsRepo.getGcType()
-                val renderer = resolveRendererForVersion(version.id, settingsRepo.getRenderer())
+                val renderer = resolveRendererForVersion(resolveMinecraftVersionForJudgement(version.id), settingsRepo.getRenderer())
                 val launchMethod = settingsRepo.getLaunchMethod()
                 VerseLogger.info("Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer", "LaunchController")
 
@@ -345,6 +345,33 @@ class GameLaunchController(private val context: Context) {
      * glMapBufferRange/持久化缓冲映射等 ES3/GL3 API，ES2 下会
      * "Failed to map buffer"，因此自动切换到 NGGL4ES(ES3)。
      */
+    /**
+     * 解析用于渲染器判定的真实 Minecraft 版本号。
+     * 普通版本直接返回版本 id；整合包版本（id 为整合包名）从版本目录的
+     * modpack.json 读取 manifest.dependencies.minecraft（如 "26.2"）。
+     */
+    private fun resolveMinecraftVersionForJudgement(versionId: String): String {
+        val id = versionId.ifBlank { return "" }
+        // 版本 id 以数字/字母数字形式出现（"26.2"、"1.21.1"、"1.RV-Pre1"）无需特殊处理
+        if (Regex("""^\d""").matches(id)) return id
+        try {
+            val modpackJson = File(gameDir, "versions/$id/modpack.json")
+            if (modpackJson.exists()) {
+                val json = com.google.gson.GsonBuilder().create()
+                    .fromJson(modpackJson.readText(), com.google.gson.JsonObject::class.java)
+                val deps = json.getAsJsonObject("manifest")?.getAsJsonObject("dependencies")
+                val mc = deps?.get("minecraft")?.asString
+                if (!mc.isNullOrBlank()) {
+                    VerseLogger.info("整合包 $id 的 Minecraft 版本: $mc (来自 modpack.json)", "Launch")
+                    return mc
+                }
+            }
+        } catch (e: Exception) {
+            VerseLogger.warn("解析整合包 Minecraft 版本失败: ${e.message}", "Launch")
+        }
+        return id
+    }
+
     private fun resolveRendererForVersion(versionId: String, selectedRenderer: String): String {
         val resolved = selectedRenderer.ifBlank { "gl4es" }
         if (resolved.equals("gl4es", ignoreCase = true) && versionNewerThan(versionId, "1.21.4")) {

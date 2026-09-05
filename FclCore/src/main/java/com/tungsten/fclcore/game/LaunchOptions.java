@@ -41,9 +41,11 @@ public class LaunchOptions implements Serializable {
     private Integer width;
     private Integer height;
     private String serverIp;
+    private boolean beGesture;
     private boolean vulkanDriverSystem;
     private boolean pojavBigCore;
     private Renderer renderer;
+    private String uuid;
     private boolean debugLog;
 
     /**
@@ -135,6 +137,13 @@ public class LaunchOptions implements Serializable {
     }
 
     /**
+     * BE Gesture
+     */
+    public boolean isBeGesture() {
+        return beGesture;
+    }
+
+    /**
      * vulkan Driver System
      */
     public boolean isVKDriverSystem() {
@@ -150,6 +159,10 @@ public class LaunchOptions implements Serializable {
      */
     public Renderer getRenderer() {
         return renderer;
+    }
+
+    public String getUuid() {
+        return uuid;
     }
 
     public boolean isDebugLog() {
@@ -241,6 +254,11 @@ public class LaunchOptions implements Serializable {
             return this;
         }
 
+        public Builder setBEGesture(boolean beGesture) {
+            options.beGesture = beGesture;
+            return this;
+        }
+
         public Builder setVkDriverSystem(boolean vulkanDriverSystem) {
             options.vulkanDriverSystem = vulkanDriverSystem;
             return this;
@@ -253,6 +271,11 @@ public class LaunchOptions implements Serializable {
 
         public Builder setPojavBigCore(boolean pojavBigCore) {
             options.pojavBigCore = pojavBigCore;
+            return this;
+        }
+
+        public Builder setUUid(String uuid) {
+            options.uuid = uuid;
             return this;
         }
 
