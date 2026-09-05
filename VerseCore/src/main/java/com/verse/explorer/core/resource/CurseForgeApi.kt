@@ -225,6 +225,32 @@ object CurseForgeApi {
     }
 
     /**
+     * 按 projectId + fileId 解析单个整合包依赖文件的下载信息（manifest.json files 条目）。
+     * 返回 ResourceFile（含下载 URL、文件名、SHA1/大小），供 ModpackInstaller 下载。
+     */
+    suspend fun getModfile(projectId: Int, fileId: Int): ResourceFile? = withContext(Dispatchers.IO) {
+        try {
+            val body = execute(Request.Builder().url("$CURSEFORGE_API/mods/$projectId/files/$fileId").also { req ->
+                buildHeaders().forEach { (k, v) -> req.header(k, v) }
+            })
+            val resp = gson.fromJson(body, CfSingleFileResponse::class.java)
+            val file = resp.data ?: return@withContext null
+            val sha1 = (file.hashes ?: emptyList()).firstOrNull { it.algo == 1 }?.value ?: ""
+            val url = resolveDownloadUrl(file, projectId.toString())
+            if (url.isBlank()) return@withContext null
+            ResourceFile(
+                url = url,
+                filename = safeString(file.fileName),
+                size = file.fileLength ?: 0,
+                primary = true,
+                sha1 = sha1
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * 解析 CurseForge 文件下载 URL。
      * 部分文件 API 返回的 downloadUrl 为 null，但 CDN 实际可访问，
      * 需按 fileId 构造：https://edge.forgecdn.net/files/{前4位}/{剩余}/{fileName}
@@ -245,6 +271,7 @@ object CurseForgeApi {
     data class CfPagination(val totalCount: Long = 0)
     data class CfSingleResponse(val data: CfMod? = null)
     data class CfFilesResponse(val data: List<CfFile>? = emptyList())
+    data class CfSingleFileResponse(val data: CfFile? = null)
 
     data class CfMod(
         val id: Long? = null,
