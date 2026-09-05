@@ -49,6 +49,8 @@ import com.verse.explorer.app.ui.components.VerseVersionItem
 import com.verse.explorer.app.ui.components.VersionPickerDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.install.modpack.ModpackInstallStage
+import com.verse.explorer.core.install.modpack.ModpackInstaller
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceVersion
@@ -70,6 +72,9 @@ fun ModDetailScreen(
     val context = LocalContext.current
     val repository = remember {
         ResourceRepository(context.applicationContext as Application)
+    }
+    val modpackInstaller = remember {
+        ModpackInstaller(context.applicationContext as Application)
     }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
@@ -94,6 +99,8 @@ fun ModDetailScreen(
     var downloadText by remember { mutableStateOf("") }
     var downloadDone by remember { mutableStateOf(false) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    // 整合包下载完成后的安装阶段状态（下载与安装共用下载进度条）
+    var installingModpack by remember { mutableStateOf(false) }
 
     // 版本选择（与 ZL2 的 DownloadSingleOperation.SelectVersion 对应）
     var showVersionPicker by remember { mutableStateOf(false) }
@@ -198,6 +205,43 @@ fun ModDetailScreen(
                     }
                 }
             )
+
+            // 整合包：整包下载完成后自动进入安装（解析→装基版→下文件→解 overrides→写版本）
+            if (projectType == "modpack") {
+                val file = result.getOrNull()
+                if (file != null) {
+                    installingModpack = true
+                    downloadDone = false
+                    downloadError = null
+                    downloadProgress = 0f
+                    val installed = modpackInstaller.install(file) { p ->
+                        downloadProgress = p.progress
+                        downloadText = p.message
+                        when (p.stage) {
+                            ModpackInstallStage.FAILED -> downloadError = p.message
+                            else -> downloadError = null
+                        }
+                    }.getOrElse { e ->
+                        downloadError = e.message ?: "整合包安装失败"
+                        downloadText = downloadError ?: "整合包安装失败"
+                        null
+                    }
+                    installingModpack = false
+                    if (installed != null) {
+                        downloading = false
+                        downloadDone = true
+                        downloadText = "整合包安装完成"
+                    } else {
+                        downloading = false
+                    }
+                } else {
+                    downloading = false
+                    downloadError = result.exceptionOrNull()?.message ?: "下载失败"
+                    downloadText = downloadError ?: "下载失败"
+                }
+                return@launch
+            }
+
             downloading = false
             result.onSuccess {
                 downloadDone = true
