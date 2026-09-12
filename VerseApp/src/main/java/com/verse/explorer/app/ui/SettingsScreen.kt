@@ -91,7 +91,7 @@ fun SettingsScreen(navController: NavHostController) {
         language = "简体中文"; keepScreenOn = true; showFps = false
         debugMode = false
         windowTitle = ""; launcherVisibility = "keep"
-        showSnapshots = false; themeColor = "black"; backgroundStyle = "none"
+        showSnapshots = false; themeColor = "white"; backgroundStyle = "none"
     }
 
     Row(modifier = Modifier.fillMaxSize()) {

@@ -1797,6 +1797,18 @@ Java_com_verse_explorer_launcher_bridge_CallbackBridge_nativeSetUseInputStackQue
     LOGI("Set useInputStackQueue (Verse): %d", g_useInputStackQueue);
 }
 
+// Pojav 触控模块迁移：org.lwjgl.glfw.CallbackBridge.sendCursorPos/sendKeycode/sendMouseButton 等
+// 经 nativeSendVerseData 直送 verse 输入通道（verseDispatchInput），与应用侧/游戏侧共享的
+// VerseEnviron 回调（GLFW stub 注册的 VERSE_CB_*）对接。独立命名避免与 FCL 原版
+// nativeSendData(boolean,int,String) 的 JNI 签名冲突。
+JNIEXPORT void JNICALL
+Java_org_lwjgl_glfw_CallbackBridge_nativeSendVerseData(
+    JNIEnv *env, jclass clazz, jint type, jint i1, jint i2, jint i3, jint i4) {
+    LOGI("nativeSendVerseData: type=%d i1=%d i2=%d i3=%d i4=%d", type, i1, i2, i3, i4);
+    verseDispatchInput(type, i1, i2, i3, i4);
+    LOGI("nativeSendVerseData: dispatched type=%d", type);
+}
+
 JNIEXPORT void JNICALL
 Java_org_lwjgl_glfw_CallbackBridge_nativeSetUseInputStackQueue(
     JNIEnv *env, jclass clazz, jboolean useInputStackQueue) {

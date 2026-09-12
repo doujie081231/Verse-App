@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcCompactSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -57,7 +59,7 @@ fun ShadersScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 10.dp)
                 .padding(top = 0.dp)
         ) {
             PageHeader(title = "光影包管理", compact = true)
@@ -96,6 +98,7 @@ fun ShadersScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f).height(40.dp),
+                    textStyle = TextStyle(fontSize = 13.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -124,33 +127,22 @@ fun ShadersScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
+            // 对齐 versepc2 mod-filter-bar：分类改为紧凑下拉，一行即可
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
-                sources.forEach { (label, value) ->
-                    val isSelected = uiState.selectedSource == value
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
-                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                        )
-                    }
-                }
+                PcCompactSelect(
+                    value = uiState.selectedSource.ifEmpty { "全部" },
+                    options = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge"),
+                    onSelect = { viewModel.setSelectedSource(it) },
+                    modifier = Modifier.width(150.dp)
+                )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
@@ -163,17 +155,17 @@ fun ShadersScreen(
                     text = "共 ${uiState.totalHits} 个光影包",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextMuted,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
                 Text(
                     text = "已加载 ${results.size} 个",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextSecondary,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             if (uiState.error != null) {
                 GlassCard(
@@ -219,7 +211,7 @@ fun ShadersScreen(
 
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
@@ -291,14 +283,14 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.Top
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(VerseColors.PcBgTertiary),
                     contentAlignment = Alignment.Center
@@ -308,7 +300,7 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                         imageVector = Icons.Filled.Flare,
                         contentDescription = null,
                         tint = VerseColors.PcPurple,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     // 有图标 URL 时叠加 AsyncImage 在上层
                     if (!hit.iconUrl.isNullOrBlank()) {
@@ -316,20 +308,20 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                             model = hit.iconUrl,
                             contentDescription = null,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(36.dp)
                                 .clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Crop
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = hit.title,
                         style = MaterialTheme.typography.titleSmall,
                         color = VerseColors.PcTextPrimary,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -338,24 +330,24 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                         text = "作者: ${hit.author}",
                         style = MaterialTheme.typography.labelSmall,
                         color = VerseColors.PcTextMuted,
-                        fontSize = 11.5.sp
+                        fontSize = 11.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = hit.description,
                 style = MaterialTheme.typography.bodySmall,
                 color = VerseColors.PcTextSecondary,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp
+                lineHeight = 15.sp
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -398,7 +390,7 @@ private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
             }
 
             if (hit.categories.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {

@@ -97,9 +97,14 @@ object CallbackBridge {
 
     @JvmStatic
     fun nativeSetInputReady(ready: Boolean): Boolean {
-        // 输入就绪状态由 FCL 原生桥统一管理，Verse UI 侧的无操作保留仅为兼容旧调用。
+        // 转发到 FCL/verseexec 原生桥设置 isInputReady。
+        // 若不设置，native 层 critical_send_* 会因 isInputReady=false 丢弃全部输入事件。
         inputReady = ready
-        return true
+        return try {
+            GlfwCallbackBridge.nativeSetInputReady(ready)
+        } catch (_: Throwable) {
+            true
+        }
     }
 
     @JvmStatic

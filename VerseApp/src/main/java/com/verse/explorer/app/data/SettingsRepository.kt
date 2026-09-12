@@ -119,7 +119,7 @@ object SettingsRepository {
 
         private const val DEFAULT_VERIFY_SSL = true
         private const val DEFAULT_COMMUNITY_RESOURCES = true
-        private const val DEFAULT_THEME_COLOR = "black"
+        private const val DEFAULT_THEME_COLOR = "white"
         private const val DEFAULT_WINDOW_TITLE = ""
         private const val DEFAULT_CUSTOM_INFO = ""
         private const val DEFAULT_LAUNCHER_VISIBILITY = "keep"

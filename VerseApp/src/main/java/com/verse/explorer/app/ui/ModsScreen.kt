@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +29,7 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcCompactSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -70,6 +72,7 @@ fun ModsScreen(
 
     val loaders = listOf("全部", "Fabric", "Forge", "NeoForge", "Quilt")
     val gameVersions = listOf("全部", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5")
+    val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
 
     Box(
         modifier = Modifier
@@ -78,7 +81,7 @@ fun ModsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 10.dp)
                 .padding(top = 0.dp)
         ) {
             PageHeader(title = "模组管理", compact = true)
@@ -110,6 +113,7 @@ fun ModsScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f).height(40.dp),
+                    textStyle = TextStyle(fontSize = 13.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -129,83 +133,34 @@ fun ModsScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
+            // 对齐 versepc2 mod-filter-bar：筛选改为紧凑下拉并排成一行，省纵向空间
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                loaders.forEach { loader ->
-                    val isSelected = uiState.selectedLoader == loader
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.PcAccent.copy(alpha = 0.12f) else VerseColors.PcBgCard,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.3f)) else null,
-                        modifier = Modifier.clickable { viewModel.setSelectedLoader(loader) }
-                    ) {
-                        Text(
-                            text = loader,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
-                    }
-                }
+                PcCompactSelect(
+                    value = uiState.selectedLoader,
+                    options = loaders.map { it to it },
+                    onSelect = { viewModel.setSelectedLoader(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                PcCompactSelect(
+                    value = uiState.selectedVersion,
+                    options = gameVersions.map { it to it },
+                    onSelect = { viewModel.setSelectedVersion(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                PcCompactSelect(
+                    value = uiState.selectedSource.ifEmpty { "全部" },
+                    options = sources,
+                    onSelect = { viewModel.setSelectedSource(it) },
+                    modifier = Modifier.weight(1f)
+                )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                gameVersions.forEach { version ->
-                    val isSelected = uiState.selectedVersion == version
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.PcAccent.copy(alpha = 0.12f) else VerseColors.PcBgCard,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.3f)) else null,
-                        modifier = Modifier.clickable { viewModel.setSelectedVersion(version) }
-                    ) {
-                        Text(
-                            text = version,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
-                sources.forEach { (label, value) ->
-                    val isSelected = uiState.selectedSource == value
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
-                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier
@@ -218,7 +173,7 @@ fun ModsScreen(
                     text = if (favOnly) "我的收藏 (${favHits.size})" else "共 ${uiState.totalHits} 个模组",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextMuted,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
                 // 收藏筛选（对齐 PC mod-favorites 页的入口）
                 Surface(
@@ -227,19 +182,19 @@ fun ModsScreen(
                     border = if (favOnly) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
                     modifier = Modifier.clickable { favOnly = !favOnly }
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
-                        Icon(Icons.Filled.Favorite, null, Modifier.size(12.dp), if (favOnly) VerseColors.PcOrange else VerseColors.PcTextMuted)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
+                        Icon(Icons.Filled.Favorite, null, Modifier.size(11.dp), if (favOnly) VerseColors.PcOrange else VerseColors.PcTextMuted)
                         Spacer(Modifier.width(4.dp))
                         Text(
                             text = if (favOnly) "查看全部" else "收藏",
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             color = if (favOnly) VerseColors.PcOrange else VerseColors.PcTextMuted
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             val display = if (favOnly) favHits else results
             when {
@@ -288,7 +243,7 @@ fun ModsScreen(
                 }
                 else -> {
                     LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
@@ -338,12 +293,12 @@ private fun ModListItem(
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(VerseColors.PcBgTertiary),
                 contentAlignment = Alignment.Center
@@ -354,19 +309,19 @@ private fun ModListItem(
                     style = MaterialTheme.typography.labelMedium,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 14.sp
                 )
                 // 有图标 URL 时叠加 AsyncImage 在上层（加载失败时透出底层占位）
                 if (!hit.iconUrl.isNullOrBlank()) {
                     AsyncImage(
                         model = hit.iconUrl,
                         contentDescription = null,
-                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -374,7 +329,7 @@ private fun ModListItem(
                         style = MaterialTheme.typography.bodyMedium,
                         color = VerseColors.PcTextPrimary,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -397,23 +352,23 @@ private fun ModListItem(
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(hit.author, fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
+                    Text(hit.author, fontSize = 11.sp, color = VerseColors.PcTextMuted)
                     Spacer(Modifier.width(8.dp))
-                    Text("·", fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
+                    Text("·", fontSize = 11.sp, color = VerseColors.PcTextMuted)
                     Spacer(Modifier.width(8.dp))
                     if (hit.gameVersions.isNotEmpty()) {
-                        Text(hit.gameVersions.first(), fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
+                        Text(hit.gameVersions.first(), fontSize = 11.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
-                        Text("·", fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
+                        Text("·", fontSize = 11.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
                     }
-                    Text(formatDownloadCount(hit.downloads), fontSize = 11.5.sp, color = VerseColors.PcTextMuted)
+                    Text(formatDownloadCount(hit.downloads), fontSize = 11.sp, color = VerseColors.PcTextMuted)
                 }
                 if (hit.description.isNotBlank()) {
                     Spacer(Modifier.height(3.dp))
                     Text(
                         hit.description,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = VerseColors.PcTextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis

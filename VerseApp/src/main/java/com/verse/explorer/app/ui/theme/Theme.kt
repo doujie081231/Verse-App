@@ -45,7 +45,8 @@ object VerseColors {
     val McTextDim = Color(0xFF555568)
 
     // ==================== 主题状态 ====================
-    private var isDarkState = mutableStateOf(true)
+    // 默认白色主题（对齐 DEFAULT_THEME_COLOR = "white"），启动后 MainActivity 会按设置覆盖
+    private var isDarkState = mutableStateOf(false)
 
     /** 当前是否为黑（深色）主题 */
     var isDark: Boolean

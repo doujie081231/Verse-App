@@ -453,6 +453,76 @@ fun PcDropdownRow(
     }
 }
 
+/**
+ * PC 端对齐的紧凑下拉选择（对齐 versepc2 `.custom-select-sm`：6×10dp padding、12sp 值文本）。
+ * 用于资源/下载页筛选，多个可并排成一行，替代占空间的筛选 chip 行。
+ */
+@Composable
+fun PcCompactSelect(
+    value: String,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val displayText = options.find { it.first == value }?.second ?: value
+
+    Box(modifier = modifier) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = VerseColors.PcBgTertiary,
+            border = BorderStroke(1.dp, VerseColors.PcBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+        ) {
+            Row(
+                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    displayText,
+                    fontSize = 12.sp,
+                    color = VerseColors.PcTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(Modifier.width(4.dp))
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    null,
+                    Modifier.size(16.dp),
+                    tint = VerseColors.PcTextMuted
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .background(VerseColors.PcBgCard, RoundedCornerShape(8.dp))
+                .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(8.dp))
+        ) {
+            options.forEach { (key, lbl) ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            lbl,
+                            fontSize = 12.sp,
+                            color = if (key == value) VerseColors.PcAccent else VerseColors.PcTextPrimary,
+                            fontWeight = if (key == value) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    },
+                    onClick = {
+                        onSelect(key); expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 private val ErrorBg = Color(0xFFFEF2F2)
 private val ErrorBorder = Color(0xFFFECACA)
 private val RepairBg = Color(0xFFEFF6FF)

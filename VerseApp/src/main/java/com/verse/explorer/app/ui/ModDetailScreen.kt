@@ -39,27 +39,34 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
-import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.FavoritesRepository
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.ui.components.GlassCard
+import com.verse.explorer.app.ui.components.ModpackInstallDialog
+import com.verse.explorer.app.ui.components.ModpackInstallPhase
+import com.verse.explorer.app.ui.components.ModpackInstallUiState
 import com.verse.explorer.app.ui.components.NoInstalledVersionsDialog
+import com.verse.explorer.app.ui.components.applyTaskEvent
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.VerseVersionItem
 import com.verse.explorer.app.ui.components.VersionPickerDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
 import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceVersion
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
+import com.verse.explorer.core.version.VersionType
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -76,8 +83,6 @@ fun ModDetailScreen(
         ResourceRepository(context.applicationContext as Application)
     }
     val scope = rememberCoroutineScope()
-    // 整合包安装是长任务：挂到 Application 级作用域，离开详情页（Composable 销毁）不会中断
-    val appScope = (context.applicationContext as VerseApplication).appScope
     val clipboardManager = LocalClipboardManager.current
     var project by remember { mutableStateOf<ResourceDetail?>(null) }
     var versions by remember { mutableStateOf<List<ResourceVersion>>(emptyList()) }
@@ -108,6 +113,18 @@ fun ModDetailScreen(
 
     /** 选择器目标：main = 安装当前资源，deps = 一键安装前置模组（对应 ZL2 的依赖安装流程） */
     var pickerMode by remember { mutableStateOf("main") }
+
+    // ===== 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流） =====
+    // FCL 任务事件经 Channel（线程安全）汇总到主线程，归并成阶段行
+    val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
+    var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
+    var modpackJob by remember { mutableStateOf<Job?>(null) }
+
+    LaunchedEffect(Unit) {
+        for (ev in modpackChannel) {
+            modpackState = modpackState.applyTaskEvent(ev)
+        }
+    }
 
     // 画廊大图
     var galleryView by remember { mutableStateOf<String?>(null) }
@@ -182,9 +199,111 @@ fun ModDetailScreen(
         scope.launch { fetchData() }
     }
 
+    /**
+     * 整合包下载 + 安装（像下载版本一样弹出下载弹窗）：
+     * 1. 下载 .mrpack 文件（弹窗第一阶段"下载整合包文件"）
+     * 2. 走 FCL 原版整合包安装链路（ModrinthInstallTask = 安装游戏本体 + 加载器
+     *    + 解压 overrides + 依赖模组），每个阶段的下载任务以 FCL 任务事件形式
+     *    逐阶段展示在弹窗中；下载源由 FCL 引擎（BMCLAPI）负责，不自研。
+     */
+    fun startModpackInstall(ver: ResourceVersion) {
+        if (downloading) return
+        downloading = true
+        downloadDone = false
+        downloadError = null
+        downloadProgress = 0f
+        downloadText = "准备下载整合包..."
+        modpackState = ModpackInstallUiState(
+            visible = true,
+            title = project?.title ?: ver.versionNumber,
+            phase = ModpackInstallPhase.DOWNLOAD_FILE
+        )
+        modpackJob = scope.launch {
+            val fileResult = repository.downloadVersion(
+                projectType = "modpack",
+                version = ver,
+                onProgress = { downloaded, total, speed ->
+                    val p = if (total > 0) downloaded.toFloat() / total else 0f
+                    val text = buildString {
+                        append("${formatFileSize(downloaded)}")
+                        if (total > 0) append(" / ${formatFileSize(total)}")
+                        if (speed > 0) append("  · ${formatSpeed(speed)}")
+                    }
+                    modpackState = modpackState.copy(fileProgress = p, fileText = text)
+                }
+            )
+            fileResult.onSuccess { file ->
+                modpackState = modpackState.copy(phase = ModpackInstallPhase.INSTALLING)
+                val gameDir = GameConfig.getGameDir(context.applicationContext)
+                val result = ModpackInstaller.installModpack(
+                    gameDir = gameDir,
+                    zipFile = file,
+                    name = project?.title
+                ) { ev ->
+                    modpackChannel.trySend(ev)
+                }
+                result.fold(
+                    onSuccess = {
+                        downloading = false
+                        downloadDone = true
+                        downloadText = "整合包安装完成"
+                        modpackState = modpackState.copy(phase = ModpackInstallPhase.DONE)
+                    },
+                    onFailure = { e ->
+                        if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
+                            modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
+                        } else {
+                            downloading = false
+                            downloadError = e.message ?: "整合包安装失败"
+                            downloadText = downloadError ?: "整合包安装失败"
+                            modpackState = modpackState.copy(
+                                phase = ModpackInstallPhase.FAILED,
+                                error = e.message ?: "整合包安装失败"
+                            )
+                        }
+                    }
+                )
+            }.onFailure { e ->
+                val cancelled = e is kotlinx.coroutines.CancellationException || e is ModpackInstallCancelledException
+                if (cancelled) {
+                    modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
+                } else {
+                    downloading = false
+                    downloadError = e.message ?: "整合包下载失败"
+                    downloadText = downloadError ?: "整合包下载失败"
+                    modpackState = modpackState.copy(
+                        phase = ModpackInstallPhase.FAILED,
+                        error = e.message ?: "整合包下载失败"
+                    )
+                }
+            }
+        }
+    }
+
+    /** 取消整合包下载/安装 */
+    fun cancelModpackInstall() {
+        ModpackInstaller.cancel()
+        modpackJob?.cancel()
+        modpackJob = null
+        val ph = modpackState.phase
+        if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
+            modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
+        }
+    }
+
+    /** 重试整合包下载/安装 */
+    fun retryModpackInstall() {
+        val ver = selectedVersion ?: return
+        startModpackInstall(ver)
+    }
+
     fun startDownload() {
         val ver = selectedVersion ?: return
         if (downloading) return
+        if (projectType == "modpack") {
+            startModpackInstall(ver)
+            return
+        }
         downloading = true
         downloadDone = false
         downloadError = null
@@ -205,44 +324,9 @@ fun ModDetailScreen(
                 }
             )
             downloading = false
-            result.onSuccess { file ->
-                if (projectType == "modpack") {
-                    // 整合包：下载 .mrpack 完成后走 FCL 原版整合包安装链路
-                    // （ModrinthInstallTask = 安装游戏本体 + 加载器 + 解压 overrides + 依赖模组）
-                    // 安装是长任务，挂到 Application 级作用域：离开详情页也不会被取消
-                    val gameDir = GameConfig.getGameDir(context.applicationContext)
-                    downloading = true
-                    downloadText = "下载完成，开始安装整合包..."
-                    appScope.launch {
-                        val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-                        ModpackInstaller.installModpack(
-                            gameDir = gameDir,
-                            zipFile = file,
-                            name = project?.title,
-                            progress = { msg, p ->
-                                uiScope.launch {
-                                    downloadText = msg
-                                    downloadProgress = p
-                                }
-                            }
-                        ).onSuccess {
-                            uiScope.launch {
-                                downloading = false
-                                downloadDone = true
-                                downloadText = "整合包安装完成"
-                            }
-                        }.onFailure { e ->
-                            uiScope.launch {
-                                downloading = false
-                                downloadError = e.message ?: "整合包安装失败"
-                                downloadText = downloadError ?: "整合包安装失败"
-                            }
-                        }
-                    }
-                } else {
-                    downloadDone = true
-                    downloadText = "下载完成"
-                }
+            result.onSuccess {
+                downloadDone = true
+                downloadText = "下载完成"
             }.onFailure { e ->
                 downloadError = e.message ?: "下载失败"
                 downloadText = downloadError ?: "下载失败"
@@ -900,11 +984,21 @@ fun ModDetailScreen(
                     VerseVersionItem(
                         id = it.id,
                         typeLabel = when (it.type) {
-                            com.verse.explorer.core.version.VersionType.RELEASE -> "正式版"
-                            com.verse.explorer.core.version.VersionType.SNAPSHOT -> "快照版"
-                            com.verse.explorer.core.version.VersionType.OLD_ALPHA -> "旧版 Alpha"
-                            com.verse.explorer.core.version.VersionType.OLD_BETA -> "旧版 Beta"
+                            VersionType.RELEASE -> "正式版"
+                            VersionType.SNAPSHOT -> "快照版"
+                            VersionType.OLD_ALPHA -> "旧版 Alpha"
+                            VersionType.OLD_BETA -> "旧版 Beta"
                             else -> "特殊版本"
+                        },
+                        iconAsset = when (it.type) {
+                            VersionType.SPECIAL, VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
+                            VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
+                            else -> "icons/version_icon_grass.png"
+                        },
+                        iconBg = when (it.type) {
+                            VersionType.SPECIAL, VersionType.SNAPSHOT -> VerseColors.PcOrange.copy(alpha = 0.15f)
+                            VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
+                            else -> VerseColors.PcGreen.copy(alpha = 0.15f)
                         }
                     )
                 },
@@ -947,6 +1041,23 @@ fun ModDetailScreen(
                     modifier = Modifier.fillMaxWidth().padding(8.dp)
                 )
             }
+        }
+    }
+
+    // ===== 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）=====
+    if (modpackState.visible) {
+        val modpackRunning = modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE ||
+            modpackState.phase == ModpackInstallPhase.INSTALLING
+        Dialog(onDismissRequest = {
+            // 下载/安装进行中不允许直接关闭（与版本下载弹窗一致）
+            if (!modpackRunning) modpackState = modpackState.copy(visible = false)
+        }) {
+            ModpackInstallDialog(
+                state = modpackState,
+                onCancel = { cancelModpackInstall() },
+                onRetry = { retryModpackInstall() },
+                onClose = { modpackState = modpackState.copy(visible = false) }
+            )
         }
     }
 }

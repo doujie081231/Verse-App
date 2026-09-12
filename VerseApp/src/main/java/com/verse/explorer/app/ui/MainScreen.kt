@@ -1,6 +1,9 @@
 package com.verse.explorer.app.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -89,6 +92,29 @@ private val submenuRoutes = mainNavItems
     .flatMap { it.submenuItems.map { s -> s.route } }
     .toSet()
 
+// ==================== 页面切换动画（对齐 Material Motion System）====================
+// 侧栏页切换：FadeThrough 手感（淡入 + 轻微缩放，不干扰固定侧栏）
+private val TabEnterTransition: EnterTransition =
+    fadeIn(animationSpec = tween(260, easing = LinearOutSlowInEasing)) +
+        scaleIn(initialScale = 0.97f, animationSpec = tween(260, easing = LinearOutSlowInEasing))
+private val TabExitTransition: ExitTransition =
+    fadeOut(animationSpec = tween(200, easing = FastOutLinearInEasing)) +
+        scaleOut(targetScale = 0.97f, animationSpec = tween(200, easing = FastOutLinearInEasing))
+
+// 详情/钻取页：Shared X-Axis（从右滑入 1/3 屏 + 延迟淡入，返回反向），前后页面错位滑动更流畅
+private val DetailEnterTransition: EnterTransition =
+    fadeIn(animationSpec = tween(260, delayMillis = 80, easing = LinearOutSlowInEasing)) +
+        slideInHorizontally(animationSpec = tween(340, easing = FastOutSlowInEasing)) { it / 3 }
+private val DetailExitTransition: ExitTransition =
+    fadeOut(animationSpec = tween(160, easing = FastOutLinearInEasing)) +
+        slideOutHorizontally(animationSpec = tween(260, easing = FastOutSlowInEasing)) { -it / 3 }
+private val DetailPopEnterTransition: EnterTransition =
+    fadeIn(animationSpec = tween(260, delayMillis = 80, easing = LinearOutSlowInEasing)) +
+        slideInHorizontally(animationSpec = tween(340, easing = FastOutSlowInEasing)) { -it / 3 }
+private val DetailPopExitTransition: ExitTransition =
+    fadeOut(animationSpec = tween(160, easing = FastOutLinearInEasing)) +
+        slideOutHorizontally(animationSpec = tween(260, easing = FastOutSlowInEasing)) { it / 3 }
+
 @Composable
 fun MainScreen(
     jreReady: Boolean = false,
@@ -131,10 +157,10 @@ fun MainScreen(
                     navController = navController,
             startDestination = Screen.Home.route,
             modifier = Modifier.weight(1f),
-            enterTransition = { fadeIn(tween(200)) },
-            exitTransition = { fadeOut(tween(150)) },
-            popEnterTransition = { fadeIn(tween(200)) },
-            popExitTransition = { fadeOut(tween(150)) }
+            enterTransition = { TabEnterTransition },
+            exitTransition = { TabExitTransition },
+            popEnterTransition = { TabEnterTransition },
+            popExitTransition = { TabExitTransition }
         ) {
             composable(Screen.Home.route) { HomeScreen(navController, onLaunchGame) }
             composable(Screen.Versions.route) { VersionsScreen(navController) }
@@ -147,35 +173,77 @@ fun MainScreen(
             composable(Screen.Lan.route) { LanScreen(navController) }
             composable(Screen.Java.route) { JavaScreen(navController) }
             composable(Screen.Console.route) { ConsoleScreen(navController) }
-            composable("installed_versions") {
+            composable(
+                "installed_versions",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) {
                 InstalledVersionsScreen(navController = navController)
             }
-            composable("version_settings/{versionId}") { backStackEntry ->
+            composable(
+                "version_settings/{versionId}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 VersionSettingsScreen(versionId = versionId, navController = navController)
             }
-            composable("version_detail/{versionId}?type={versionType}&url={versionUrl}") { backStackEntry ->
+            composable(
+                "version_detail/{versionId}?type={versionType}&url={versionUrl}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 val versionType = backStackEntry.arguments?.getString("versionType") ?: "release"
                 val versionUrl = backStackEntry.arguments?.getString("versionUrl") ?: ""
                 VersionDetailScreen(versionId, versionType, versionUrl, navController)
             }
-            composable("mod_detail/{projectId}?source={source}") { backStackEntry ->
+            composable(
+                "mod_detail/{projectId}?source={source}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "mod", source)
             }
-            composable("modpack_detail/{projectId}?source={source}") { backStackEntry ->
+            composable(
+                "modpack_detail/{projectId}?source={source}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "modpack", source)
             }
-            composable("resourcepack_detail/{projectId}?source={source}") { backStackEntry ->
+            composable(
+                "resourcepack_detail/{projectId}?source={source}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "resourcepack", source)
             }
-            composable("shader_detail/{projectId}?source={source}") { backStackEntry ->
+            composable(
+                "shader_detail/{projectId}?source={source}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "shader", source)

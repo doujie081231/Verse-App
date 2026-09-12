@@ -45,12 +45,12 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Top
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(VerseColors.PcBgTertiary),
                 contentAlignment = Alignment.Center
@@ -60,7 +60,7 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
                     imageVector = Icons.Filled.Palette,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(20.dp)
                 )
                 // 有图标 URL 时叠加 AsyncImage 在上层
                 val iconUrl = hit.iconUrl
@@ -69,13 +69,13 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
                         model = iconUrl,
                         contentDescription = null,
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(36.dp)
                             .clip(RoundedCornerShape(8.dp)),
                         contentScale = ContentScale.Crop
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically
@@ -85,7 +85,7 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
                         style = MaterialTheme.typography.titleSmall,
                         color = VerseColors.PcTextPrimary,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -116,7 +116,7 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
                         text = "作者: ${hit.author}",
                         style = MaterialTheme.typography.labelSmall,
                         color = VerseColors.PcTextMuted,
-                        fontSize = 11.5.sp
+                        fontSize = 11.sp
                     )
                     if (gameVersion.isNotEmpty()) {
                         Text(
@@ -128,19 +128,19 @@ internal fun ResourcePackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) 
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = hit.description,
                     style = MaterialTheme.typography.bodySmall,
                     color = VerseColors.PcTextSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp
+                    lineHeight = 15.sp
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

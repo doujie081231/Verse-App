@@ -84,6 +84,12 @@ open class LimbCube(
     protected var subMinAngle = subMinAngle
     protected var subStepValue = subStepValue
 
+    /** 摆动幅度缩放（0 = 静止；由 SkinModel 按动作配置，区分肢体强弱） */
+    var swingScale: Float = 1.0f
+
+    /** 摆动速度倍数（区别走路/跑步等） */
+    var swingSpeed: Float = 1.0f
+
     protected lateinit var vertexBuffer: FloatBuffer
     protected lateinit var normalVertexBuffer: FloatBuffer
     protected var textureBuffers = ArrayList<FloatBuffer>()
@@ -135,19 +141,21 @@ open class LimbCube(
         gl10.glVertexPointer(3, GL10.GL_FLOAT, 0, this.vertexBuffer)
         gl10.glPushMatrix()
         gl10.glTranslatef(this.offset[0], this.offset[1], this.offset[2])
-        if (isRunning) {
+        if (isRunning && swingScale > 0.0f) {
             // 应用主旋转（手臂前后摆动）
             gl10.glTranslatef(0.0f, this.scale[1] / 4.0f * 3.0f, 0.0f)
-            gl10.glRotatef(this.mainAngle, this.mainAngleAxis[0], this.mainAngleAxis[1], this.mainAngleAxis[2])
+            gl10.glRotatef(this.mainAngle * swingScale, this.mainAngleAxis[0], this.mainAngleAxis[1], this.mainAngleAxis[2])
             gl10.glTranslatef(0.0f, -this.scale[1] / 4.0f * 3.0f, 0.0f)
-            // 更新主角度
-            this.mainAngle += this.mainStepValue
-            if (this.mainAngle >= this.mainMaxAngle) {
+            // 更新主角度（速度按 swingSpeed 缩放，幅度边界按 swingScale 缩放）
+            this.mainAngle += this.mainStepValue * swingSpeed
+            val maxAngle = this.mainMaxAngle * swingScale
+            val minAngle = this.mainMinAngle * swingScale
+            if (this.mainAngle >= maxAngle) {
                 this.mainStepValue *= -1.0f
-                this.mainAngle = this.mainMaxAngle
-            } else if (this.mainAngle <= this.mainMinAngle) {
+                this.mainAngle = maxAngle
+            } else if (this.mainAngle <= minAngle) {
                 this.mainStepValue *= -1.0f
-                this.mainAngle = this.mainMinAngle
+                this.mainAngle = minAngle
             }
         }
         for (i in 0 until this.textureBuffers.size) {

@@ -274,6 +274,7 @@ class GameLaunchOrchestrator(
         val launchOptions = buildLaunchOptions(params, javaVersion)
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
+        injectOnboardingSkip(repository, params.versionId)
 
         VerseLogger.info("环境准备完成，等待 Surface ready...")
         withContext(Dispatchers.Main) {
@@ -309,6 +310,29 @@ class GameLaunchOrchestrator(
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
         return repository.getVersion(params.versionId)
+    }
+
+    /**
+     * 跳过 MC 首次启动欢迎引导（Welcome to Minecraft! 会阻止进入主菜单）：
+     * 在版本目录 options.txt 写 onboardAccessibility:false。
+     * 游戏退出时会重写 options.txt 丢弃该行，因此每次启动前都注入。
+     */
+    private fun injectOnboardingSkip(repository: DefaultGameRepository, versionId: String) {
+        runCatching {
+            val targets = listOf(
+                File(repository.getRunDirectory(versionId), "options.txt"),
+                File(File(File(repository.getBaseDirectory(), "versions"), versionId), "options.txt")
+            )
+            targets.distinct().forEach { optionsFile ->
+                if (optionsFile.parentFile != null) optionsFile.parentFile.mkdirs()
+                val content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
+                if (!content.contains("onboardAccessibility:")) {
+                    optionsFile.appendText("\nonboardAccessibility:false\n")
+                }
+            }
+        }.onFailure {
+            VerseLogger.warn("注入 onboardAccessibility 失败: ${it.message}", TAG)
+        }
     }
 
     private fun createAuthInfo(params: GameLaunchParams): AuthInfo {

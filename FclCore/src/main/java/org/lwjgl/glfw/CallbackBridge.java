@@ -23,6 +23,19 @@ public class CallbackBridge {
     private static FCLBridge fclBridge = null;
     private static boolean isGrabbing = false;
     private static final Consumer<Boolean> grabListener = isGrabbing -> CallbackBridge.fclBridge.setCursorMode(isGrabbing ? FCLBridge.CursorDisabled : FCLBridge.CursorEnabled);
+    // 触控控件抓取监听（Pojav 触控模块迁移：ControlButton/Touchpad/HotbarView 等注册）
+    private static final java.util.List<GrabListener> grabListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public static void addGrabListener(GrabListener listener) {
+        if (listener != null) {
+            grabListeners.add(listener);
+            listener.onGrabState(isGrabbing);
+        }
+    }
+
+    public static void removeGrabListener(GrabListener listener) {
+        grabListeners.remove(listener);
+    }
 
     public static final int CLIPBOARD_COPY = 2000;
     public static final int CLIPBOARD_PASTE = 2001;
@@ -45,6 +58,25 @@ public class CallbackBridge {
     }
 
 
+    // ===== Verse 输入通道 =====
+    // Verse 的输入最终统一经 verseexec 的 nativeSendData 进入 verseDispatchInput
+    // （事件写入共享 VerseEnviron 队列 / 直接回调 g_env->callbacks），
+    // 与游戏侧 GLFW stub（nglfwSetKeyCallback 等注册到 VERSE_CB_*）对接。
+    // 事件类型与 poetryj compat.cpp 的 EVENT_TYPE_* 保持一致。
+    public static final int EVENT_TYPE_CHAR = 1000;
+    public static final int EVENT_TYPE_CHAR_MODS = 1001;
+    public static final int EVENT_TYPE_CURSOR_ENTER = 1002;
+    public static final int EVENT_TYPE_CURSOR_POS = 1003;
+    public static final int EVENT_TYPE_FRAMEBUFFER_SIZE = 1004;
+    public static final int EVENT_TYPE_KEY = 1005;
+    public static final int EVENT_TYPE_MOUSE_BUTTON = 1006;
+    public static final int EVENT_TYPE_SCROLL = 1007;
+    public static final int EVENT_TYPE_WINDOW_SIZE = 1008;
+    public static final int EVENT_TYPE_CURSOR_DELTA = 1009;
+
+    // private Verse 通道占位（保留 nativeSendVerseData 声明，但 send* 改回原件走 pojavexec 环境）
+    private static native void nativeSendVerseData(int type, int i1, int i2, int i3, int i4);
+
     public static void sendCursorPos(float x, float y) {
         mouseX = x;
         mouseY = y;
@@ -52,13 +84,10 @@ public class CallbackBridge {
     }
 
     public static void sendKeycode(int keycode, char keychar, int scancode, int modifiers, boolean isDown) {
-        // TODO CHECK: This may cause input issue, not receive input!
+        // 键码直通：Verse 与 Pojav 触控模块均使用标准 GLFW 键码（如 GLFW_KEY_A=65），
+        // 不再经过 FCL 旧键码映射表的二次转换（原转换会查表失败而吞掉按键）。
         if (keycode != 0) {
-            int code = LwjglKeycodeMap.convertKeycode(keycode);
-            if (code <= 0) {
-                return;
-            }
-            nativeSendKey(code, scancode, isDown ? 1 : 0, modifiers);
+            nativeSendKey(keycode, scancode, isDown ? 1 : 0, modifiers);
         }
         if (isDown && !Character.isISOControl(keychar)) {
             nativeSendCharMods(keychar, modifiers);
@@ -93,7 +122,6 @@ public class CallbackBridge {
     }
 
     public static void sendMouseKeycode(int button, int modifiers, boolean isDown) {
-        // if (isGrabbing()) DEBUG_STRING.append("MouseGrabStrace: " + android.util.Log.getStackTraceString(new Throwable()) + "\n");
         nativeSendMouseButton(button, isDown ? 1 : 0, modifiers);
     }
 
@@ -200,6 +228,12 @@ public class CallbackBridge {
             }
             synchronized (grabListener) {
                 grabListener.accept(isGrabbing);
+                for (GrabListener l : grabListeners) {
+                    try {
+                        l.onGrabState(isGrabbing);
+                    } catch (Exception ignored) {
+                    }
+                }
             }
         }, 16);
 
@@ -233,11 +267,17 @@ public class CallbackBridge {
 
     public static native void nativeSetWindowAttrib(int attrib, int value);
 
+    /** 输入就绪开关（绑定 verseexec 的 Java_org_lwjgl_glfw_CallbackBridge_nativeSetInputReady） */
+    public static native boolean nativeSetInputReady(boolean ready);
+
     public static native void setupBridgeWindow(Object surface);
 
     public static native int getFps();
 
     static {
+        // 保持只加载 pojavexec：其 fcl_orig 环境为游戏侧 LWJGL 的真实输入出口
+        // （critical_send_* 读取 pojav_environ->GLFW_invoke_* 并受 isInputReady 门控）。
+        // 误加载 verseexec 会让 nativeSetInputReady 绑定到 verse 环境，无法开启输入。
         System.loadLibrary("pojavexec");
     }
 }

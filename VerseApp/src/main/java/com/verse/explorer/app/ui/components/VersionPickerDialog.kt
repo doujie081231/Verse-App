@@ -1,13 +1,18 @@
 package com.verse.explorer.app.ui.components
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +26,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +55,7 @@ fun VersionPickerDialog(
             versions.firstOrNull { it.id == defaultSelectedId }?.let { add(it.id) }
         }
     }
+    val context = LocalContext.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -88,6 +99,37 @@ fun VersionPickerDialog(
                                     checkedColor = VerseColors.PcAccent
                                 )
                             )
+                            // 各版本对应图标（与版本列表一致：正式版草方块 / 快照与特殊圆石 / 旧版）
+                            if (version.iconAsset.isNotBlank() || version.iconBg != null) {
+                                val iconBitmap = remember(version.iconAsset) {
+                                    try {
+                                        if (version.iconAsset.isBlank()) {
+                                            null
+                                        } else {
+                                            context.assets.open(version.iconAsset).use { stream ->
+                                                android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                                            }
+                                        }
+                                    } catch (e: Exception) { null }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(version.iconBg ?: VerseColors.PcBgTertiary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (iconBitmap != null) {
+                                        Image(
+                                            bitmap = iconBitmap,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                            contentScale = ContentScale.Fit
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     version.id,
@@ -137,7 +179,11 @@ fun VersionPickerDialog(
 /** 版本选择条目 */
 data class VerseVersionItem(
     val id: String,
-    val typeLabel: String = ""
+    val typeLabel: String = "",
+    /** 版本图标资源路径（assets 内），如 icons/version_icon_grass.png */
+    val iconAsset: String = "",
+    /** 图标底色（按版本类型着色，null 用默认底色） */
+    val iconBg: Color? = null
 )
 
 /** 无已安装版本时的警告（与 ZL2 的 download_assets_no_installed_versions 对应） */

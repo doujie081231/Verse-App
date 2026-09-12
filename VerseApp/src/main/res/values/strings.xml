@@ -1,3 +1,51 @@
-<resources>
+﻿<resources>
     <string name="app_name">Verse</string>
+    <string name="control_debug">Debug</string>
+    <string name="control_chat">Chat</string>
+    <string name="control_listplayers">Tab</string>
+    <string name="control_thirdperson">3rd</string>
+    <string name="control_up">▲</string>
+    <string name="control_left">◀</string>
+    <string name="control_down">▼</string>
+    <string name="control_right">▶</string>
+    <string name="control_inventory">Inv</string>
+    <string name="control_shift">◇</string>
+    <string name="control_jump">⬛</string>
+    <string name="customctrl_selectdefault">Select default controlmap</string>
+    <string name="customctrl_editor_exit_title">Leaving?</string>
+    <string name="customctrl_editor_exit_msg">Are you sure you want to exit?</string>
+    <string name="global_save">Save</string>
+    <string name="global_load">Load</string>
+    <string name="global_save_and_exit">Save and exit</string>
+    <string name="global_yes">Yes</string>
+    <string name="global_no">No</string>
+    <string name="global_error_field_empty">This field can\'t be empty</string>
+    <string name="global_clone">Clone</string>
+    <string name="global_delete">Delete</string>
+    <string name="customctrl_addsubbutton">Add sub-button</string>
+    <string name="millisecond_format">%d ms</string>
+    <string name="percent_format">%d%%</string>
+    <string name="quick_setting_title">Quick settings</string>
+    <string name="controller_button_a">A</string>
+    <string name="controller_button_b">B</string>
+    <string name="controller_button_x">X</string>
+    <string name="controller_button_y">Y</string>
+    <string name="controller_button_start">Start</string>
+    <string name="controller_button_select">Select</string>
+    <string name="controller_button_shoulder_left">Left Shoulder</string>
+    <string name="controller_button_shoulder_right">Right Shoulder</string>
+    <string name="controller_button_trigger_left">Left Trigger</string>
+    <string name="controller_button_trigger_right">Right Trigger</string>
+    <string name="controller_dpad_up">D-Pad Up</string>
+    <string name="controller_dpad_down">D-Pad Down</string>
+    <string name="controller_dpad_left">D-Pad Left</string>
+    <string name="controller_dpad_right">D-Pad Right</string>
+    <string name="controller_direction_forward">Stick Up</string>
+    <string name="controller_direction_backward">Stick Down</string>
+    <string name="controller_direction_left">Stick Left</string>
+    <string name="controller_direction_right">Stick Right</string>
+    <string name="controller_stick_press_l">Left Thumbstick (click)</string>
+    <string name="controller_stick_press_r">Right Thumbstick (click)</string>
+    <string name="preference_back_title">Back to the last screen</string>
+
 </resources>

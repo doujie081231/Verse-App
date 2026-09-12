@@ -37,14 +37,14 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.Top
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(36.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(VerseColors.PcBgTertiary),
                     contentAlignment = Alignment.Center
@@ -54,7 +54,7 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                         imageVector = Icons.Filled.Inventory2,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                     // 有图标 URL 时叠加 AsyncImage 在上层
                     val iconUrl = hit.iconUrl
@@ -67,14 +67,14 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = hit.title,
                         style = MaterialTheme.typography.titleSmall,
                         color = VerseColors.PcTextPrimary,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
+                        fontSize = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -83,24 +83,24 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
                         text = "作者: ${hit.author}",
                         style = MaterialTheme.typography.labelSmall,
                         color = VerseColors.PcTextMuted,
-                        fontSize = 11.5.sp
+                        fontSize = 11.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = hit.description,
                 style = MaterialTheme.typography.bodySmall,
                 color = VerseColors.PcTextSecondary,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 16.sp
+                lineHeight = 15.sp
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -173,7 +173,7 @@ internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
             }
 
             if (hit.categories.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {

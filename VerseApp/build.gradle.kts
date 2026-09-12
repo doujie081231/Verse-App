@@ -162,6 +162,10 @@ dependencies {
     implementation("org.tukaani:xz:1.10")
     // Markdown 渲染（对齐 PC marked 库：Modrinth body 是 CommonMark）
     implementation("io.noties.markwon:core:4.6.2")
+    // Pojav 触控模块迁移依赖
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("com.github.Mathias-Boulay:virtual-joystick-android:1.14")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

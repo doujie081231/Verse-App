@@ -137,6 +137,9 @@ public abstract class HttpRequest {
     public HttpURLConnection createConnection() throws IOException {
         HttpURLConnection con = createHttpConnection(new URL(url));
         con.setRequestMethod(method);
+        // 宿主适配：设置连接/读取超时，避免网络不可达时任务永久挂起
+        con.setConnectTimeout(15000);
+        con.setReadTimeout(30000);
         for (Map.Entry<String, String> entry : headers.entrySet()) {
             con.setRequestProperty(entry.getKey(), entry.getValue());
         }

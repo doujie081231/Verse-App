@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.toArgb
+import com.verse.explorer.app.R
 import com.verse.explorer.app.data.version.VersionJsonResolver
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.game.GameLaunchOrchestrator
@@ -34,6 +35,12 @@ import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
 import kotlinx.coroutines.CancellationException
+import net.kdt.pojavlaunch.MinecraftGLSurface
+import net.kdt.pojavlaunch.Tools
+import net.kdt.pojavlaunch.customcontrols.ControlLayout
+import net.kdt.pojavlaunch.customcontrols.CustomControls
+import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad
+import net.kdt.pojavlaunch.prefs.LauncherPreferences
 
 class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.SurfaceTextureListener {
 
@@ -63,6 +70,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     /** 联机菜单打开期间吞掉触摸，避免透传给游戏输入 */
     private var multiplayerDialogOpen = false
+
+    // ===== Pojav 触控模块迁移：游戏内虚拟按键/摇杆/触摸板覆盖层 =====
+    private var touchOverlay: FrameLayout? = null
+    private var controlLayout: net.kdt.pojavlaunch.customcontrols.ControlLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -292,12 +303,31 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 // 让联机按钮正常接收点击
                 return super.dispatchTouchEvent(ev)
             }
+            // Pojav 触控模块：触摸命中虚拟按键/摇杆时交给覆盖层消费，
+            // 其余区域直接转发给游戏（等价于 Pojav 中 MinecraftGLSurface 接住非按钮触摸）
+            if (isTouchOnVirtualControl(ev)) {
+                touchOverlay?.dispatchTouchEvent(ev)
+                return true
+            }
             VerseLogger.debug("TOUCH forward a=${ev.actionMasked} x=${ev.x.toInt()} y=${ev.y.toInt()}", "Input")
             inputHandler.handleTouchEvent(ev)
             return true
         }
         VerseLogger.debug("TOUCH skip a=${ev.actionMasked} (not graphic output yet)", "Input")
         return super.dispatchTouchEvent(ev)
+    }
+
+    /** 判断触摸点是否落在某个虚拟按键/摇杆上（Pojav ControlLayout 子控件区域内） */
+    private fun isTouchOnVirtualControl(ev: MotionEvent): Boolean {
+        val layout = controlLayout ?: return false
+        return runCatching {
+            layout.getButtonChildren().any { iface ->
+                val v = iface.getControlView() ?: return@any false
+                if (v.visibility != View.VISIBLE) return@any false
+                ev.rawX >= v.x && ev.rawX <= v.x + v.width &&
+                    ev.rawY >= v.y && ev.rawY <= v.y + v.height
+            }
+        }.getOrDefault(false)
     }
 
     private fun isTouchOnMultiplayerButton(ev: MotionEvent): Boolean {
@@ -347,6 +377,48 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // 此处无需重复推送；isInputReady 打开后再推送会触发 GLFW WindowSize 回调，可能干扰渲染循环。
         // textureView?.let { CallbackBridge.sendUpdateWindowSize(it.width, it.height) }
         CallbackBridge.nativeSetInputReady(true)
+        setupTouchControls()
+    }
+
+    /**
+     * Pojav 触控模块迁移：游戏画面就绪后挂载虚拟按键/摇杆/触摸板覆盖层。
+     * 默认触控布局从 Pojav 默认按钮集生成（首次自动写入 Default.json），
+     * 输入经 org.lwjgl.glfw.CallbackBridge 直达游戏 GLFW 窗口。
+     */
+    private fun setupTouchControls() {
+        if (touchOverlay != null) return
+        try {
+            Tools.init(this)
+            LauncherPreferences.init(this)
+
+            val surface = MinecraftGLSurface(this)
+            surface.id = R.id.main_game_render_view
+
+            val layout = ControlLayout(this)
+            layout.setModifiable(false)
+            controlLayout = layout
+
+            val jsonPath = Tools.CTRLMAP_PATH + "/Default.json"
+            if (!java.io.File(jsonPath).exists()) {
+                CustomControls(this).save(jsonPath)
+            }
+            layout.loadLayout(jsonPath)
+
+            val touchpad = Touchpad(this, null)
+            org.lwjgl.glfw.CallbackBridge.addGrabListener(touchpad)
+
+            val overlay = FrameLayout(this)
+            overlay.addView(surface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            overlay.addView(touchpad, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            overlay.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            this.addContentView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            touchOverlay = overlay
+
+            layout.setControlVisible(true)
+            VerseLogger.info("触控覆盖层已挂载: layout=${layout.mLayoutFileName}, buttons=${layout.getButtonChildren().size}", "Touch")
+        } catch (t: Throwable) {
+            VerseLogger.error("触控覆盖层挂载失败: ${t.message}", "Touch")
+        }
     }
 
     override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {

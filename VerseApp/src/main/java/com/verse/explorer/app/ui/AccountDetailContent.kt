@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -38,9 +41,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.rememberAsyncImagePainter
 import com.verse.explorer.app.data.account.DefaultSkinRepository
 import com.verse.explorer.app.data.account.MsSkinRepository
+import com.verse.explorer.app.data.account.SkinHeadCrop
 import com.verse.explorer.app.data.account.SkinUploadRepository
 import com.verse.explorer.app.ui.components.FCLSkinViewer
 import com.verse.explorer.app.ui.components.PcButton
@@ -49,7 +52,10 @@ import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.core.account.Account
 import com.verse.explorer.core.account.AccountType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 @Composable
 fun AccountDetailContent(
@@ -136,7 +142,7 @@ fun AccountDetailContent(
                 FCLSkinViewer(
                     account = account,
                     background = if (background == "black") Color.Black else Color.White,
-                    running = animation != "idle",
+                    animation = animation,
                     modifier = Modifier.fillMaxSize()
                 )
                 // 右上角 白/黑 切换（对齐 PC .acct-bg-toggle）
@@ -234,17 +240,26 @@ fun AccountDetailContent(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 动作（对齐 PC .acct-detail-animations：8 个按钮）
+                // 动作（对齐 PC .acct-detail-animations：8 个按钮；默认「呼吸」站姿）
                 Text("动作", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
                 Spacer(Modifier.height(8.dp))
-                val animations = listOf("idle", "walk", "run", "fly", "wave", "crouch", "hit", "swim")
+                val animations = listOf(
+                    "idle" to "呼吸",
+                    "walk" to "行走",
+                    "run" to "跑步",
+                    "fly" to "飞行",
+                    "wave" to "挥手",
+                    "crouch" to "蹲下",
+                    "hit" to "攻击",
+                    "swim" to "游泳"
+                )
                 animations.chunked(4).forEach { row ->
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
                     ) {
-                        row.forEach { anim ->
-                            val animSelected = animation == anim
+                        row.forEach { (key, label) ->
+                            val animSelected = animation == key
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (animSelected) VerseColors.PcAccent else VerseColors.PcBgTertiary,
@@ -254,10 +269,10 @@ fun AccountDetailContent(
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
-                                    ) { animation = anim }
+                                    ) { animation = key }
                             ) {
                                 Text(
-                                    text = anim,
+                                    text = label,
                                     fontSize = 11.sp,
                                     color = if (animSelected) VerseColors.PcAccentText else VerseColors.PcTextSecondary,
                                     fontWeight = if (animSelected) FontWeight.SemiBold else FontWeight.Normal,
@@ -305,11 +320,21 @@ fun AccountDetailContent(
                                     modifier = Modifier.padding(10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Image(
-                                        painter = rememberAsyncImagePainter(
-                                            DefaultSkinRepository.getSkinUrl(context, skin.file)
-                                        ),
-                                        contentDescription = skin.name,
+                                    SkinHeadThumb(
+                                        load = {
+                                            try {
+                                                if (skin.file.startsWith("custom_")) {
+                                                    BitmapFactory.decodeFile(
+                                                        File(context.filesDir, "skins/${skin.file}").absolutePath
+                                                    )
+                                                } else {
+                                                    context.assets.open("skins/${skin.file}").use {
+                                                        BitmapFactory.decodeStream(it)
+                                                    }
+                                                }
+                                            } catch (_: Exception) { null }
+                                        },
+                                        fallback = skin.name,
                                         modifier = Modifier
                                             .size(48.dp)
                                             .clip(RoundedCornerShape(4.dp))
@@ -427,29 +452,17 @@ fun AccountDetailContent(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     val pf = previewFile
-                                    if (pf != null && pf.exists()) {
-                                        Image(
-                                            painter = rememberAsyncImagePainter("file://${pf.absolutePath}"),
-                                            contentDescription = skin.name,
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                        )
-                                    } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(VerseColors.PcBgPrimary),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                skin.name.firstOrNull()?.uppercase() ?: "?",
-                                                color = VerseColors.PcTextSecondary,
-                                                fontWeight = FontWeight.SemiBold
-                                            )
-                                        }
-                                    }
+                                    SkinHeadThumb(
+                                        load = {
+                                            if (pf != null && pf.exists()) {
+                                                runCatching { BitmapFactory.decodeFile(pf.absolutePath) }.getOrNull()
+                                            } else null
+                                        },
+                                        fallback = skin.name,
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    )
                                     Spacer(Modifier.width(10.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
@@ -549,6 +562,40 @@ fun AccountDetailContent(
                 )
                 Spacer(Modifier.height(12.dp))
             }
+        }
+    }
+}
+
+/** 皮肤头部缩略图：加载完整皮肤后裁剪只显示头部（对齐 PC 皮肤网格的头像预览） */
+@Composable
+private fun SkinHeadThumb(
+    load: () -> Bitmap?,
+    fallback: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(Unit) {
+        bitmap = withContext(Dispatchers.IO) { load() }
+    }
+    val head = bitmap?.let {
+        runCatching { SkinHeadCrop.cropHead(it, 96) }.getOrNull()
+    }
+    if (head != null) {
+        Image(
+            bitmap = head.asImageBitmap(),
+            contentDescription = fallback,
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(VerseColors.PcBgPrimary),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                fallback.firstOrNull()?.uppercase() ?: "?",
+                color = VerseColors.PcTextSecondary,
+                fontWeight = FontWeight.SemiBold
+            )
         }
     }
 }

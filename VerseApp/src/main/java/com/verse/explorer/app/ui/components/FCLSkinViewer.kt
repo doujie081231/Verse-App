@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
+import com.verse.explorer.app.skin.SkinModel
 import com.verse.explorer.app.skin.SkinRenderer
 import com.verse.explorer.app.skin.SkinViewer
 import com.verse.explorer.core.account.Account
@@ -42,7 +43,7 @@ fun FCLSkinViewer(
     account: Account,
     modifier: Modifier = Modifier,
     background: Color = Color.White,
-    running: Boolean = false
+    animation: String = "idle"
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -64,9 +65,20 @@ fun FCLSkinViewer(
         }
     }
 
-    // 非空闲动作 → 肢体摆动（对齐 FCL SkinModel.isRunning）
-    LaunchedEffect(running) {
-        renderer?.skinModel?.isRunning = running
+    // 动作切换 → 渲染器按动作类型配置肢体动画（对齐 versepc2 setAnim；idle 默认呼吸）
+    LaunchedEffect(animation) {
+        val type = when (animation) {
+            "walk" -> SkinModel.SkinAnimationType.WALK
+            "run" -> SkinModel.SkinAnimationType.RUN
+            "fly" -> SkinModel.SkinAnimationType.FLY
+            "wave" -> SkinModel.SkinAnimationType.WAVE
+            "crouch" -> SkinModel.SkinAnimationType.CROUCH
+            "hit" -> SkinModel.SkinAnimationType.HIT
+            "swim" -> SkinModel.SkinAnimationType.SWIM
+            "none" -> SkinModel.SkinAnimationType.NONE
+            else -> SkinModel.SkinAnimationType.BREATHING
+        }
+        renderer?.skinModel?.setAnimation(type)
     }
 
     Box(

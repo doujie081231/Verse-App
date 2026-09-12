@@ -21,18 +21,24 @@ import static com.tungsten.fclcore.util.Logging.LOG;
 
 import com.tungsten.fclcore.download.DownloadProvider;
 import com.tungsten.fclcore.download.VersionList;
+import com.tungsten.fclcore.task.Schedulers;
 import com.tungsten.fclcore.util.gson.JsonUtils;
 import com.tungsten.fclcore.util.io.HttpRequest;
 
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 
 public final class GameVersionList extends VersionList<GameRemoteVersion> {
     private final DownloadProvider downloadProvider;
+
+    private static final String FALLBACK_MANIFEST_URL =
+            "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
     public GameVersionList(DownloadProvider downloadProvider) {
         this.downloadProvider = downloadProvider;
@@ -48,9 +54,29 @@ public final class GameVersionList extends VersionList<GameRemoteVersion> {
         return versions.values();
     }
 
+    /** 版本清单双源获取（宿主适配）：主源为当前下载源的清单 URL，失败/被截断时回退官方 v2 清单 */
+    private CompletableFuture<GameRemoteVersions> fetchManifest() {
+        List<String> urls = new ArrayList<>();
+        urls.add(downloadProvider.getVersionListURL());
+        urls.add(FALLBACK_MANIFEST_URL);
+        return CompletableFuture.supplyAsync(() -> {
+            Exception last = null;
+            for (String url : urls) {
+                try {
+                    // getStringWithRetry 内部自带重试；解析失败（如清单被截断）会抛异常并回退下一源
+                    return HttpRequest.GET(url).getJson(GameRemoteVersions.class);
+                } catch (Exception e) {
+                    last = e;
+                    LOG.log(Level.WARNING, "Failed to refresh game version list from " + url, e);
+                }
+            }
+            throw new RuntimeException(last);
+        }, Schedulers.defaultScheduler());
+    }
+
     @Override
     public CompletableFuture<?> refreshAsync() {
-        return HttpRequest.GET(downloadProvider.getVersionListURL()).getJsonAsync(GameRemoteVersions.class)
+        return fetchManifest()
                 .thenAcceptAsync(root -> {
                     GameRemoteVersions unlistedVersions = null;
                     try (Reader input = new InputStreamReader(

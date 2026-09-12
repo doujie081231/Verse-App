@@ -66,7 +66,7 @@ fun FilterRow(
 ) {
     LazyRow(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(options.size) { index ->
             val option = options[index]
@@ -81,7 +81,7 @@ fun FilterRow(
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
                     fontSize = 10.sp,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
         }

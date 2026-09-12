@@ -15,15 +15,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.ui.components.FilterRow
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.PcCompactSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -49,7 +50,7 @@ fun ModpacksScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = 10.dp)
                 .padding(top = 0.dp)
         ) {
             PageHeader(title = "整合包管理", compact = true)
@@ -91,6 +92,7 @@ fun ModpacksScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f).height(40.dp),
+                    textStyle = TextStyle(fontSize = 13.sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = VerseColors.PcAccent,
                         unfocusedBorderColor = VerseColors.PcBorder,
@@ -125,39 +127,29 @@ fun ModpacksScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // 对齐模组页：筛选去竖排 label，直接并排两行 FilterRow，尽量省纵向空间多看卡片
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterRow(loaders, uiState.selectedLoader, onSelect = { viewModel.setSelectedLoader(it) }, modifier = Modifier.weight(1f))
-                FilterRow(versions, uiState.selectedVersion, onSelect = { viewModel.setSelectedVersion(it) }, modifier = Modifier.weight(1f))
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
+            // 对齐 versepc2 mod-filter-bar：筛选改为紧凑下拉并排成一行，省纵向空间
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
-                sources.forEach { (label, value) ->
-                    val isSelected = uiState.selectedSource == value
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) VerseColors.PcOrange.copy(alpha = 0.14f) else VerseColors.PcBgCard,
-                        border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, VerseColors.PcOrange.copy(alpha = 0.35f)) else null,
-                        modifier = Modifier.clickable { viewModel.setSelectedSource(value) }
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) VerseColors.PcOrange else VerseColors.PcTextSecondary,
-                            fontSize = 11.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
+                PcCompactSelect(
+                    value = uiState.selectedLoader,
+                    options = loaders.map { it to it },
+                    onSelect = { viewModel.setSelectedLoader(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                PcCompactSelect(
+                    value = uiState.selectedVersion,
+                    options = versions.map { it to it },
+                    onSelect = { viewModel.setSelectedVersion(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                PcCompactSelect(
+                    value = uiState.selectedSource.ifEmpty { "全部" },
+                    options = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge"),
+                    onSelect = { viewModel.setSelectedSource(it) },
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -173,13 +165,13 @@ fun ModpacksScreen(
                     text = "共 ${uiState.totalHits} 个整合包",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextMuted,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
                 Text(
                     text = "已加载 ${results.size}",
                     style = MaterialTheme.typography.labelSmall,
                     color = VerseColors.PcTextSecondary,
-                    fontSize = 12.sp
+                    fontSize = 11.sp
                 )
             }
 
@@ -261,7 +253,7 @@ fun ModpacksScreen(
                 }
             } else {
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {

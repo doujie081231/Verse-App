@@ -188,6 +188,7 @@ long verseSetCallback(int id, long callback) {
     if (g_env == nullptr || id < 0 || id >= VERSE_CB_COUNT) return 0;
     long old = (long)(intptr_t)g_env->callbacks[id];
     g_env->callbacks[id] = (void*)(intptr_t)callback;
+    LOGI("verseSetCallback: id=%d cb=%p old=%p", id, (void*)(intptr_t)callback, (void*)(intptr_t)old);
     return old;
 }
 
@@ -231,7 +232,11 @@ static void enqueueEvent(int type, int i1, int i2, int i3, int i4) {
 }
 
 void verseDispatchInput(int type, int i1, int i2, int i3, int i4) {
-    if (g_env == nullptr || !g_env->inputReady) return;
+    // 注意：不依赖 g_env->inputReady 门控。
+    // org.lwjgl.glfw.CallbackBridge 的 nativeSetInputReady JNI 符号可能被 pojavexec
+    // （FCL 旧环境）抢先绑定，导致 g_env->inputReady 永不置位而丢弃 UI 注入的输入。
+    // UI 侧主动注入（sendCursorPos/sendKeycode/sendMouseButton）应无条件派发。
+    if (g_env == nullptr || g_env->showingWindow == 0) return;
     void* window = (void*)(intptr_t)g_env->showingWindow;
 
     switch (type) {
