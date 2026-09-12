@@ -38,8 +38,12 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                 val x = event.x.toInt()
                 val y = event.y.toInt()
                 Log.d("VerseX", "[Input] DOWN ($x,$y) grabbing=$isGrabbing")
+                // 先移动鼠标指针，等 1 帧让 MC GUI hover 状态确立后再按左键。
+                // 与 Pojav TouchEventProcessor 的点击时序一致（cursor pos 先行，button 后行）。
                 bridge.pushEventPointer(x, y)
-                bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, true)
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, true)
+                }, 50)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val pointerIndex = event.actionIndex
@@ -75,14 +79,17 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
                 if (!isGrabbing) {
                     bridge.pushEventPointer(event.x.toInt(), event.y.toInt())
                 }
-                if (isLongPress) {
-                    Log.d("VerseX", "[Input] UP after LONG_PRESS -> RIGHT_UP")
-                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
-                } else {
-                    Log.d("VerseX", "[Input] UP -> LEFT_UP")
-                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
-                }
-                isLongPress = false
+                // 与 DOWN 的 50ms 延迟对齐，保证 LEFT_UP 在 LEFT_DOWN 之后到达（click 顺序）
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    if (isLongPress) {
+                        Log.d("VerseX", "[Input] UP after LONG_PRESS -> RIGHT_UP")
+                        bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
+                    } else {
+                        Log.d("VerseX", "[Input] UP -> LEFT_UP")
+                        bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
+                    }
+                    isLongPress = false
+                }, 80)
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val upIndex = event.actionIndex

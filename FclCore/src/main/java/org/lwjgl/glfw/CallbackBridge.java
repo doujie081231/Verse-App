@@ -122,7 +122,12 @@ public class CallbackBridge {
     }
 
     public static void sendMouseKeycode(int button, int modifiers, boolean isDown) {
-        nativeSendMouseButton(button, isDown ? 1 : 0, modifiers);
+        android.util.Log.i("VerseX", "[Bridge] sendMouseKeycode button=" + button + " isDown=" + isDown + " mods=" + modifiers);
+        try {
+            nativeSendMouseButton(button, isDown ? 1 : 0, modifiers);
+        } catch (Throwable t) {
+            android.util.Log.e("VerseX", "[Bridge] nativeSendMouseButton failed: " + t);
+        }
     }
 
     public static void sendMouseKeycode(int keycode) {
