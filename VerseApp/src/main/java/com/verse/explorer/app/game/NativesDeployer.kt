@@ -368,15 +368,16 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
 
-            // 2. lwjgl.jar（强制覆盖：设备可能遗留历史官方 3.4.x 版 lwjgl.jar，
-            // 其 ThreadLocalUtil.setupEnvData(int) 等原生 API 与 Pojav patched
-            // liblwjgl*.so（nsetupEnvData 3.3 fork）不配对，GL.createCapabilities 时
-            // UnsatisfiedLinkError。每次用 APK 内 Pojav 适配版删旧重建刷新。）
+            // 2. lwjgl.jar（强制覆盖：每次用 APK 内的 FCL 官方 lwjgl 重建，
+            // 该 jar 与 Pojav patched liblwjgl*.so（nsetupEnvData 3.3 fork）配对，
+            // 且 GLFW 含 glfwGetMonitorName —— MC 1.19.4+/26.x Monitor 初始化必需；
+            // 设备遗留的官方 3.4.x 版会因 setupEnvData(int) API 不配对
+            // 在 GL.createCapabilities 时 UnsatisfiedLinkError，故删旧重建）
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
             val lwjglJar = File(lwjglDir, "lwjgl.jar")
             if (lwjglJar.exists()) {
-                log("lwjgl.jar 存在，删除以强制部署 APK 内 Pojav 适配版\n")
+                log("lwjgl.jar 存在，删除以强制部署 APK 内 FCL 官方版\n")
                 lwjglJar.delete()
             }
             deployed += copyAssetIfMissing("app_runtime/lwjgl/lwjgl.jar", lwjglJar)
