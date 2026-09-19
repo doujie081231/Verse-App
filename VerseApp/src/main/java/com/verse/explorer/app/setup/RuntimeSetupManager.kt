@@ -234,12 +234,11 @@ object RuntimeSetupManager {
     private fun downloadComponentFiles(component: RuntimeComponent, targetDir: String) {
         when (component) {
             RuntimeComponent.LWJGL -> {
-                val downloaded = downloadFileWithMirror(
-                    "${component.remotePath}/lwjgl.jar",
-                    "org/lwjgl/lwjgl/3.3.1/lwjgl-3.3.1.jar",
-                    File(targetDir, "lwjgl.jar")
-                )
-                if (!downloaded) throw RuntimeException("LWJGL 下载失败")
+                // lwjgl 必须内置（assets/app_runtime/lwjgl/lwjgl.jar = FCL 官方版，
+                // 与 Pojav patched 原生库配对且含 glfwGetMonitorName）。
+                // 禁止网络回退：官方 lwjgl-3.3.1 core jar 不含 org.lwjgl.glfw 类，
+                // 会导致 MC 1.19.4+/26.x 启动失败，比旧裁剪版更糟。
+                throw RuntimeException("LWJGL 必须从内置资产安装，禁止网络回退替换")
             }
             RuntimeComponent.CACIO_8 -> {
                 val files = listOf(

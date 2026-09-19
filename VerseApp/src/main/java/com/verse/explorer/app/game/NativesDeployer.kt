@@ -381,6 +381,11 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
                 lwjglJar.delete()
             }
             deployed += copyAssetIfMissing("app_runtime/lwjgl/lwjgl.jar", lwjglJar)
+            // 防呆：FCL 官方版 lwjgl.jar ≥5MB；若 APK 内仍是旧的裁剪版（<5MB），
+            // 会缺 glfwGetMonitorName 导致 MC 1.19.4+/26.x NoSuchMethodError，这里显式爆出
+            if (lwjglJar.exists() && lwjglJar.length() < 5_000_000) {
+                log("警告: lwjgl.jar 仅 ${lwjglJar.length()} bytes（期望 FCL 官方版 ≥5MB），APK 内资产可能是旧版，26.2 将无法启动！\n")
+            }
 
             // 3. caciocavallo 17
             val cacio17Dir = File(FCLPath.CACIOCAVALLO_17_DIR)
