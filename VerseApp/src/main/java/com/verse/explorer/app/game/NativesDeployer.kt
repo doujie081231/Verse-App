@@ -368,23 +368,22 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
 
-            // 2. lwjgl.jar（强制覆盖：每次用 APK 内的 FCL 官方 lwjgl 重建，
-            // 该 jar 与 Pojav patched liblwjgl*.so（nsetupEnvData 3.3 fork）配对，
-            // 且 GLFW 含 glfwGetMonitorName —— MC 1.19.4+/26.x Monitor 初始化必需；
-            // 设备遗留的官方 3.4.x 版会因 setupEnvData(int) API 不配对
-            // 在 GL.createCapabilities 时 UnsatisfiedLinkError，故删旧重建）
+            // 2. lwjgl 模块 jar 集（迁移自 FCL LWJGL-Pojav 官方套装，与 Pojav patched
+            // liblwjgl*.so / libpojavexec.so 配对）：
+            //   - lwjgl-glfw.jar 含 glfwGetMonitorName —— MC 1.19.4+/26.x Monitor 必需
+            //   - 含 shaderc/spvc/vma/vulkan 等 26.2 全部渲染模块
+            // 每次启动清空旧 jar 后从 APK 全量重建，避免历史 3.4.x 官方 jar 掺入 classpath
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
-            val lwjglJar = File(lwjglDir, "lwjgl.jar")
-            if (lwjglJar.exists()) {
-                log("lwjgl.jar 存在，删除以强制部署 APK 内 FCL 官方版\n")
-                lwjglJar.delete()
+            lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
+            val lwjglAssetJars = context.assets.list("app_runtime/lwjgl")?.filter { it.endsWith(".jar") } ?: emptyArray()
+            for (name in lwjglAssetJars.sorted()) {
+                deployed += copyAssetIfMissing("app_runtime/lwjgl/$name", File(lwjglDir, name))
             }
-            deployed += copyAssetIfMissing("app_runtime/lwjgl/lwjgl.jar", lwjglJar)
-            // 防呆：FCL 官方版 lwjgl.jar ≥5MB；若 APK 内仍是旧的裁剪版（<5MB），
-            // 会缺 glfwGetMonitorName 导致 MC 1.19.4+/26.x NoSuchMethodError，这里显式爆出
-            if (lwjglJar.exists() && lwjglJar.length() < 5_000_000) {
-                log("警告: lwjgl.jar 仅 ${lwjglJar.length()} bytes（期望 FCL 官方版 ≥5MB），APK 内资产可能是旧版，26.2 将无法启动！\n")
+            // 防呆：GLFW 模块 jar 必须存在；缺失/旧单一 jar 会导致 26.2 启动失败
+            val glfwJar = File(lwjglDir, "lwjgl-glfw.jar")
+            if (!glfwJar.exists() || glfwJar.length() < 100_000) {
+                log("警告: lwjgl-glfw.jar 缺失或过小（${if (glfwJar.exists()) glfwJar.length() else 0} bytes），26.2 将无法启动（缺少 glfwGetMonitorName）！\n")
             }
 
             // 3. caciocavallo 17

@@ -13,19 +13,20 @@ internal class ClasspathBuilder(private val context: Context) {
     fun buildFclClasspath(config: LaunchConfiguration, runtimeDir: File): String {
         val classpath = mutableListOf<String>()
 
-        // 定制 LWJGL jar 始终排在 classpath 最前面，遮蔽 MC 自带的官方 LWJGL。
-        // 官方 LWJGL 的 ThreadLocalUtil.nsetupEnvData 与安卓 patched liblwjgl.so 的
-        // setupEnvData 符号不匹配，会导致 UnsatisfiedLinkError。
+        // 定制 LWJGL 模块 jar 集始终排在 classpath 最前面，遮蔽 MC 自带的官方 LWJGL。
+        // 迁移自 FCL LWJGL-Pojav 套装（多 jar：core/glfw/opengl/stb/vma/spvc/shaderc...），
+        // 与 Pojav patched liblwjgl*.so 配对。lwjgl-glfw.jar 提供 glfwGetMonitorName
+        // （MC 1.19.4+/26.x Monitor 必需）。
         val lwjglDir = File(runtimeDir, "lwjgl")
-        val lwjglJar = File(lwjglDir, "lwjgl.jar")
-        if (lwjglJar.exists() && lwjglJar.length() > 1024) {
-            classpath.add(lwjglJar.absolutePath)
+        val lwjglJars = lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") && it.length() > 1024 }?.sortedBy { it.name }
+        if (!lwjglJars.isNullOrEmpty()) {
+            lwjglJars.forEach { classpath.add(it.absolutePath) }
         } else {
             val lwjgl3Jar = File(runtimeDir, "lwjgl3/lwjgl.jar")
             if (lwjgl3Jar.exists() && lwjgl3Jar.length() > 1024) {
                 classpath.add(lwjgl3Jar.absolutePath)
             } else {
-                Log.w(TAG, "LWJGL override JAR not found at ${lwjglJar.absolutePath} or ${lwjgl3Jar.absolutePath}")
+                Log.w(TAG, "LWJGL override JARs not found at ${lwjglDir.absolutePath} or ${lwjgl3Jar.absolutePath}")
             }
         }
 

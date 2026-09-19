@@ -52,7 +52,9 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 
@@ -433,13 +435,15 @@ public class DefaultLauncher extends Launcher {
     }
 
     /**
-     * 将 classpath 中的官方 LWJGL 各模块 jar 替换为本地适配版 lwjgl.jar 并置于最前。
-     * 官方 jar 的 ThreadLocalUtil 调用 nsetupEnvData，而原生库 liblwjgl.so 导出的
-     * 是 setupEnvData，符号不一致会在 GL.createCapabilities 时抛 UnsatisfiedLinkError。
-     * 适配版 jar 同时包含全部模块类（system/glfw/opengl/stb 等），其 GLFW 与 OpenGL
-     * 绑定按函数指针方式调用，与 pojavexec 桥接库及 gl4es 的加载方式匹配。
+     * 将 classpath 中的官方 LWJGL 各模块 jar 替换为本地 LWJGL-Pojav 套装并置于最前。
+     * 套装（lwjgl.jar / lwjgl-glfw.jar / lwjgl-opengl.jar / lwjgl-vma.jar /
+     * lwjgl-spvc.jar / lwjgl-shaderc.jar ...）迁移自 FCL LWJGL-Pojav，
+     * 与 Pojav patched liblwjgl*.so / libpojavexec.so 配对；
+     * lwjgl-glfw.jar 的 GLFW 含 glfwGetMonitorName（MC 1.19.4+/26.x Monitor 必需）。
+     * 官方 org.lwjgl 模块（3.4.x）的 ThreadLocalUtil 与 patched native 符号不一致，
+     * 会在 GL.createCapabilities 时抛 UnsatisfiedLinkError，必须整体剔除。
      *
-     * 对齐 Pojav 的 lwjglx 老版本方案：本地 lwjgl.jar 额外提供 LWJGL2 API 兼容层
+     * 对齐 Pojav 的 lwjglx 老版本方案：本地 lwjgl-lwjglx.jar 额外提供 LWJGL2 API 兼容层
      * （org.lwjgl.opengl.Display、org.lwjgl.input.Mouse/Keyboard、org.lwjgl.Sys 等），
      * 因此老版本（1.12.2 及以下，依赖 lwjgl-2.9.4/jinput/lwjgl_util）的官方 jar
      * 也必须一并替换并剔除。否则官方 lwjgl2 jar 会按名加载 liblwjgl.so（LWJGL2 ABI），
@@ -447,13 +451,17 @@ public class DefaultLauncher extends Launcher {
      * SIGSEGV（App 进程静默退出，无任何 Java 异常日志）。
      */
     private void replaceLwjglWithLocal(Set<String> classpath) {
-        File localLwjgl = new File(FCLPath.LWJGL_DIR, "lwjgl.jar");
-        if (!localLwjgl.exists() || !localLwjgl.isFile()) return;
+        File lwjglDir = new File(FCLPath.LWJGL_DIR);
+        if (!lwjglDir.isDirectory()) return;
+        File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 1024);
+        if (localLwjglJars == null || localLwjglJars.length == 0) return;
+        Arrays.sort(localLwjglJars, Comparator.comparing(File::getName));
         Set<String> temp = new LinkedHashSet<>();
-        temp.add(localLwjgl.getAbsolutePath());
+        for (File jar : localLwjglJars) {
+            temp.add(jar.getAbsolutePath());
+        }
         for (String entry : classpath) {
-            if (entry.contains("org/lwjgl/lwjgl")
-                    || entry.contains("/lwjgl/lwjgl/")
+            if (entry.contains("/org/lwjgl/")
                     || entry.contains("/jinput/")
                     || entry.contains("lwjgl_util")) {
                 continue;
