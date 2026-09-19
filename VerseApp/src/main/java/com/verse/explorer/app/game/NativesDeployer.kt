@@ -376,8 +376,8 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
             lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
-            val lwjglAssetJars = context.assets.list("app_runtime/lwjgl")?.filter { it.endsWith(".jar") } ?: emptyArray()
-            for (name in lwjglAssetJars.sorted()) {
+            val lwjglAssetNames: Array<String> = context.assets.list("app_runtime/lwjgl") ?: emptyArray()
+            for (name in lwjglAssetNames.filter { it.endsWith(".jar") }.sorted()) {
                 deployed += copyAssetIfMissing("app_runtime/lwjgl/$name", File(lwjglDir, name))
             }
             // 防呆：GLFW 模块 jar 必须存在；缺失/旧单一 jar 会导致 26.2 启动失败
