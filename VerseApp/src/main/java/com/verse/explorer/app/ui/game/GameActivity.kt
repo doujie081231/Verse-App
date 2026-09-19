@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
@@ -75,6 +76,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private var touchOverlay: FrameLayout? = null
     private var controlLayout: net.kdt.pojavlaunch.customcontrols.ControlLayout? = null
 
+    /** 三指下滑演示遮罩 + FCL 样式控制面板（不用悬浮窗唤起） */
+    private var inGameControl: InGameControlOverlay? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -97,6 +101,15 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val isMultiplayer = intent.getBooleanExtra("multiplayerMode", false)
             val accessToken = intent.getStringExtra("accessToken") ?: "0"
             val userType = intent.getStringExtra("userType") ?: "mojang"
+
+            VerseLogger.info("GameActivity.onCreate: intent 参数", "GameActivity")
+            VerseLogger.info("  versionId=$versionId, gameDir=$gameDirPath", "GameActivity")
+            VerseLogger.info("  javaHome=$javaHome, javaVersion=$javaVersion", "GameActivity")
+            VerseLogger.info("  renderer=$renderer, launchMethod=$launchMethod", "GameActivity")
+            VerseLogger.info("  memory=$minMemory~$maxMemory M, gc=$gcType", "GameActivity")
+            VerseLogger.info("  window=$gameWidth x $gameHeight, multiplayer=$isMultiplayer", "GameActivity")
+            VerseLogger.info("  username=$username, userType=$userType", "GameActivity")
+            VerseLogger.info("  customJvmArgs=$customJvmArgs", "GameActivity")
 
             if (versionId == null || gameDirPath == null) {
                 Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
@@ -309,6 +322,16 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 touchOverlay?.dispatchTouchEvent(ev)
                 return true
             }
+            // 三指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
+            if (inGameControl?.isOverlayVisible() == true) {
+                return super.dispatchTouchEvent(ev)
+            }
+            // 无遮挡的正常游戏态：在透传给游戏前检测三指下滑手势
+            if (inGameControl?.trackMultiTouch(ev) == true) {
+                VerseLogger.debug("TOUCH consumed by 3-finger swipe", "Control")
+                inGameControl?.fireSwipe()
+                return true
+            }
             VerseLogger.debug("TOUCH forward a=${ev.actionMasked} x=${ev.x.toInt()} y=${ev.y.toInt()}", "Input")
             inputHandler.handleTouchEvent(ev)
             return true
@@ -378,6 +401,53 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // textureView?.let { CallbackBridge.sendUpdateWindowSize(it.width, it.height) }
         CallbackBridge.nativeSetInputReady(true)
         setupTouchControls()
+        setupInGameControlOverlay()
+    }
+
+    /**
+     * 游戏画面就绪后挂载「三指下滑」演示遮罩与 FCL 样式控制面板。
+     * 不同于 FCL 的侧边悬浮窗按钮，Verse 用演示遮罩提示手势唤起控制面板。
+     */
+    private fun setupInGameControlOverlay() {
+        if (inGameControl != null) return
+        val overlay = InGameControlOverlay(
+            activity = this,
+            onEsc = {
+                inputHandler.onKeyDown(KeyEvent.KEYCODE_ESCAPE, null)
+                inputHandler.onKeyUp(KeyEvent.KEYCODE_ESCAPE, null)
+            },
+            onToggleVirtualControls = {
+                // 复用 Pojav ControlLayout 自带的显隐切换（与 FCL 键盘示隐逻辑对应）
+                controlLayout?.toggleControlVisible()
+            },
+            onScreenshot = {
+                val bmp = textureView?.bitmap
+                val path = InGameControlOverlay.saveScreenshot(bmp, this)
+                Toast.makeText(
+                    this,
+                    if (path != null) "截图已保存: $path" else "截图失败",
+                    Toast.LENGTH_LONG
+                ).show()
+            },
+            onExitGame = {
+                VerseLogger.info("从控制面板触发退出游戏", "Control")
+                stopGame()
+                finish()
+            },
+            onCancelGameGesture = {
+                inputHandler.cancelGesture()
+            }
+        )
+        val hint = overlay.createHintView()
+        val panel = overlay.createPanelView()
+        addContentView(hint, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addContentView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        hint.visibility = View.GONE
+        panel.visibility = View.GONE
+        inGameControl = overlay
+        // 演示遮罩：游戏画面出现后自动弹出提示
+        overlay.showHint()
+        VerseLogger.info("三指下滑遮罩 + 控制面板已挂载", "Control")
     }
 
     /**

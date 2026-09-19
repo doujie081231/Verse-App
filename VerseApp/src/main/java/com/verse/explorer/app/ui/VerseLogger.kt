@@ -18,6 +18,9 @@ object VerseLogger {
 
     private var logWriter: PrintWriter? = null
     private var logFile: File? = null
+    // 外部镜像日志（外部存储可访问路径，便于用户直接取回/远程工具拉取）
+    private var mirrorWriter: PrintWriter? = null
+    private var mirrorFile: File? = null
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
     data class LogState(
@@ -42,6 +45,29 @@ object VerseLogger {
         } catch (e: Exception) {
             Log.e("VerseLogger", "Failed to init log file", e)
         }
+    }
+
+    /**
+     * 挂载外部镜像日志文件：与内部 latest.log 同步写入，便于用户不 root 即可取回日志。
+     * 调用方负责确保父目录已创建。
+     */
+    fun setMirrorFile(file: File) {
+        try {
+            closeMirror()
+            mirrorFile = file
+            mirrorWriter = PrintWriter(FileWriter(file, true), true)
+            Log.i("VerseLogger", "mirror log: ${file.absolutePath}")
+        } catch (e: Exception) {
+            Log.e("VerseLogger", "Failed to init mirror log: ${file.absolutePath}", e)
+        }
+    }
+
+    private fun closeMirror() {
+        try {
+            mirrorWriter?.flush()
+            mirrorWriter?.close()
+        } catch (_: Exception) {}
+        mirrorWriter = null
     }
 
     fun info(message: String, tag: String = "VerseX") {
@@ -72,6 +98,10 @@ object VerseLogger {
             logWriter?.println(line)
             logWriter?.flush()
         } catch (_: Exception) {}
+        try {
+            mirrorWriter?.println(line)
+            mirrorWriter?.flush()
+        } catch (_: Exception) {}
     }
 
     fun clear() {
@@ -87,5 +117,6 @@ object VerseLogger {
             logWriter?.close()
         } catch (_: Exception) {}
         logWriter = null
+        closeMirror()
     }
 }

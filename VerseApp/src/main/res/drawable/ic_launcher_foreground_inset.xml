@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自适应图标前景：inset 20% 把内容缩小到安全区（108dp 画布中约 60%），
+  保证桌面显示时图标完整可见、不被裁切（规范建议前景占 66/108）。
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:inset="20%"
+    android:drawable="@drawable/ic_launcher_foreground" />

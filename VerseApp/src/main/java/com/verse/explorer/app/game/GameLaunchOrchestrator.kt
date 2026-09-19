@@ -67,7 +67,15 @@ class GameLaunchOrchestrator(
 
     fun configure(params: GameLaunchParams) {
         this.launchParams = params
-        VerseLogger.info("configure: version=${params.versionId}, java=${params.javaVersion}, renderer=${params.renderer}", TAG)
+        VerseLogger.info("=== configure 接收启动参数 ===", TAG)
+        VerseLogger.info("  versionId=${params.versionId}", TAG)
+        VerseLogger.info("  gameDir=${params.gameDirPath}", TAG)
+        VerseLogger.info("  javaHome=${params.javaHome}, javaVersion=${params.javaVersion}", TAG)
+        VerseLogger.info("  renderer=${params.renderer}, launchMethod=${params.launchMethod}", TAG)
+        VerseLogger.info("  memory=${params.minMemory}~${params.maxMemory}M, gc=${params.gcType}", TAG)
+        VerseLogger.info("  width=${params.gameWidth}, height=${params.gameHeight}", TAG)
+        VerseLogger.info("  username=${params.username}, userType=${params.userType}, isMultiplayer=${params.isMultiplayer}", TAG)
+        VerseLogger.info("  customJvmArgs=${params.customJvmArgs}", TAG)
     }
 
     fun startLaunch() {
@@ -245,29 +253,38 @@ class GameLaunchOrchestrator(
         val gameDir = File(params.gameDirPath)
         currentGameDir = gameDir
         currentVersionId = params.versionId
+        VerseLogger.info("==========================================", TAG)
+        VerseLogger.info("启动流程开始 (step-by-step)", TAG)
+        VerseLogger.info("==========================================", TAG)
 
+        // 1) 版本解析
         updateProgress("解析版本信息...", "版本: ${params.versionId}")
         val fclVersion = resolveFclVersion(params, gameDir)
-        VerseLogger.info("FCL 版本解析完成: ${fclVersion.id}, mainClass=${fclVersion.getMainClass()}", TAG)
+        VerseLogger.info("[1/9 版本解析] ${fclVersion.id}, mainClass=${fclVersion.getMainClass()}, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 2) 原生库部署
         updateProgress("部署原生库...", null)
         val nativesDir = deployNatives(gameDir, params)
-        VerseLogger.info("原生库部署完成: ${nativesDir.absolutePath}", TAG)
+        VerseLogger.info("[2/9 原生库] 部署到 ${nativesDir.absolutePath}, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 3) FCL 运行时
         updateProgress("部署 FCL 运行时...", null)
         nativesDeployer.deployFclRuntime(gameDir)
-        VerseLogger.info("FCL 运行时部署完成", TAG)
+        VerseLogger.info("[3/9 FCL运行时] 完成, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 4) Java 运行时检查
         updateProgress("检查 Java 运行时...", null)
         val resolvedJavaHome = resolveJavaHome(params, gameDir)
         javaHome = resolvedJavaHome
         logManager.javaHomeProvider = { javaHome }
-        VerseLogger.info("JRE 路径: $resolvedJavaHome", TAG)
+        VerseLogger.info("[4/9 Java运行时] 选用 JRE=$resolvedJavaHome, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 5) FCLPath 初始化
         updateProgress("初始化 FCL 路径...", null)
         FCLPath.loadPaths(activity, gameDir.absolutePath)
-        VerseLogger.info("FCLPath 初始化完成: ${FCLPath.FILES_DIR}", TAG)
+        VerseLogger.info("[5/9 FCLPath] FILES_DIR=${FCLPath.FILES_DIR}, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 6) 启动选项构建
         updateProgress("构建启动选项...", null)
         val authInfo = createAuthInfo(params)
         val javaVersion = VerseJavaVersion(params.javaVersion, resolvedJavaHome)
@@ -275,36 +292,61 @@ class GameLaunchOrchestrator(
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
         injectOnboardingSkip(repository, params.versionId)
+        VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
-        VerseLogger.info("环境准备完成，等待 Surface ready...")
+        // 7) 等待 Surface（渲染窗口）
+        updateProgress("等待渲染窗口...", null)
+        VerseLogger.info("[7/9 待 Surface] 等待渲染 Surface...", TAG)
         withContext(Dispatchers.Main) {
             statusOverlay.setTitle("准备渲染窗口...")
         }
         val surface = awaitSurface()
+        VerseLogger.info("[7/9 待 Surface] Surface=${surface}, 尺寸=${surfaceWidth}x${surfaceHeight}, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 8) JVM 启动（native 日志路径设到外部可访问目录）
         updateProgress("启动 Java 虚拟机...", "这可能需要几秒钟")
         val launcher = DefaultLauncher(activity, repository, fclVersion, authInfo, launchOptions)
         launcher.setNativesDirectory(nativesDir.absolutePath)
         // 诊断：JVM 的 stdout/stderr 在 Android 上默认丢弃（fd 指向 /dev/null），
-        // 重定向到文件便于排查启动期错误（复用既有 native 能力，非新增逻辑）。
+        // 重定向到文件便于排查启动期错误（走外部存储，便于通过文件管理器/远程工具取回日志）。
         runCatching {
             System.loadLibrary("versejvm")
-            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio(
-                File(activity.filesDir, "verse_jvm_out.log").absolutePath
+            // native FLOGI 日志：外部可访问路径，Android 10+ 的 /sdcard 根目录不可写，
+            // 必须用应用专属外部目录（getExternalFilesDir）。
+            val externalBase = activity.getExternalFilesDir(null)
+            val diagDir = if (externalBase != null) File(File(externalBase, "VerseExplorerX"), "logs") else null
+            if (diagDir != null) diagDir.mkdirs()
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetLogPath(
+                File(diagDir ?: File(gameDir, "logs"), "verse_native.log").absolutePath
             )
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio(
+                File(diagDir ?: File(gameDir, "logs"), "verse_jvm_out.log").absolutePath
+            )
+            // glfw_hook（EGL/窗口创建/渲染库加载）的文件日志：崩溃现场最后操作点
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                "VERSE_GLFW_LOG_PATH",
+                File(diagDir ?: File(gameDir, "logs"), "verse_glfw.log").absolutePath
+            )
+            VerseLogger.info("[8/9 JVM启动] native 日志: ${(diagDir ?: File(gameDir, "logs")).absolutePath}", TAG)
         }
+        VerseLogger.info("[8/9 JVM启动] 调用 DefaultLauncher.launch() ...", TAG)
         val bridge = withContext(Dispatchers.IO) {
             launcher.launch()
         }
         fclBridge = bridge
 
         isLaunching = false
-        VerseLogger.info("JVM 启动成功，耗时=${System.currentTimeMillis() - t0}ms", TAG)
+        VerseLogger.info("[8/9 JVM启动] bridge 返回: $bridge (isValid=${bridge != null}), 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
 
+        // 9) JVM 启动完成，把 Surface 交给游戏渲染线程
+        VerseLogger.info("[9/9 渲染接入] bridge.execute(surface=$surface, callback) ...", TAG)
         withContext(Dispatchers.Main) {
             bridge.execute(surface, bridgeCallback)
         }
+        VerseLogger.info("启动流程结束, 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
     }
+
+    private fun elapsed(t0: Long): Long = System.currentTimeMillis() - t0
 
     private fun resolveFclVersion(params: GameLaunchParams, gameDir: File): Version {
         val repository = DefaultGameRepository(gameDir)

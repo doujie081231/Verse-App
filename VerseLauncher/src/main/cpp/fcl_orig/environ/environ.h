@@ -28,6 +28,14 @@ typedef void GLFW_invoke_FramebufferSize_func(void* window, int width, int heigh
 typedef void GLFW_invoke_Key_func(void* window, int key, int scancode, int action, int mods);
 typedef void GLFW_invoke_MouseButton_func(void* window, int button, int action, int mods);
 typedef void GLFW_invoke_Scroll_func(void* window, double xoffset, double yoffset);
+
+/* 从 Pojav 迁移：游戏侧 LWJGL（Pojav 适配版）GLFW.glfwInit() 通过
+ * internalGetGamepadDataPointer() 获取手柄状态内存布局指针 */
+typedef struct  {
+    unsigned char buttons [15];
+    float axes[6];
+} GLFWgamepadstate;
+
 typedef void GLFW_invoke_WindowSize_func(void* window, int width, int height);
 
 struct pojav_environ_s {
@@ -58,6 +66,7 @@ struct pojav_environ_s {
     long showingWindow;
     bool isInputReady, isCursorEntered, isUseStackQueueCall, shouldUpdateMouse;
     int savedWidth, savedHeight;
+    GLFWgamepadstate gamepadState;
 #define ADD_CALLBACK_WWIN(NAME) \
     GLFW_invoke_##NAME##_func* GLFW_invoke_##NAME;
     ADD_CALLBACK_WWIN(Char);

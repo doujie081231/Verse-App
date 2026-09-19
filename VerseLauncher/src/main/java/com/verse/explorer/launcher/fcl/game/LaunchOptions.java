@@ -80,6 +80,16 @@ public class LaunchOptions implements Serializable {
 
     public boolean isDebugLog() { return debugLog; }
 
+    /** 详细启动参数摘要（诊断日志用） */
+    public String fullSummary() {
+        return "gameDir=" + (gameDir != null ? gameDir.getAbsolutePath() : "null")
+            + ", versionName=" + versionName
+            + ", width=" + width + "x" + height
+            + ", memory=" + minMemory + "~" + maxMemory + "M"
+            + ", renderer=" + renderer
+            + ", javaArgs=" + javaArguments;
+    }
+
     public static class Builder {
         private final LaunchOptions options = new LaunchOptions();
 

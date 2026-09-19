@@ -88,6 +88,9 @@ android {
         // 2) NativesDeployer 能遍历 nativeLibraryDir 复制渲染器库到启动目录（否则启动时加载失败崩溃）
         jniLibs {
             useLegacyPackaging = true
+            // lwjgl 栈切到 Pojav 配对版（lwjgl-glfw-classes.jar + Pojav liblwjgl*.so）：
+            // lwjgl3-natives-release.aar 也打包了同名 lwjgl native，保留项目 jniLibs 中的 Pojav 版。
+            pickFirsts += listOf("**/liblwjgl*.so")
         }
     }
 }

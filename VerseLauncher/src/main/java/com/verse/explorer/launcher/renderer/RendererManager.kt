@@ -68,11 +68,13 @@ object RendererManager {
         maxMcVersion = "1.21.4"
     )
 
+    // FCL 对齐（egl_loader.c）：GLES 用 ANGLE 时 EGL 必须配套 ANGLE，
+    // 否则 POJAVEXEC_EGL 落到系统 Mali EGL，ng_gl4es 创建窗口即 SIGSEGV。
     val NGGL4ES = RendererConfig(
         displayName = "NGGL4ES/Krypton Wrapper",
         id = ID_NGGL4ES,
         glName = "libng_gl4es.so",
-        eglName = "libEGL.so",
+        eglName = "libEGL_angle.so",
         pojavRenderer = "opengles3",
         envVars = mapOf(
             "POJAV_RENDERER" to "opengles3",
@@ -83,10 +85,14 @@ object RendererManager {
             "LIBGL_NORMALIZE" to "1",
             "LIBGL_NOINTOVLHACK" to "1",
             "LIBGL_NOERROR" to "1",
+            // FCL 对齐（egl_loader.c）：GLES 用 ANGLE 时 EGL 必须配套 ANGLE，
+            // 否则 POJAVEXEC_EGL 落到系统 Mali EGL，ng_gl4es 创建窗口即 SIGSEGV。
+            "LIBGL_GLES" to "libGLESv2_angle.so",
+            "POJAVEXEC_EGL" to "libEGL_angle.so",
             "LIBGL_NAME" to "libng_gl4es.so",
-            "LIBEGL_NAME" to "libEGL.so"
+            "LIBEGL_NAME" to "libEGL_angle.so"
         ),
-        requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so"),
+        requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so", "libEGL_angle.so", "libGLESv2_angle.so"),
         minMcVersion = "",
         maxMcVersion = ""
     )

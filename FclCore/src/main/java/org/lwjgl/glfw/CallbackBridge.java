@@ -223,6 +223,14 @@ public class CallbackBridge {
     }
 
     //Called from JRE side
+    // 从 Pojav/FCL 迁移：libpojavexec（预编译 Pojav 版）JNI_OnLoad 的 dalvik 分支会
+    // GetStaticMethodID(onDirectInputEnable)，缺少该方法会导致异常挂起、输入注册全链失败。
+    // Verse 无 direct gamepad 机制，仅需方法存在（空实现）。
+    @SuppressWarnings("unused")
+    private static void onDirectInputEnable() {
+    }
+
+    //Called from JRE side
     @SuppressWarnings("unused")
     private static void onGrabStateChanged(final boolean grabbing) {
         isGrabbing = grabbing;

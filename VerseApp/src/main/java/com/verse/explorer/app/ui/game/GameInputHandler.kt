@@ -126,6 +126,26 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
         isGrabbing = mode == FCLBridge.CursorDisabled
     }
 
+    /**
+     * 手势被上层拦截（如三指下滑唤起控制面板）时复位当前输入状态，
+     * 释放已下发的鼠标按键，避免游戏残留长按/右击状态。
+     * 只复用现有 pushEvent* 原子调用，不新增逻辑。
+     */
+    fun cancelGesture() {
+        val bridge = bridgeProvider() ?: return
+        runCatching {
+            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
+            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
+            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, false)
+        }
+        isLongPress = false
+        touchDownTime = 0L
+        touchDownX = 0f
+        touchDownY = 0f
+        lastTouchX = 0f
+        lastTouchY = 0f
+    }
+
     fun androidKeyToGlfw(keyCode: Int): Int {
         return when (keyCode) {
             KeyEvent.KEYCODE_SPACE -> LwjglGlfwKeycode.GLFW_KEY_SPACE

@@ -493,6 +493,14 @@ public class FCLauncher {
         FCLBridge bridge = new FCLBridge();
         bridge.setLogPath(config.getLogDir() + "/latest_game.log");
         bridge.setGameDir(config.getWorkingDir());
+
+        // 注意：不再在此预加载 poemav exec。FCLBridge.execute() 内部顺序已保证
+        // CallbackBridge.setFCLBridge（ART 侧加载 poemav exec）先于 gameThread.start()
+        // （游戏 JVM 加载）。人工 preload 会引入额外时序/线程副作用（类初始化需 Looper、
+        // bionic SONAME 复用导致 JNI_OnLoad 分支错乱），反而制造崩溃点。
+        // poemav exec 已改用 fcl_orig 源码构建版：pojavInit 不调用 updateMonitorSize，
+        // 即使 JVM 侧 runtime 分支未初始化 vmGlfwClass 也不会空指针崩溃。
+
         Thread gameThread = new Thread(() -> {
             try {
                 logStartInfo(config, bridge, "Minecraft");

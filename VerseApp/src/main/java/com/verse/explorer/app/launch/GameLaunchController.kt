@@ -373,12 +373,17 @@ class GameLaunchController(private val context: Context) {
     }
 
     private fun resolveRendererForVersion(versionId: String, selectedRenderer: String): String {
-        val resolved = selectedRenderer.ifBlank { "gl4es" }
-        if (resolved.equals("gl4es", ignoreCase = true) && versionNewerThan(versionId, "1.21.4")) {
-            VerseLogger.warn("版本 $versionId 需要 ES3 渲染，gl4es 自动切换为 nggl4es", "Launch")
-            return "nggl4es"
+        // FCL 标准：26.x 及更高版本引入 ES3 API（glMapBufferRange/持久化缓冲映射），
+        // gl4es（ES2，libgl4es_114.so）无法提供，主菜单渲染即 "Failed to map buffer" 崩溃。
+        // FCL 对 >1.21.4 版本使用 NGGL4ES（libng_gl4es.so，Krypton Wrapper），
+        // 其配套 EGL 必须为 ANGLE（libEGL_angle.so/libGLESv2_angle.so），否则落到系统 Mali EGL SIGSEGV。
+        // APK 已打包 libng_gl4es.so/libspirv-cross-c-shared.so/libEGL_angle.so/libGLESv2_angle.so。
+        if (selectedRenderer.isBlank() || selectedRenderer.equals("gl4es", ignoreCase = true)) {
+            if (versionNewerThan(versionId, "1.21.4")) {
+                return "nggl4es"
+            }
         }
-        return resolved
+        return selectedRenderer.ifBlank { "gl4es" }
     }
 
     private fun versionNewerThan(versionId: String, base: String): Boolean {

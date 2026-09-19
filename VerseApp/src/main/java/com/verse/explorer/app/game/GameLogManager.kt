@@ -1,5 +1,6 @@
 package com.verse.explorer.app.game
 
+import android.util.Log
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -22,8 +23,29 @@ class GameLogManager(private val activity: ComponentActivity) {
         try {
             val gameDir = File(gameDirPath)
             VerseLogger.init(gameDir)
-            VerseLogger.info("GameActivity 启动", "GameActivity")
+            // 镜像到外部存储可访问路径：/storage/emulated/0/Android/data/<pkg>/files/VerseExplorerX/logs/
+            // 用户无需 root 即可通过文件管理器/远程工具取回完整启动日志。
+            try {
+                val extBase = activity.getExternalFilesDir(null)
+                if (extBase != null) {
+                    val extLogDir = File(File(extBase, "VerseExplorerX"), "logs")
+                    extLogDir.mkdirs()
+                    VerseLogger.setMirrorFile(File(extLogDir, "launch.log"))
+                }
+            } catch (e: Exception) {
+                Log.e("GameLogManager", "外部镜像日志挂载失败: ${e.message}")
+            }
+
+            VerseLogger.info("==========================================", "GameActivity")
+            VerseLogger.info("Verse 游戏启动 - 详细日志", "GameActivity")
+            VerseLogger.info("时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}", "GameActivity")
+            VerseLogger.info("设备: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}", "GameActivity")
+            VerseLogger.info("Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})", "GameActivity")
+            VerseLogger.info("ABI: ${android.os.Build.SUPPORTED_ABIS?.joinToString()}", "GameActivity")
             VerseLogger.info("版本: $versionId, Java: $javaVersion, 启动方式: $launchMethod", "GameActivity")
+            VerseLogger.info("游戏目录: $gameDirPath", "GameActivity")
+            VerseLogger.info("内部日志: ${VerseLogger.logState.value.logPath}", "GameActivity")
+            VerseLogger.info("==========================================", "GameActivity")
         } catch (e: Exception) {
             e.printStackTrace()
         }

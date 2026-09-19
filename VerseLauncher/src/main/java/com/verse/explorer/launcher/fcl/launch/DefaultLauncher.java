@@ -124,6 +124,26 @@ public class DefaultLauncher extends Launcher {
 
         res.addDefault("-XX:ActiveProcessorCount=", String.valueOf(Runtime.getRuntime().availableProcessors()));
 
+        // 规避 aarch64 JIT 编译器 bug（与 JvmArgsBuilder 的修复对齐）：
+        // JDK 21/25 在 aarch64 上 C2 编译渲染相关热代码时可能触发
+        // "assembler_aarch64.hpp guarantee(val < (1ULL << nbits)) failed: Field too big for insn"
+        // 导致渲染线程启动期 libjvm.so 内 SIGSEGV（本机 26.2 + JDK 25 即复现此崩溃）。
+        // 限制 JIT 到 C1 可彻底规避。
+        if (options.getJava().getVersion() >= 21) {
+            res.add("-XX:TieredStopAtLevel=1");
+        }
+
+        // 把 JVM 崩溃报告（hs_err_pid*.log）重定向到外部可访问目录，便于无 root 取回分析。
+        try {
+            File extBase = context.getExternalFilesDir(null);
+            if (extBase != null) {
+                File diagDir = new File(new File(extBase, "VerseExplorerX"), "logs");
+                diagDir.mkdirs();
+                res.addDefault("-XX:ErrorFile=", new File(diagDir, "hs_err_pid%p.log").getAbsolutePath());
+            }
+        } catch (Throwable ignored) {
+        }
+
         res.addDefault("-Dfml.ignoreInvalidMinecraftCertificates=", "true");
         res.addDefault("-Dfml.ignorePatchDiscrepancies=", "true");
 
@@ -159,13 +179,13 @@ public class DefaultLauncher extends Launcher {
         // LWJGL 分两个模块加载：
         // 1) system 模块（org.lwjgl.libname=lwjgl）：加载 liblwjgl.so，提供 JNI.call* 等
         //    ffi 桥接方法以及 ThreadLocalUtil.setupEnvData。
-        // 2) glfw 模块（org.lwjgl.glfw.libname=pojavexec）：加载 GLFW/EGL 桥接库，
-        //    glfwCreateWindow 渲染到 ANativeWindow 并提供输入桥接。
-        // classpath 中的官方 LWJGL jar 调用 nsetupEnvData，与原生库导出的 setupEnvData
-        // 符号不一致，必须由 replaceLwjglWithLocal 整体替换为适配版 jar。
+        // 2) glfw 模块（org.lwjgl.glfw.libname）：游戏侧 GLFW.class 静态块硬编码
+        //    System.loadLibrary("pojavexec")，此参数不生效；对齐 FCL，保留 poemav exec。
+        //    启动崩溃根因是"JVM 先于 ART 加载 poemav exec"导致 JNI_OnLoad 分支反转，
+        //    已由 FCLauncher 在 JVM 启动前同步预加载 CallbackBridge(Art 侧) 修复
+        //    （见 FCLauncher.preloadCallbackBridge 注释），无需更换 glfw 库。
         //
-        // 注意：这里用裸名 "pojavexec"，不能带 "lib" 前缀或 ".so" 后缀，否则会被拼成
-        // liblibpojavexec.so.so 而加载失败。
+        // 注意：pojavexec 使用裸名，不能带 "lib" 前缀或 ".so" 后缀。
         res.addDefault("-Dorg.lwjgl.glfw.libname=", "pojavexec");
         res.addDefault("-Dorg.lwjgl.libname=", "lwjgl");
         res.addDefault("-Dorg.lwjgl.util.Debug=", "true");
@@ -418,6 +438,13 @@ public class DefaultLauncher extends Launcher {
      * 是 setupEnvData，符号不一致会在 GL.createCapabilities 时抛 UnsatisfiedLinkError。
      * 适配版 jar 同时包含全部模块类（system/glfw/opengl/stb 等），其 GLFW 与 OpenGL
      * 绑定按函数指针方式调用，与 pojavexec 桥接库及 gl4es 的加载方式匹配。
+     *
+     * 对齐 Pojav 的 lwjglx 老版本方案：本地 lwjgl.jar 额外提供 LWJGL2 API 兼容层
+     * （org.lwjgl.opengl.Display、org.lwjgl.input.Mouse/Keyboard、org.lwjgl.Sys 等），
+     * 因此老版本（1.12.2 及以下，依赖 lwjgl-2.9.4/jinput/lwjgl_util）的官方 jar
+     * 也必须一并替换并剔除。否则官方 lwjgl2 jar 会按名加载 liblwjgl.so（LWJGL2 ABI），
+     * 与 natives 目录中部署的 LWJGL3 patched liblwjgl.so 冲突，渲染窗口初始化直接
+     * SIGSEGV（App 进程静默退出，无任何 Java 异常日志）。
      */
     private void replaceLwjglWithLocal(Set<String> classpath) {
         File localLwjgl = new File(FCLPath.LWJGL_DIR, "lwjgl.jar");
@@ -425,7 +452,12 @@ public class DefaultLauncher extends Launcher {
         Set<String> temp = new LinkedHashSet<>();
         temp.add(localLwjgl.getAbsolutePath());
         for (String entry : classpath) {
-            if (entry.contains("org/lwjgl/lwjgl")) continue;
+            if (entry.contains("org/lwjgl/lwjgl")
+                    || entry.contains("/lwjgl/lwjgl/")
+                    || entry.contains("/jinput/")
+                    || entry.contains("lwjgl_util")) {
+                continue;
+            }
             temp.add(entry);
         }
         classpath.clear();
@@ -491,19 +523,30 @@ public class DefaultLauncher extends Launcher {
 
     @Override
     public FCLBridge launch() throws IOException, InterruptedException {
+        // 文件级诊断日志：launch() 崩溃在 JVM 创建前的 native 层时（进程被杀），
+        // VerseLogger/launch.log 也不可写，只能靠这个独立文件定位逐步崩溃点。
+        diag("launch() begin");
+        Log.i("DefaultLauncher", "[launch-step] generateCommandLine ...");
         final CommandBuilder command = generateCommandLine();
+        diag("generateCommandLine ok");
 
         List<String> rawCommandLine = command.asList();
+        diag("command.asList ok, size=" + rawCommandLine.size());
 
         if (rawCommandLine.stream().anyMatch(StringUtils::isBlank)) {
             throw new IllegalStateException("Illegal command line " + rawCommandLine);
         }
+        Log.i("DefaultLauncher", "[launch-step] command ok, args=" + rawCommandLine.size());
+        diag("command blank check ok");
 
         if (isUsingLog4j()) {
             extractLog4jConfigurationFile();
         }
+        diag("log4j extraction done");
 
         String[] finalArgs = rawCommandLine.toArray(new String[0]);
+        Log.i("DefaultLauncher", "[launch-step] finalArgs=" + finalArgs.length);
+        diag("finalArgs ok, n=" + finalArgs.length);
 
         Renderer renderer = options.getRenderer() != null
                 ? Renderer.valueOf(options.getRenderer())
@@ -514,6 +557,7 @@ public class DefaultLauncher extends Launcher {
         if (renderer.isEqual(Renderer.ID_ZINK) && isEmulator() && !hasVulkanDriver()) {
             renderer = Renderer.valueOf(Renderer.ID_NGGL4ES);
         }
+        Log.i("DefaultLauncher", "[launch-step] renderer=" + renderer.getId() + ", config 创建...");
         FCLConfig config = new FCLConfig(
                 context,
                 FCLPath.LOG_DIR,
@@ -527,7 +571,23 @@ public class DefaultLauncher extends Launcher {
         config.setInstalledModLoaders(new FCLConfig.InstalledModLoaders(
                 false, false, false, false, false, false, false
         ));
+        diag("FCLConfig 创建完成, 调用 FCLauncher.launchMinecraft ... 渲染库将在此加载 dlopen");
         return FCLauncher.launchMinecraft(config);
+    }
+
+    /** 文件级诊断日志：写到外部可访问目录，进程被杀后仍可读取（JVM 前 native 崩溃定位用） */
+    private void diag(String msg) {
+        try {
+            File extBase = context.getExternalFilesDir(null);
+            if (extBase == null) return;
+            File diagDir = new File(new File(extBase, "VerseExplorerX"), "logs");
+            diagDir.mkdirs();
+            try (FileOutputStream fos = new FileOutputStream(new File(diagDir, "launch_diag.log"), true)) {
+                String line = "[" + System.currentTimeMillis() + "] " + msg + "\n";
+                fos.write(line.getBytes("UTF-8"));
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     public void setJnaVersion(String jnaVersion) {

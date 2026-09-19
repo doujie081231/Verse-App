@@ -40,7 +40,80 @@ void hookExec();
 extern void installLwjglDlopenHook();
 void installEMUIIteratorMititgation();
 
+/* 前向声明：ADD_CALLBACK_WWIN 宏展开（本文件后部）生成的 GLFW 回调 natives */
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetCharCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetCharModsCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetCursorEnterCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetCursorPosCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetFramebufferSizeCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetKeyCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetMouseButtonCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetScrollCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetWindowSizeCallback(JNIEnv*, jclass, jlong, jlong);
+JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_nglfwSetShowingWindow(JNIEnv*, jclass, jlong);
+JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPos(JNIEnv*, jclass, jlong, jobject, jobject);
+JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPosA(JNIEnv*, jclass, jlong, jdoubleArray, jdoubleArray);
+JNIEXPORT void JNICALL Java_org_lwjgl_glfw_GLFW_glfwSetCursorPos(JNIEnv*, jclass, jlong, jdouble, jdouble);
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_internalGetGamepadDataPointer(JNIEnv*, jclass);
+
+/* 显式绑定 GLFW 回调 natives：Android 上 dlopen 的库符号可能不在 JVM 的
+ * dlsym(RTLD_DEFAULT) 可见命名空间（System.loadLibrary → classloader namespace），
+ * 导致 26.2 官方 GLFW 类（标准 JNI 绑定）UnsatisfiedLinkError。
+ * RegisterNatives 直接绑定到本库实现，绕过命名空间限制。
+ * 逐方法注册（失败跳过）：Pojav 3.3.x 配对 GLFW 类只声明 12 个 natives
+ * （无 FramebufferSize/WindowSize），一锅注册会整体失败。 */
+static void registerGlfwNatives(JNIEnv *env) {
+    jclass glfwClass = (*env)->FindClass(env, "org/lwjgl/glfw/GLFW");
+    if (glfwClass == NULL) {
+        printf("registerGlfwNatives: FindClass GLFW failed\n");
+        (*env)->ExceptionClear(env);
+        return;
+    }
+    JNINativeMethod methods[] = {
+        {"nglfwSetCharCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetCharCallback},
+        {"nglfwSetCharModsCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetCharModsCallback},
+        {"nglfwSetCursorEnterCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetCursorEnterCallback},
+        {"nglfwSetCursorPosCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetCursorPosCallback},
+        {"nglfwSetFramebufferSizeCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetFramebufferSizeCallback},
+        {"nglfwSetKeyCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetKeyCallback},
+        {"nglfwSetMouseButtonCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetMouseButtonCallback},
+        {"nglfwSetScrollCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetScrollCallback},
+        {"nglfwSetWindowSizeCallback", "(JJ)J", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetWindowSizeCallback},
+        {"nglfwSetShowingWindow", "(J)V", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwSetShowingWindow},
+        {"nglfwGetCursorPos", "(JLjava/nio/DoubleBuffer;Ljava/nio/DoubleBuffer;)V", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPos},
+        {"nglfwGetCursorPosA", "(J[D[D)V", (void *) &Java_org_lwjgl_glfw_GLFW_nglfwGetCursorPosA},
+        {"glfwSetCursorPos", "(JDD)V", (void *) &Java_org_lwjgl_glfw_GLFW_glfwSetCursorPos},
+        {"internalGetGamepadDataPointer", "()J", (void *) &Java_org_lwjgl_glfw_GLFW_internalGetGamepadDataPointer},
+    };
+    int n = sizeof(methods) / sizeof(methods[0]);
+    int bound = 0;
+    for (int i = 0; i < n; i++) {
+        if ((*env)->RegisterNatives(env, glfwClass, &methods[i], 1) == 0) {
+            bound++;
+        } else {
+            printf("registerGlfwNatives: %s not registered (skipped)\n", methods[i].name);
+            (*env)->ExceptionClear(env);
+        }
+    }
+    printf("registerGlfwNatives: bound %d/%d GLFW natives\n", bound, n);
+}
+
 JNIEXPORT jstring JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeClipboard(JNIEnv* env, jclass clazz, jint action, jbyteArray copySrc);
+
+/* ===== gamepad 支持（从 Pojav 参考迁移）=====
+ * Pojav 适配版 lwjgl.jar 的 GLFW.glfwInit() 通过 internalGetGamepadDataPointer()
+ * 取手柄状态指针；nativeCreateGamepad*Buffer 供 Java 侧创建 DirectByteBuffer。 */
+JNIEXPORT jlong JNICALL Java_org_lwjgl_glfw_GLFW_internalGetGamepadDataPointer(JNIEnv *env, jclass clazz) {
+    return (jlong) &pojav_environ->gamepadState;
+}
+
+JNIEXPORT jobject JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeCreateGamepadButtonBuffer(JNIEnv *env, jclass clazz) {
+    return (*env)->NewDirectByteBuffer(env, &pojav_environ->gamepadState.buttons, sizeof(pojav_environ->gamepadState.buttons));
+}
+
+JNIEXPORT jobject JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeCreateGamepadAxisBuffer(JNIEnv *env, jclass clazz) {
+    return (*env)->NewDirectByteBuffer(env, &pojav_environ->gamepadState.axes, sizeof(pojav_environ->gamepadState.axes));
+}
 
 jint JNI_OnLoad(JavaVM* vm, __attribute__((unused)) void* reserved) {
     if (pojav_environ->dalvikJavaVMPtr == NULL) {
@@ -54,11 +127,25 @@ jint JNI_OnLoad(JavaVM* vm, __attribute__((unused)) void* reserved) {
         pojav_environ->isUseStackQueueCall = JNI_FALSE;
     } else if (pojav_environ->dalvikJavaVMPtr != vm) {
         __android_log_print(ANDROID_LOG_INFO, "Native", "Saving JVM environ...");
+        printf("JNI_OnLoad: runtime branch, dalvik=%p jvm=%p\n", pojav_environ->dalvikJavaVMPtr, vm);
         pojav_environ->runtimeJavaVMPtr = vm;
         (*vm)->GetEnv(vm, (void**) &pojav_environ->runtimeJNIEnvPtr_JRE, JNI_VERSION_1_4);
         pojav_environ->vmGlfwClass = (*pojav_environ->runtimeJNIEnvPtr_JRE)->NewGlobalRef(pojav_environ->runtimeJNIEnvPtr_JRE, (*pojav_environ->runtimeJNIEnvPtr_JRE)->FindClass(pojav_environ->runtimeJNIEnvPtr_JRE, "org/lwjgl/glfw/GLFW"));
+        printf("JNI_OnLoad: vmGlfwClass=%p\n", (void *) pojav_environ->vmGlfwClass);
+        if (pojav_environ->vmGlfwClass == NULL) {
+            (*pojav_environ->runtimeJNIEnvPtr_JRE)->ExceptionDescribe(pojav_environ->runtimeJNIEnvPtr_JRE);
+            (*pojav_environ->runtimeJNIEnvPtr_JRE)->ExceptionClear(pojav_environ->runtimeJNIEnvPtr_JRE);
+        }
         pojav_environ->method_glftSetWindowAttrib = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetStaticMethodID(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, "glfwSetWindowAttrib", "(JII)V");
-        pojav_environ->method_internalWindowSizeChanged = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetStaticMethodID(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, "internalWindowSizeChanged", "(JII)V");
+        // 适配游戏侧 Pojav lwjgl.jar 的 GLFW 协议：internalWindowSizeChanged 只有 window 参数 (J)V
+        // （FCL 原版是 (JII)V；fcl_orig runtime 分支按 Pojav 配对 GLFW 修正签名，避免 GetStaticMethodID 失败挂异常）
+        pojav_environ->method_internalWindowSizeChanged = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetStaticMethodID(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, "internalWindowSizeChanged", "(J)V");
+        printf("JNI_OnLoad: method_glftSetWindowAttrib=%p method_iwsc=%p\n",
+               (void *) pojav_environ->method_glftSetWindowAttrib, (void *) pojav_environ->method_internalWindowSizeChanged);
+        if (pojav_environ->method_internalWindowSizeChanged == NULL) {
+            (*pojav_environ->runtimeJNIEnvPtr_JRE)->ExceptionDescribe(pojav_environ->runtimeJNIEnvPtr_JRE);
+            (*pojav_environ->runtimeJNIEnvPtr_JRE)->ExceptionClear(pojav_environ->runtimeJNIEnvPtr_JRE);
+        }
         jfieldID field_keyDownBuffer = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetStaticFieldID(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, "keyDownBuffer", "Ljava/nio/ByteBuffer;");
         jobject keyDownBufferJ = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetStaticObjectField(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, field_keyDownBuffer);
         pojav_environ->keyDownBuffer = (*pojav_environ->runtimeJNIEnvPtr_JRE)->GetDirectBufferAddress(pojav_environ->runtimeJNIEnvPtr_JRE, keyDownBufferJ);
@@ -68,6 +155,8 @@ jint JNI_OnLoad(JavaVM* vm, __attribute__((unused)) void* reserved) {
         hookExec();
         installLwjglDlopenHook();
         installEMUIIteratorMititgation();
+        // 显式绑定 GLFW 回调 natives，绕过 dlsym 命名空间不可见问题
+        registerGlfwNatives(pojav_environ->runtimeJNIEnvPtr_JRE);
     }
 
     if(pojav_environ->dalvikJavaVMPtr == vm) {
@@ -100,8 +189,8 @@ ADD_CALLBACK_WWIN(WindowSize)
 
 #undef ADD_CALLBACK_WWIN
 
-void handleFramebufferSizeJava(long window, int w, int h) {
-    (*pojav_environ->runtimeJNIEnvPtr_JRE)->CallStaticVoidMethod(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, pojav_environ->method_internalWindowSizeChanged, (long)window, w, h);
+void handleFramebufferSizeJava(long window) {
+    (*pojav_environ->runtimeJNIEnvPtr_JRE)->CallStaticVoidMethod(pojav_environ->runtimeJNIEnvPtr_JRE, pojav_environ->vmGlfwClass, pojav_environ->method_internalWindowSizeChanged, (long)window);
 }
 
 void pojavPumpEvents(void* window) {
@@ -134,11 +223,11 @@ void pojavPumpEvents(void* window) {
                 if(pojav_environ->GLFW_invoke_Scroll) pojav_environ->GLFW_invoke_Scroll(window, event.i1, event.i2);
                 break;
             case EVENT_TYPE_FRAMEBUFFER_SIZE:
-                handleFramebufferSizeJava(pojav_environ->showingWindow, event.i1, event.i2);
+                handleFramebufferSizeJava(pojav_environ->showingWindow);
                 if(pojav_environ->GLFW_invoke_FramebufferSize) pojav_environ->GLFW_invoke_FramebufferSize(window, event.i1, event.i2);
                 break;
             case EVENT_TYPE_WINDOW_SIZE:
-                handleFramebufferSizeJava(pojav_environ->showingWindow, event.i1, event.i2);
+                handleFramebufferSizeJava(pojav_environ->showingWindow);
                 if(pojav_environ->GLFW_invoke_WindowSize) pojav_environ->GLFW_invoke_WindowSize(window, event.i1, event.i2);
                 break;
         }

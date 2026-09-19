@@ -368,12 +368,18 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
 
-            // 2. lwjgl.jar
+            // 2. lwjgl.jar（强制覆盖：设备可能遗留历史官方 3.4.x 版 lwjgl.jar，
+            // 其 ThreadLocalUtil.setupEnvData(int) 等原生 API 与 Pojav patched
+            // liblwjgl*.so（nsetupEnvData 3.3 fork）不配对，GL.createCapabilities 时
+            // UnsatisfiedLinkError。每次用 APK 内 Pojav 适配版删旧重建刷新。）
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
-            if (!File(lwjglDir, "lwjgl.jar").exists() || File(lwjglDir, "lwjgl.jar").length() < 1024) {
-                deployed += copyAssetIfMissing("app_runtime/lwjgl/lwjgl.jar", File(lwjglDir, "lwjgl.jar"))
+            val lwjglJar = File(lwjglDir, "lwjgl.jar")
+            if (lwjglJar.exists()) {
+                log("lwjgl.jar 存在，删除以强制部署 APK 内 Pojav 适配版\n")
+                lwjglJar.delete()
             }
+            deployed += copyAssetIfMissing("app_runtime/lwjgl/lwjgl.jar", lwjglJar)
 
             // 3. caciocavallo 17
             val cacio17Dir = File(FCLPath.CACIOCAVALLO_17_DIR)

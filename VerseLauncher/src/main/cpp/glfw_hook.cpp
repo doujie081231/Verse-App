@@ -8,14 +8,38 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <cstdarg>
+#include <ctime>
 #include <pthread.h>
 
 #include "verse_compat.h"
 
 #define LOG_TAG "GLFWHook"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
-#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) do { __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__); verseFileLog("I", __VA_ARGS__); } while (0)
+#define LOGE(...) do { __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__); verseFileLog("E", __VA_ARGS__); } while (0)
+#define LOGW(...) do { __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__); verseFileLog("W", __VA_ARGS__); } while (0)
+
+// 文件日志（崩溃现场诊断）：读环境变量 VERSE_GLFW_LOG_PATH，命中则同步写文件，
+// 否则仅 logcat。用于抓取“回到主页/创建窗口”等渲染层静默崩溃的最后操作点。
+static void verseFileLog(const char *level, const char *fmt, ...) {
+    const char *path = getenv("VERSE_GLFW_LOG_PATH");
+    if (path == nullptr || path[0] == '\0') return;
+    FILE *f = fopen(path, "a");
+    if (f == nullptr) return;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    struct tm tmBuf;
+    localtime_r(&ts.tv_sec, &tmBuf);
+    char timeStr[32];
+    strftime(timeStr, sizeof(timeStr), "%m-%d %H:%M:%S", &tmBuf);
+    fprintf(f, "[%s] [%s] ", timeStr, level);
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(f, fmt, args);
+    va_end(args);
+    fprintf(f, "\n");
+    fclose(f);
+}
 
 // EGL 动态加载层：默认使用系统 libEGL.so；当环境变量 POJAVEXEC_EGL 指定
 // （如 Zink 渲染器的 libEGL_mesa.so）时加载指定实现，使桌面 GL 上下文

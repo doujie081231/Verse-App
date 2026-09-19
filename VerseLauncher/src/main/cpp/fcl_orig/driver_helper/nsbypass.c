@@ -14,6 +14,12 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <elf.h>
+#include <sys/user.h>
+
+/* Android (ARM64/x86_64) 页大小恒为 4KB；新版 bionic 的 sys/user.h 不再定义 PAGE_SIZE */
+#ifndef PAGE_SIZE
+#define PAGE_SIZE 4096
+#endif
 
 #define OP_MS 0b11111100000000000000000000000000
 #define BL_OP 0b10010100000000000000000000000000
