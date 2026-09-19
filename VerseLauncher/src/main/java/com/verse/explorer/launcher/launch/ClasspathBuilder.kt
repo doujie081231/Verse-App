@@ -18,7 +18,7 @@ internal class ClasspathBuilder(private val context: Context) {
         // 与 Pojav patched liblwjgl*.so 配对。lwjgl-glfw.jar 提供 glfwGetMonitorName
         // （MC 1.19.4+/26.x Monitor 必需）。
         val lwjglDir = File(runtimeDir, "lwjgl")
-        val lwjglJars = lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") && it.length() > 1024 }?.sortedBy { it.name }
+        val lwjglJars = lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") && it.length() > 0 }?.sortedBy { it.name }
         if (!lwjglJars.isNullOrEmpty()) {
             lwjglJars.forEach { classpath.add(it.absolutePath) }
         } else {

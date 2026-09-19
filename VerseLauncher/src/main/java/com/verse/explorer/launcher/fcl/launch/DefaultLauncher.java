@@ -453,7 +453,7 @@ public class DefaultLauncher extends Launcher {
     private void replaceLwjglWithLocal(Set<String> classpath) {
         File lwjglDir = new File(FCLPath.LWJGL_DIR);
         if (!lwjglDir.isDirectory()) return;
-        File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 1024);
+        File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 0);
         if (localLwjglJars == null || localLwjglJars.length == 0) return;
         Arrays.sort(localLwjglJars, Comparator.comparing(File::getName));
         Set<String> temp = new LinkedHashSet<>();
