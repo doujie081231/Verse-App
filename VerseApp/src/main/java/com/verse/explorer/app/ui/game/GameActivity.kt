@@ -1,6 +1,7 @@
 package com.verse.explorer.app.ui.game
 
 import android.app.AlertDialog
+import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -16,6 +17,7 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -34,12 +36,18 @@ import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
+import com.tungsten.fcl.control.view.LogWindow
+import com.tungsten.fcl.setting.MenuSetting
+import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
 import kotlinx.coroutines.CancellationException
 import net.kdt.pojavlaunch.MinecraftGLSurface
 import net.kdt.pojavlaunch.Tools
 import net.kdt.pojavlaunch.customcontrols.ControlLayout
 import net.kdt.pojavlaunch.customcontrols.CustomControls
+import net.kdt.pojavlaunch.customcontrols.keyboard.LwjglCharSender
+import net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput
+import net.kdt.pojavlaunch.customcontrols.mouse.GyroControl
 import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 
@@ -52,12 +60,19 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private val javaDetector = JavaRuntimeDetector(
         this, { logManager.appendStatusLog(it) }, statusOverlay, versionResolver
     )
-    private val inputHandler = GameInputHandler { orchestrator.fclBridge }
+    private val inputHandler = GameInputHandler(
+        { orchestrator.fclBridge },
+        this,
+        { hitResultType }
+    )
     private lateinit var orchestrator: GameLaunchOrchestrator
     private lateinit var textureView: TextureView
     private var surface: Surface? = null
     private var graphicOutputShown = false
     private var surfaceUpdateCount = 0
+
+    /** FCL GameMenu.hitResultType：触控按下时由 refreshHitResultType 刷新，供 BUILD/FIGHT 手势判定 */
+    private var hitResultType = FCLBridge.HIT_RESULT_TYPE_UNKNOWN
 
     /** 陶瓦联机：VPN 授权结果回传，与 FCL 的 startActivityForResult(RequestCodes.VPN) 对应 */
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -73,10 +88,37 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private var multiplayerDialogOpen = false
 
     // ===== Pojav 触控模块迁移：游戏内虚拟按键/摇杆/触摸板覆盖层 =====
-    private var touchOverlay: FrameLayout? = null
-    private var controlLayout: net.kdt.pojavlaunch.customcontrols.ControlLayout? = null
+    var touchOverlay: FrameLayout? = null
+    var controlLayout: ControlLayout? = null
 
-    /** 三指下滑演示遮罩 + FCL 样式控制面板（不用悬浮窗唤起） */
+    /** FCL 右栏「陀螺仪」接入的陀螺仪控制器（Pojav GyroControl，已移植） */
+    var gyroControl: GyroControl? = null
+
+    /** FCL 右栏「快捷输入」接入的字符输入框（Pojav TouchCharInput，已移植） */
+    var touchCharInput: TouchCharInput? = null
+
+    /** FCL 右栏「显示日志/自动显示日志」接入的日志窗口（FCL LogWindow 移植） */
+    var logWindow: LogWindow? = null
+
+    /** FCL 右栏「鼠标尺寸/偏移」接入的可见光标（FCL CursorView 的简化移植） */
+    var cursorView: TextView? = null
+
+    /** 应用鼠标尺寸/偏移到可见光标（FCL initCursorView 的对应，由控制面板滑块调用） */
+    fun applyCursorStyle() {
+        val view = cursorView ?: return
+        val size = (MenuSetting.mouseSize * resources.displayMetrics.density).toInt()
+        view.layoutParams = FrameLayout.LayoutParams(
+            if (size > 0) size else 1,
+            if (size > 0) size else 1
+        )
+        view.textSize = (MenuSetting.mouseSize * 0.75f).coerceAtLeast(8f)
+    }
+
+    /** 当前 FCLBridge（供控制面板的窗口缩放/光标偏移等使用） */
+    val currentBridge: FCLBridge?
+        get() = if (::orchestrator.isInitialized) orchestrator.fclBridge else null
+
+    /** 双指下滑演示遮罩 + FCL 样式控制面板（不用悬浮窗唤起） */
     private var inGameControl: InGameControlOverlay? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -119,6 +161,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setupImmersiveMode()
+
+            // FCL 控制栏设置：加载 <filesDir>/menu_setting.json（与 FCL FILES_DIR 对齐）
+            MenuSetting.init(getFilesDir())
 
             // 陶瓦联机：注入 VPN 授权 launcher（与 FCL 在联机菜单打开时请求 VPN 授权对应）
             TerracottaController.vpnPrepareLauncher = { _, intent ->
@@ -304,6 +349,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) setupImmersiveMode()
+        // FCL FCLInput.initExternalController：非实体鼠标模式时请求指针捕获（相对移动）
+        if (hasFocus && !MenuSetting.isPhysicalMouseMode) {
+            touchOverlay?.requestPointerCapture()
+        }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -316,20 +365,30 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 // 让联机按钮正常接收点击
                 return super.dispatchTouchEvent(ev)
             }
+            if (isTouchOnQuickInput(ev)) {
+                // 快捷输入框可见时让 EditText 正常接收焦点与键盘
+                return super.dispatchTouchEvent(ev)
+            }
             // Pojav 触控模块：触摸命中虚拟按键/摇杆时交给覆盖层消费，
             // 其余区域直接转发给游戏（等价于 Pojav 中 MinecraftGLSurface 接住非按钮触摸）
             if (isTouchOnVirtualControl(ev)) {
                 touchOverlay?.dispatchTouchEvent(ev)
                 return true
             }
-            // 三指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
+            // 双指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
             if (inGameControl?.isOverlayVisible() == true) {
                 return super.dispatchTouchEvent(ev)
             }
-            // 无遮挡的正常游戏态：在透传给游戏前检测三指下滑手势
+            // 无遮挡的正常游戏态：在透传给游戏前检测双指下滑手势
             if (inGameControl?.trackMultiTouch(ev) == true) {
-                VerseLogger.debug("TOUCH consumed by 3-finger swipe", "Control")
+                VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
                 inGameControl?.fireSwipe()
+                return true
+            }
+            // FCL TouchPad CursorDisabled 分支：禁用左半屏触控（x <= screenW/2 不转发）
+            if (inputHandler.isGrabbing() && MenuSetting.isDisableLeftTouch
+                && ev.x <= resources.displayMetrics.widthPixels / 2f
+            ) {
                 return true
             }
             VerseLogger.debug("TOUCH forward a=${ev.actionMasked} x=${ev.x.toInt()} y=${ev.y.toInt()}", "Input")
@@ -362,8 +421,38 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             ev.rawY >= location[1] && ev.rawY <= location[1] + container.height
     }
 
+    /** 快捷输入框可见时的命中判断：让 EditText 接收焦点（对应 FCL 的 input_scanner） */
+    private fun isTouchOnQuickInput(ev: MotionEvent): Boolean {
+        val input = touchCharInput ?: return false
+        if (input.visibility != View.VISIBLE) return false
+        val location = IntArray(2)
+        input.getLocationOnScreen(location)
+        return ev.rawX >= location[0] && ev.rawX <= location[0] + input.width &&
+            ev.rawY >= location[1] && ev.rawY <= location[1] + input.height
+    }
+
+    /** FCL 右栏「联机菜单」按钮：展示游戏内联机入口（陶瓦/红石） */
+    fun showMultiplayerEntry() {
+        multiplayerEntryContainer?.let {
+            it.visibility = View.VISIBLE
+            it.bringToFront()
+        }
+    }
+
+    /** FCL 右栏「快捷输入」按钮：唤出 Pojav TouchCharInput 与软键盘 */
+    fun showQuickInput() {
+        touchCharInput?.let {
+            it.visibility = View.VISIBLE
+            it.bringToFront()
+            it.requestFocus()
+            it.switchKeyboardState()
+        }
+    }
+
     override fun onLog(log: String) {
         VerseLogger.info(log.replace("\n", ""), "Minecraft")
+        // FCL GameMenu.onLog：日志同时写入游戏内日志窗口（显示日志/自动显示日志开关控制）
+        logWindow?.appendLog(log)
         // 兜底：部分版本日志不含 atlas/blocks，但仍以 Surface 首帧渲染为准（见 onSurfaceTextureUpdated）。
         if (!graphicOutputShown && log.contains("atlas/blocks")) {
             graphicOutputShown = true
@@ -387,9 +476,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onCursorModeChange(mode: Int) {
         inputHandler.setCursorMode(mode)
+        // FCL GameMenu.onCursorModeChange：GUI 态显示光标，抓取态隐藏
+        cursorView?.visibility = if (mode == FCLBridge.CursorEnabled) View.VISIBLE else View.GONE
     }
 
     override fun onHitResultTypeChange(type: Int) {
+        // FCL GameMenu.onHitResultTypeChange：保存命中结果供 BUILD/FIGHT 手势判定
+        hitResultType = type
     }
 
     fun onGraphicOutput() {
@@ -402,10 +495,17 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         CallbackBridge.nativeSetInputReady(true)
         setupTouchControls()
         setupInGameControlOverlay()
+        // FCL GameMenu.setup：logWindow 初始可见 = showLog || autoShowLog；图形输出后 autoShowLog 自动隐藏
+        logWindow?.let {
+            it.setVisibility(MenuSetting.isShowLog || MenuSetting.isAutoShowLog)
+            if (!MenuSetting.isShowLog && MenuSetting.isAutoShowLog) {
+                it.setVisibility(false)
+            }
+        }
     }
 
     /**
-     * 游戏画面就绪后挂载「三指下滑」演示遮罩与 FCL 样式控制面板。
+     * 游戏画面就绪后挂载「双指下滑」演示遮罩与 FCL 样式控制面板。
      * 不同于 FCL 的侧边悬浮窗按钮，Verse 用演示遮罩提示手势唤起控制面板。
      */
     private fun setupInGameControlOverlay() {
@@ -415,10 +515,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             onEsc = {
                 inputHandler.onKeyDown(KeyEvent.KEYCODE_ESCAPE, null)
                 inputHandler.onKeyUp(KeyEvent.KEYCODE_ESCAPE, null)
-            },
-            onToggleVirtualControls = {
-                // 复用 Pojav ControlLayout 自带的显隐切换（与 FCL 键盘示隐逻辑对应）
-                controlLayout?.toggleControlVisible()
             },
             onScreenshot = {
                 val bmp = textureView?.bitmap
@@ -447,7 +543,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         inGameControl = overlay
         // 演示遮罩：游戏画面出现后自动弹出提示
         overlay.showHint()
-        VerseLogger.info("三指下滑遮罩 + 控制面板已挂载", "Control")
+        VerseLogger.info("双指下滑遮罩 + 控制面板已挂载", "Control")
     }
 
     /**
@@ -477,12 +573,73 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val touchpad = Touchpad(this, null)
             org.lwjgl.glfw.CallbackBridge.addGrabListener(touchpad)
 
+            // FCL 右栏「陀螺仪」：Pojav GyroControl（已移植），默认按 menu_setting 启用
+            val gyro = GyroControl(this)
+            gyroControl = gyro
+            if (MenuSetting.isEnableGyroscope) {
+                gyro.enable()
+            }
+
+            // FCL 右栏「快捷输入」：Pojav TouchCharInput（已移植）+ LwjglCharSender
+            val charInput = TouchCharInput(this).apply {
+                setCharacterSender(LwjglCharSender())
+                visibility = View.GONE
+            }
+            touchCharInput = charInput
+
+            // FCL 右栏「显示日志/自动显示日志」：FCL LogWindow 移植
+            val logWin = LogWindow(this)
+            logWindow = logWin
+
+            // FCL 右栏「鼠标尺寸/偏移」：可见光标（FCL CursorView 简化移植：GUI 态显示圆点）
+            val cursor = TextView(this).apply {
+                text = "●"
+                setTextColor(Color.WHITE)
+                setShadowLayer(4f, 0f, 0f, Color.BLACK)
+                visibility = View.GONE
+                layoutParams = FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            }
+            cursorView = cursor
+            applyCursorStyle()
+
+            val density = resources.displayMetrics.density
+
             val overlay = FrameLayout(this)
             overlay.addView(surface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(touchpad, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            overlay.addView(logWin, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (200 * density).toInt(),
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            ).apply { topMargin = (40 * density).toInt() })
+            overlay.addView(charInput, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply { bottomMargin = (16 * density).toInt() })
+            overlay.addView(cursor, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ))
             this.addContentView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             touchOverlay = overlay
+
+            // FCL GameMenu.setOnGenericMotionListener + FCLInput.initExternalController 的移植：
+            // 实体鼠标（hover/按钮/滚轮）与指针捕获（相对移动）都接到 inputHandler
+            overlay.setOnGenericMotionListener { _, ev -> inputHandler.handleGenericMotion(ev) }
+            overlay.setOnCapturedPointerListener { _, ev -> inputHandler.handleCapturedPointer(ev) }
+
+            // FCL CursorView 跟随：GUI 态下指针移动时更新可见光标位置（含偏移）
+            inputHandler.cursorMoveListener = { x, y ->
+                cursorView?.let {
+                    it.x = x + MenuSetting.mouseOffsetX * density
+                    it.y = y + MenuSetting.mouseOffsetY * density
+                }
+            }
 
             layout.setControlVisible(true)
             VerseLogger.info("触控覆盖层已挂载: layout=${layout.mLayoutFileName}, buttons=${layout.getButtonChildren().size}", "Touch")

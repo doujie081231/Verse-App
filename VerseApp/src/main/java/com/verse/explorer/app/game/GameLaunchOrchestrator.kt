@@ -2,6 +2,7 @@ package com.verse.explorer.app.game
 
 import android.view.Surface
 import androidx.activity.ComponentActivity
+import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameStatusOverlay
@@ -30,6 +31,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
 import java.util.UUID
 
 class GameLaunchOrchestrator(
@@ -292,6 +294,7 @@ class GameLaunchOrchestrator(
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
         injectOnboardingSkip(repository, params.versionId)
+        injectGameLanguage(repository, fclVersion)
         VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
         // 7) 等待 Surface（渲染窗口）
@@ -374,6 +377,65 @@ class GameLaunchOrchestrator(
             }
         }.onFailure {
             VerseLogger.warn("注入 onboardAccessibility 失败: ${it.message}", TAG)
+        }
+    }
+
+    /**
+     * 游戏启动自动设置为中文（对照 versepc2 server.js setGameLanguage）：
+     * 按版本发布日期选择 lang 值（1.1~1.10 用 zh_CN，其余支持语言版本用 zh_cn；
+     * 1.0 及以下无语言选项直接跳过），写入版本目录 options.txt。
+     * 用户要求强制中文：每次启动都会覆盖为 requiredLang（不保留存档中的旧语言选择）。
+     */
+    private fun injectGameLanguage(repository: DefaultGameRepository, version: Version) {
+        if (!SettingsRepository.isAutoSetChinese()) {
+            VerseLogger.info("自动设置中文已关闭，跳过语言设置", TAG)
+            return
+        }
+        runCatching {
+            val runDir = repository.getRunDirectory(version.id)
+            var optionsFile = File(runDir, "options.txt")
+            val yosbrFile = File(File(File(runDir, "config"), "yosbr"), "options.txt")
+            if (!optionsFile.exists() && yosbrFile.exists()) {
+                VerseLogger.info("使用 Yosbr Mod 中的 options.txt", TAG)
+                optionsFile = yosbrFile
+            }
+
+            val releaseTime = version.releaseTime ?: version.time
+            val mc1_1 = Instant.parse("2012-01-12T00:00:00Z")
+            val mc1_11 = Instant.parse("2016-06-08T00:00:00Z")
+            // 1.0 及以下版本无语言选项
+            if (releaseTime != null && !releaseTime.isAfter(mc1_1)) {
+                VerseLogger.info("1.0 及以下版本，无语言选项", TAG)
+                return@runCatching
+            }
+            val requiredLang = if (releaseTime != null && releaseTime.isAfter(mc1_1) && !releaseTime.isAfter(mc1_11)) {
+                "zh_CN"
+            } else {
+                "zh_cn"
+            }
+
+            var content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
+            val langRegex = Regex("^lang:(.+)$", RegexOption.MULTILINE)
+            val currentLang = langRegex.find(content)?.groupValues?.get(1)?.trim() ?: "none"
+
+            // 强制中文：无论是否已有存档/语言选择，每次启动都写入 requiredLang
+            if (currentLang != requiredLang) {
+                content = if (content.isNotEmpty() && currentLang != "none") {
+                    content.replace(langRegex, "lang:$requiredLang")
+                } else if (content.isNotEmpty()) {
+                    content + "\nlang:$requiredLang"
+                } else {
+                    "lang:$requiredLang\n"
+                }
+                VerseLogger.info("已将游戏语言设置为 $requiredLang（原 $currentLang）", TAG)
+            } else {
+                VerseLogger.info("当前语言已为 $requiredLang，无需修改", TAG)
+            }
+
+            optionsFile.parentFile?.mkdirs()
+            optionsFile.writeText(content)
+        }.onFailure {
+            VerseLogger.warn("自动设置中文失败: ${it.message}", TAG)
         }
     }
 

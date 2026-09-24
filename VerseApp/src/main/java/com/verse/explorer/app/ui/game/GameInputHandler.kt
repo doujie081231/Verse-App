@@ -1,103 +1,346 @@
 package com.verse.explorer.app.ui.game
 
 import android.annotation.SuppressLint
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.util.Log
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode
+import com.tungsten.fcl.control.GestureMode
+import com.tungsten.fcl.control.MouseMoveMode
+import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 
+/**
+ * 游戏输入处理：行为全部照搬 FCL 的 FCLInput.java + control/view/TouchPad.java
+ * （CursorDisabled=抓取态 / CursorEnabled=GUI 态 两条触摸分支，400ms 长按 BUILD/FIGHT 手势，
+ * CLICK/SLIDE 鼠标移动模式，物理鼠标 external mouse 事件，左半屏禁用触控）。
+ * 不新增私有逻辑；设置项从 MenuSetting（menu_setting.json）读取。
+ */
 @SuppressLint("ClickableViewAccessibility")
-class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
+class GameInputHandler(
+    private val bridgeProvider: () -> FCLBridge?,
+    private val context: Context? = null,
+    private val hitResultTypeProvider: () -> Int = { FCLBridge.HIT_RESULT_TYPE_UNKNOWN }
+) {
+
+    // ===== FCLInput 常量（MOUSE_MAP 与 FCLInput.java 一致） =====
+    companion object {
+        const val MOUSE_LEFT = 1000
+        const val MOUSE_MIDDLE = 1001
+        const val MOUSE_RIGHT = 1002
+        const val MOUSE_SCROLL_UP = 1003
+        const val MOUSE_SCROLL_DOWN = 1004
+        private const val TAG = "GameInputHandler"
+        // 与 FCL TouchPad 的长按阈值/点击判定一致
+        private const val HOLD_DELAY = 400L
+        private const val CLICK_DELAY = 33L
+        private const val TAP_MAX_TIME = 100L
+        private const val TAP_MAX_DIST = 10f
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
 
     private var isGrabbing = false
-    private var touchDownTime = 0L
-    private var touchDownX = 0f
-    private var touchDownY = 0f
-    private var isLongPress = false
-    private val LONG_PRESS_THRESHOLD = 500L
-    private val MOVE_THRESHOLD = 30f
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
+
+    // ===== 光标/指针状态（FCL GameMenu.cursorX/cursorY + pointerX/pointerY 的对应） =====
+    internal var cursorX = 0f
+    internal var cursorY = 0f
+    private var pointerX = 0f
+    private var pointerY = 0f
+    private var pointerId: String? = null
+
+    /** GUI 态光标移动回调（FCL CursorView.setX/setY 的对应，由 GameActivity 接可见光标） */
+    internal var cursorMoveListener: ((Float, Float) -> Unit)? = null
+
+    // ===== FCL TouchPad 抓取态状态 =====
+    private var downX = 0f
+    private var downY = 0f
+    private var downTime = 0L
+    private var initialX = 0f
+    private var initialY = 0f
+    private var currentPointerID = -1
+    private var lastPointerCount = 0
+    private var shouldBeDown = false
+    private var cancelMouseLeft = false
+    private var cancelMouseRight = false
+
+    private val holdRunnable = Runnable {
+        if (!MenuSetting.isDisableGesture) {
+            if (effectiveGestureMode() == GestureMode.BUILD) {
+                sendKeyEvent(MOUSE_LEFT, true)
+                cancelMouseLeft = true
+                cancelMouseRight = false
+            } else {
+                sendKeyEvent(MOUSE_RIGHT, true)
+                cancelMouseRight = true
+                cancelMouseLeft = false
+            }
+        }
+    }
+
+    private val clickDownRunnable = Runnable { sendKeyEvent(MOUSE_LEFT, true) }
+    private val clickUpRunnable = Runnable { sendKeyEvent(MOUSE_LEFT, false) }
+
+    private val screenWidth: Int
+        get() = context?.resources?.displayMetrics?.widthPixels ?: 854
+    private val screenHeight: Int
+        get() = context?.resources?.displayMetrics?.heightPixels ?: 480
+
+    fun isGrabbing(): Boolean = isGrabbing
+
+    fun setCursorMode(mode: Int) {
+        isGrabbing = mode == FCLBridge.CursorDisabled
+    }
+
+    /** FCL TouchPad.getGestureMode()：BE 手势禁用时用设置值，否则按命中结果自动切换 BUILD/FIGHT */
+    private fun effectiveGestureMode(): GestureMode {
+        if (MenuSetting.isDisableBEGesture) {
+            return GestureMode.getById(MenuSetting.gestureMode)
+        }
+        val bridge = bridgeProvider()
+        return if (bridge != null) {
+            when (hitResultTypeProvider()) {
+                FCLBridge.HIT_RESULT_TYPE_UNKNOWN -> GestureMode.getById(MenuSetting.gestureMode)
+                FCLBridge.HIT_RESULT_TYPE_BLOCK -> GestureMode.BUILD
+                else -> GestureMode.FIGHT
+            }
+        } else {
+            GestureMode.getById(MenuSetting.gestureMode)
+        }
+    }
+
+    // ===== FCLInput.setPointer：推送指针时按 scaleFactor 缩放（与 FCLInput.java 一致） =====
+    private fun setPointer(x: Float, y: Float) {
+        pointerX = x
+        pointerY = y
+        // FCL：光标坐标仅在 CursorEnabled（GUI 态）更新，抓取态只维护指针坐标
+        if (!isGrabbing) {
+            cursorX = x
+            cursorY = y
+            cursorMoveListener?.invoke(x, y)
+        }
+        val bridge = bridgeProvider() ?: return
+        val scale = bridge.getScaleFactor().toFloat()
+        bridge.pushEventPointer((x * scale).toInt(), (y * scale).toInt())
+    }
+
+    /** FCLInput.sendKeyEvent：鼠标键走 pushEventMouseButton（含滚轮映射），其余走 pushEventKey */
+    private fun sendKeyEvent(keycode: Int, press: Boolean) {
+        val bridge = bridgeProvider() ?: return
+        when (keycode) {
+            MOUSE_LEFT -> bridge.pushEventMouseButton(FCLBridge.Button1, press)
+            MOUSE_MIDDLE -> bridge.pushEventMouseButton(FCLBridge.Button3, press)
+            MOUSE_RIGHT -> bridge.pushEventMouseButton(FCLBridge.Button2, press)
+            MOUSE_SCROLL_UP -> if (press) bridge.pushEventMouseButton(FCLBridge.Button4, true)
+            MOUSE_SCROLL_DOWN -> if (press) bridge.pushEventMouseButton(FCLBridge.Button5, true)
+            else -> bridge.pushEventKey(keycode, 0, press)
+        }
+    }
+
+    /** FCLInput.handleExternalMouseEvent：外接鼠标按钮/滚轮事件 */
+    fun handleExternalMouseEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
+                val press = event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS
+                when (event.actionButton) {
+                    MotionEvent.BUTTON_PRIMARY -> sendKeyEvent(MOUSE_LEFT, press)
+                    MotionEvent.BUTTON_SECONDARY -> sendKeyEvent(MOUSE_RIGHT, press)
+                    MotionEvent.BUTTON_TERTIARY -> sendKeyEvent(MOUSE_MIDDLE, press)
+                }
+            }
+            MotionEvent.ACTION_SCROLL -> {
+                val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                for (i in 0 until kotlin.math.abs(vScroll.toInt())) {
+                    sendKeyEvent(if (vScroll > 0) MOUSE_SCROLL_UP else MOUSE_SCROLL_DOWN, true)
+                }
+            }
+        }
+        return true
+    }
+
+    /** FCLInput.handleMouse：抓取态下捕获的相对鼠标移动（指针捕获模式），含灵敏度 */
+    fun handleCapturedPointer(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_MOVE) {
+            var tX = event.x
+            var tY = event.y
+            val historySize = event.historySize
+            for (i in 0 until historySize) {
+                tX += event.getHistoricalX(i)
+                tY += event.getHistoricalY(i)
+            }
+            tX *= MenuSetting.mouseSensitivity.toFloat()
+            tY *= MenuSetting.mouseSensitivity.toFloat()
+            val deltaX = tX.toInt()
+            val deltaY = tY.toInt()
+            if (!isGrabbing) {
+                val targetX = cursorX + deltaX * MenuSetting.mouseSensitivityCursor.toFloat()
+                val targetY = cursorY + deltaY * MenuSetting.mouseSensitivityCursor.toFloat()
+                setPointer(
+                    targetX.coerceIn(0f, screenWidth.toFloat()),
+                    targetY.coerceIn(0f, screenHeight.toFloat())
+                )
+            } else {
+                setPointer(pointerX + deltaX, pointerY + deltaY)
+            }
+        }
+        return handleExternalMouseEvent(event)
+    }
+
+    /** GameMenu.setOnGenericMotionListener 的移植：物理鼠标（physicalMouseMode）hover/按钮/滚轮 */
+    fun handleGenericMotion(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && MenuSetting.isPhysicalMouseMode) {
+            if (!isGrabbing && event.action == MotionEvent.ACTION_HOVER_MOVE) {
+                setPointer(event.rawX, event.rawY)
+                return true
+            }
+            return handleExternalMouseEvent(event)
+        }
+        return false
+    }
 
     fun handleTouchEvent(event: MotionEvent) {
         val bridge = bridgeProvider() ?: run {
             Log.d("VerseX", "[Input] handleTouchEvent: bridge is null")
             return
         }
+        if (isGrabbing) {
+            handleGrabbedTouch(event)
+        } else {
+            handleGuiTouch(event)
+        }
+        if (isGrabbing) {
+            lastPointerCount = event.pointerCount
+        }
+    }
 
+    // ===== FCL TouchPad CursorEnabled（GUI 态）分支 =====
+    private fun handleGuiTouch(event: MotionEvent) {
+        val bridge = bridgeProvider() ?: return
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            if (event.action == MotionEvent.ACTION_MOVE) {
+                setPointer(event.rawX, event.rawY)
+            }
+            // 防止被外接鼠标触发触摸板
+            return
+        }
+        if (MenuSetting.mouseMoveMode == MouseMoveMode.CLICK.id) {
+            setPointer(event.x, event.y)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> handler.postDelayed(clickDownRunnable, CLICK_DELAY)
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                    handler.removeCallbacks(clickDownRunnable)
+                    handler.postDelayed(clickUpRunnable, CLICK_DELAY)
+                }
+            }
+        } else {
+            // MouseMoveMode.SLIDE
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    downTime = System.currentTimeMillis()
+                    initialX = cursorX
+                    initialY = cursorY
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = (event.x - downX) * MenuSetting.mouseSensitivityCursor.toFloat()
+                    val deltaY = (event.y - downY) * MenuSetting.mouseSensitivityCursor.toFloat()
+                    val targetX = (initialX + deltaX).coerceIn(0f, screenWidth.toFloat())
+                    val targetY = (initialY + deltaY).coerceIn(0f, screenHeight.toFloat())
+                    setPointer(targetX, targetY)
+                }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                    if (System.currentTimeMillis() - downTime <= TAP_MAX_TIME
+                        && kotlin.math.abs(event.x - downX) <= TAP_MAX_DIST
+                        && kotlin.math.abs(event.y - downY) <= TAP_MAX_DIST
+                    ) {
+                        sendKeyEvent(MOUSE_LEFT, true)
+                        sendKeyEvent(MOUSE_LEFT, false)
+                    }
+                    pointerId = null
+                }
+            }
+        }
+    }
+
+    // ===== FCL TouchPad CursorDisabled（抓取/游戏内）分支 =====
+    private fun handleGrabbedTouch(event: MotionEvent) {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) return
+        if (MenuSetting.isDisableLeftTouch && event.x <= screenWidth / 2f) {
+            return
+        }
+        initialX = pointerX
+        initialY = pointerY
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                touchDownTime = System.currentTimeMillis()
-                touchDownX = event.x
-                touchDownY = event.y
-                lastTouchX = event.x
-                lastTouchY = event.y
-                isLongPress = false
-                val x = event.x.toInt()
-                val y = event.y.toInt()
-                Log.d("VerseX", "[Input] DOWN ($x,$y) grabbing=$isGrabbing")
-                // 先移动鼠标指针，等 1 帧让 MC GUI hover 状态确立后再按左键。
-                // 与 Pojav TouchEventProcessor 的点击时序一致（cursor pos 先行，button 后行）。
-                bridge.pushEventPointer(x, y)
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, true)
-                }, 50)
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                val pointerIndex = event.actionIndex
-                val px = event.getX(pointerIndex).toInt()
-                val py = event.getY(pointerIndex).toInt()
-                Log.d("VerseX", "[Input] PTR_DOWN ($px,$py)")
-                bridge.pushEventPointer(px, py)
-                bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, true)
+                currentPointerID = event.getPointerId(0)
+                bridgeProvider()?.refreshHitResultType()
+                downX = event.x
+                downY = event.y
+                downTime = System.currentTimeMillis()
+                handler.postDelayed(holdRunnable, HOLD_DELAY)
             }
             MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - touchDownX
-                val dy = event.y - touchDownY
-                if (isGrabbing && !isLongPress && System.currentTimeMillis() - touchDownTime > LONG_PRESS_THRESHOLD
-                    && (dx * dx + dy * dy) < MOVE_THRESHOLD * MOVE_THRESHOLD) {
-                    isLongPress = true
-                    Log.d("VerseX", "[Input] LONG_PRESS -> RIGHT_DOWN")
-                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
-                    bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, true)
+                val pointerCount = event.pointerCount
+                val pointerIndex = event.findPointerIndex(currentPointerID)
+                if (pointerIndex == -1 || lastPointerCount != pointerCount || !shouldBeDown) {
+                    shouldBeDown = true
+                    currentPointerID = event.getPointerId(0)
+                    downX = event.x
+                    downY = event.y
+                    return
                 }
-                if (isGrabbing) {
-                    val deltaX = (event.x - lastTouchX).toInt()
-                    val deltaY = (event.y - lastTouchY).toInt()
-                    lastTouchX = event.x
-                    lastTouchY = event.y
-                    Log.d("VerseX", "[Input] MOVE grabbing d($deltaX,$deltaY)")
-                    CallbackBridge.sendCursorDelta(deltaX.toDouble(), deltaY.toDouble())
+                val newDownX = event.getX(pointerIndex)
+                val newDownY = event.getY(pointerIndex)
+                val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
+                val deltaX = ((newDownX - downX) * MenuSetting.mouseSensitivity.toFloat() / scale).toInt()
+                val deltaY = ((newDownY - downY) * MenuSetting.mouseSensitivity.toFloat() / scale).toInt()
+                if (MenuSetting.isEnableGyroscope) {
+                    pointerX = initialX + deltaX
+                    pointerY = initialY + deltaY
                 } else {
-                    Log.d("VerseX", "[Input] MOVE (${event.x.toInt()},${event.y.toInt()})")
-                    bridge.pushEventPointer(event.x.toInt(), event.y.toInt())
+                    setPointer(initialX + deltaX, initialY + deltaY)
                 }
+                if ((kotlin.math.abs(deltaX) > 1 || kotlin.math.abs(deltaY) > 1)
+                    && System.currentTimeMillis() - downTime < HOLD_DELAY
+                ) {
+                    handler.removeCallbacks(holdRunnable)
+                }
+                downX = newDownX
+                downY = newDownY
             }
-            MotionEvent.ACTION_UP -> {
-                if (!isGrabbing) {
-                    bridge.pushEventPointer(event.x.toInt(), event.y.toInt())
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                pointerId = null
+                shouldBeDown = false
+                currentPointerID = -1
+                handler.removeCallbacks(holdRunnable)
+                if (cancelMouseLeft) {
+                    sendKeyEvent(MOUSE_LEFT, false)
                 }
-                // 与 DOWN 的 50ms 延迟对齐，保证 LEFT_UP 在 LEFT_DOWN 之后到达（click 顺序）
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    if (isLongPress) {
-                        Log.d("VerseX", "[Input] UP after LONG_PRESS -> RIGHT_UP")
-                        bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
-                    } else {
-                        Log.d("VerseX", "[Input] UP -> LEFT_UP")
-                        bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
+                if (cancelMouseRight) {
+                    sendKeyEvent(MOUSE_RIGHT, false)
+                }
+                cancelMouseLeft = false
+                cancelMouseRight = false
+                if (System.currentTimeMillis() - downTime <= TAP_MAX_TIME
+                    && kotlin.math.abs(event.x - downX) <= TAP_MAX_DIST
+                    && kotlin.math.abs(event.y - downY) <= TAP_MAX_DIST
+                ) {
+                    if (!MenuSetting.isDisableGesture) {
+                        if (effectiveGestureMode() == GestureMode.BUILD) {
+                            sendKeyEvent(MOUSE_RIGHT, true)
+                            sendKeyEvent(MOUSE_RIGHT, false)
+                        } else {
+                            sendKeyEvent(MOUSE_LEFT, true)
+                            sendKeyEvent(MOUSE_LEFT, false)
+                        }
                     }
-                    isLongPress = false
-                }, 80)
-            }
-            MotionEvent.ACTION_POINTER_UP -> {
-                val upIndex = event.actionIndex
-                val upX = event.getX(upIndex).toInt()
-                val upY = event.getY(upIndex).toInt()
-                Log.d("VerseX", "[Input] PTR_UP ($upX,$upY)")
-                bridge.pushEventPointer(upX, upY)
-                bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, false)
+                }
             }
         }
     }
@@ -122,28 +365,25 @@ class GameInputHandler(private val bridgeProvider: () -> FCLBridge?) {
         return false
     }
 
-    fun setCursorMode(mode: Int) {
-        isGrabbing = mode == FCLBridge.CursorDisabled
-    }
-
     /**
-     * 手势被上层拦截（如三指下滑唤起控制面板）时复位当前输入状态，
+     * 手势被上层拦截（如双指下滑唤起控制面板）时复位当前输入状态，
      * 释放已下发的鼠标按键，避免游戏残留长按/右击状态。
-     * 只复用现有 pushEvent* 原子调用，不新增逻辑。
      */
     fun cancelGesture() {
-        val bridge = bridgeProvider() ?: return
+        handler.removeCallbacks(holdRunnable)
+        handler.removeCallbacks(clickDownRunnable)
+        handler.removeCallbacks(clickUpRunnable)
         runCatching {
-            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_1, false)
-            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_2, false)
-            bridge.pushEventMouseButton(LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_3, false)
+            sendKeyEvent(MOUSE_LEFT, false)
+            sendKeyEvent(MOUSE_RIGHT, false)
+            sendKeyEvent(MOUSE_MIDDLE, false)
         }
-        isLongPress = false
-        touchDownTime = 0L
-        touchDownX = 0f
-        touchDownY = 0f
-        lastTouchX = 0f
-        lastTouchY = 0f
+        cancelMouseLeft = false
+        cancelMouseRight = false
+        shouldBeDown = false
+        currentPointerID = -1
+        pointerId = null
+        downTime = 0L
     }
 
     fun androidKeyToGlfw(keyCode: Int): Int {

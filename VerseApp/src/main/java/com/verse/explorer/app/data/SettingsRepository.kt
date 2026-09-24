@@ -28,6 +28,7 @@ object SettingsRepository {
         private const val KEY_LANGUAGE = "language"
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_SHOW_FPS = "show_fps"
+        private const val KEY_AUTO_SET_CHINESE = "auto_set_chinese"
         private const val KEY_FORCE_LANDSCAPE = "force_landscape"
 
         private const val KEY_DOWNLOAD_SOURCE = "download_source"
@@ -84,6 +85,7 @@ object SettingsRepository {
         private const val DEFAULT_LANGUAGE = "简体中文"
         private const val DEFAULT_KEEP_SCREEN_ON = true
         private const val DEFAULT_SHOW_FPS = false
+        private const val DEFAULT_AUTO_SET_CHINESE = true
         private const val DEFAULT_FORCE_LANDSCAPE = true
 
         private const val DEFAULT_DOWNLOAD_SOURCE = "bmclapi"
@@ -182,6 +184,12 @@ object SettingsRepository {
 
     fun setShowFps(show: Boolean) {
         prefs().edit().putBoolean(KEY_SHOW_FPS, show).apply()
+    }
+
+    fun isAutoSetChinese(): Boolean = prefs().getBoolean(KEY_AUTO_SET_CHINESE, DEFAULT_AUTO_SET_CHINESE)
+
+    fun setAutoSetChinese(on: Boolean) {
+        prefs().edit().putBoolean(KEY_AUTO_SET_CHINESE, on).apply()
     }
 
     fun getForceLandscape(): Boolean = prefs().getBoolean(KEY_FORCE_LANDSCAPE, DEFAULT_FORCE_LANDSCAPE)

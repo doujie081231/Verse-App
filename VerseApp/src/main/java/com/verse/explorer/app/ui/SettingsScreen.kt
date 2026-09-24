@@ -51,6 +51,7 @@ fun SettingsScreen(navController: NavHostController) {
     var language by remember { mutableStateOf(settingsRepo.getLanguage()) }
     var keepScreenOn by remember { mutableStateOf(settingsRepo.getKeepScreenOn()) }
     var showFps by remember { mutableStateOf(settingsRepo.getShowFps()) }
+    var autoSetChinese by remember { mutableStateOf(settingsRepo.isAutoSetChinese()) }
     var debugMode by remember { mutableStateOf(settingsRepo.getDebugMode()) }
     // 新增状态变量（对齐 PC 端结构）
     var windowTitle by remember { mutableStateOf(settingsRepo.getWindowTitle()) }
@@ -75,6 +76,7 @@ fun SettingsScreen(navController: NavHostController) {
             setLanguage(language)
             setKeepScreenOn(keepScreenOn)
             setShowFps(showFps)
+            setAutoSetChinese(autoSetChinese)
             setDebugMode(debugMode)
             setWindowTitle(windowTitle)
             setLauncherVisibility(launcherVisibility)
@@ -89,6 +91,7 @@ fun SettingsScreen(navController: NavHostController) {
         gameWidth = "854"; gameHeight = "480"; fullscreen = false
         downloadSource = "bmclapi"; javaVersion = "17"
         language = "简体中文"; keepScreenOn = true; showFps = false
+        autoSetChinese = true
         debugMode = false
         windowTitle = ""; launcherVisibility = "keep"
         showSnapshots = false; themeColor = "white"; backgroundStyle = "none"
@@ -169,6 +172,7 @@ fun SettingsScreen(navController: NavHostController) {
                             PcTextInputRow("游戏窗口标题", windowTitle, "Minecraft") { windowTitle = it }
                             PcSwitchRow("保持屏幕常亮", "游戏运行时保持屏幕常亮", keepScreenOn) { keepScreenOn = it }
                             PcSwitchRow("显示 FPS", "运行时显示帧率信息", showFps) { showFps = it }
+                            PcSwitchRow("自动设置为中文", "启动游戏时自动将游戏语言设置为简体中文", autoSetChinese) { autoSetChinese = it }
                             PcSwitchRow("全屏启动", "启动游戏时自动全屏", fullscreen) { fullscreen = it }
                         }
                     }
