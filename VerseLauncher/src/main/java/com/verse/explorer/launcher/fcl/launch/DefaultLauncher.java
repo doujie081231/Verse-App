@@ -181,11 +181,16 @@ public class DefaultLauncher extends Launcher {
         // LWJGL 分两个模块加载：
         // 1) system 模块（org.lwjgl.libname=lwjgl）：加载 liblwjgl.so，提供 JNI.call* 等
         //    ffi 桥接方法以及 ThreadLocalUtil.setupEnvData。
-        // 2) glfw 模块（org.lwjgl.glfw.libname）：游戏侧 GLFW.class 静态块硬编码
-        //    System.loadLibrary("pojavexec")，此参数不生效；对齐 FCL，保留 poemav exec。
-        //    启动崩溃根因是"JVM 先于 ART 加载 poemav exec"导致 JNI_OnLoad 分支反转，
-        //    已由 FCLauncher 在 JVM 启动前同步预加载 CallbackBridge(Art 侧) 修复
-        //    （见 FCLauncher.preloadCallbackBridge 注释），无需更换 glfw 库。
+        // 2) glfw 模块（org.lwjgl.glfw.libname）：FCL 官方 GLFW 类静态块硬编码
+        //    System.loadLibrary("pojavexec") + nativeInitializeGLFWNativeBridge()；
+        //    此参数用于 LWJGL SharedLibrary 取函数指针（pojavInit 等），对齐 FCL。
+        //    26.2 真机崩溃根因（2026-09-23 实证，hs_err_pid30572）：
+        //    jniLibs arm64 poemav（FCL 新版协议）的 vmGlfwClass 由 Java 侧
+        //    GLFW.nativeInitializeGLFWNativeBridge() 初始化，JNI_OnLoad 不再直接写入；
+        //    部署的 lwjgl-glfw-fcl.jar 若为老协议（internalWindowSizeChanged (JII)V、
+        //    无 nativeInitialize），则 vmGlfwClass 恒 NULL → pojavInit→updateMonitorSize
+        //    →CallStaticVoidMethod(NULL) SIGSEGV。已替换为 FCL official 3.3.3
+        //    merged 的 glfw 类（含 nativeInitialize、(J)V、glfwGetMonitorName）。
         //
         // 注意：pojavexec 使用裸名，不能带 "lib" 前缀或 ".so" 后缀。
         res.addDefault("-Dorg.lwjgl.glfw.libname=", "pojavexec");

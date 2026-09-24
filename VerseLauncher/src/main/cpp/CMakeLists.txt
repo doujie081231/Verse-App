@@ -46,61 +46,14 @@ target_compile_options(verseexec PRIVATE
     -fvisibility=default
 )
 
-# ===== poemav exec（fcl_orig 源码构建，替换 jniLibs 预编译 Pojav 版，仅 arm64-v8a）=====
-# 背景：预编译（Pojav 官方）版 poemav exec 的 poemavInit 依赖 JNI_OnLoad runtime 分支先初始化
-# vmGlfwClass/method_*，否则 glfwInit → pojavInit → updateMonitorSize 空指针 SIGSEGV；而 bionic 按
-# SONAME 复用已加载库，游戏 JVM 内再 System.loadLibrary("pojavexec") 不会重新触发 JNI_OnLoad，
-# 该依赖在 ARM 真机无法稳定满足（模拟器因 linker namespace 行为差异巧合正常）。
-# fcl_orig 源码版 poemavInit 不调用 updateMonitorSize（只做 ANativeWindow 处理 + pojavInitOpenGL），
-# 从根本上消除该空指针路径；JNI natives（GLFW 回调/cursor/nativeSetInputReady 等）与 FclCore 配对。
-# 编译为独立 .so（不链接 libfcl.so）：链接所需 fcl 符号由 fcl_stub.c 提供。
-# x86_64 模拟器保留 jniLibs 预编译版，此处仅构建 arm64-v8a。
-if(${ANDROID_ABI} STREQUAL "arm64-v8a")
-    add_library(pojavexec SHARED
-        fcl_orig/bigcoreaffinity.c
-        fcl_orig/egl_bridge.c
-        fcl_orig/ctxbridges/loader_dlopen.c
-        fcl_orig/ctxbridges/gl_bridge.c
-        fcl_orig/ctxbridges/osm_bridge.c
-        fcl_orig/ctxbridges/egl_loader.c
-        fcl_orig/ctxbridges/osmesa_loader.c
-        fcl_orig/ctxbridges/swap_interval_no_egl.c
-        fcl_orig/environ/environ.c
-        fcl_orig/input_bridge_v3.c
-        fcl_orig/virgl/virgl.c
-        fcl_orig/jre_launcher.c
-        fcl_orig/lwjgl_dlopen_hook.c
-        fcl_orig/driver_helper/driver_helper.c
-        fcl_orig/driver_helper/nsbypass.c
-        fcl_stub.c
-    )
-
-    target_include_directories(pojavexec PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/fcl_orig
-        ${CMAKE_CURRENT_SOURCE_DIR}/fcl_orig/ctxbridges
-        ${CMAKE_CURRENT_SOURCE_DIR}/fcl_orig/environ
-        ${CMAKE_CURRENT_SOURCE_DIR}/fcl_orig/virgl
-        ${CMAKE_CURRENT_SOURCE_DIR}/fcl_orig/driver_helper
-    )
-
-    target_link_libraries(pojavexec PRIVATE
-        ${log-lib}
-        ${android-lib}
-        dl
-        EGL
-        GLESv2
-    )
-
-    # 导出所有符号到全局动态符号表：游戏 JVM 内 dlsym(RTLD_DEFAULT) 查找
-    # Java_org_lwjgl_glfw_GLFW_* 时（System.loadLibrary → classloader namespace），
-    # 确保本库符号对 JVM 可见（避免 26.2 官方 GLFW 类 UnsatisfiedLinkError）。
-    target_link_options(pojavexec PRIVATE
-        -Wl,--export-dynamic
-    )
-
-    # 默认可见性：游戏 JVM 需通过 dlsym(RTLD_DEFAULT, "Java_org_lwjgl_glfw_*"/"pojavInit") 动态绑定
-    target_compile_options(pojavexec PRIVATE
-        -O2
-        -DADRENO_POSSIBLE
-    )
-endif()
+# ===== poemav exec（jniLibs 预编译 Pojav 官方版，与全 ABI 一致）=====
+# 迁移结论（2026-09-21）：x86_64/armeabi-v7a 一直使用 jniLibs 预编译官方版 poemav exec，
+# 模拟器整套可正常启动；仅 arm64-v8a 曾改用 fcl_orig 源码自编译版（本 CMake target），
+# 实测游戏 JVM 内 System.loadLibrary("pojavexec") 时其自研 runtime 分支 FindClass(GLFW)
+# 返回 NULL → JNI_OnLoad+0x250 空指针 SIGSEGV（hs_err 实证），且与官方 GLFW jar 的
+# internalWindowSizeChanged/(J)V 签名不匹配。
+# 已按用户要求「整套迁移 FCL/Pojav，不自研」：arm64-v8a 恢复 jniLibs 官方预编译版
+# （64456B，含 updateMonitorSize/pojavInit，无自研符号），ART 侧预加载链
+# （FCLauncher.preloadCallbackBridge → System.loadLibrary("pojavexec")）已铺好。
+# 此 block 不再构建 poemav（避免覆盖 jniLibs 官方版），源码 fcl_orig/ 仅作对照参考。
+# ===== 原 fcl_orig 自编译块已禁用（保留源码作对照）=====

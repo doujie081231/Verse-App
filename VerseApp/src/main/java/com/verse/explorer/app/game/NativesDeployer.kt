@@ -376,14 +376,31 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
             lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
+            // GLFW 模块：必须用 FCL 官方配对版 lwjgl-glfw-fcl.jar，不可用标准 LWJGL 版。
+            // 原因（2026-09-22/2026-09-23 日志实证）：官方 jniLibs poemav（libpojavexec.so，
+            // arm64-v8a 64456B 为 FCL official 新版）只导出 pojavInit 等 pojav* 符号与
+            // Java_* JNI natives，不导出标准 LWJGL 需要的 C 符号 glfwInit；且其 vmGlfwClass
+            // 由 Java 侧调用 GLFW.nativeInitializeGLFWNativeBridge() 初始化（JNI_OnLoad
+            // runtime 分支不再直接写 vmGlfwClass）。
+            //   - 标准 lwjgl-glfw.jar：$Functions 用 apiGetFunctionAddress("glfwInit")
+            //     → poemav 中找不到 → "A required function is missing: glfwInit" 崩溃
+            //   - 老协议 Pojav/FCL GLFW 类（internalWindowSizeChanged (JII)V、无
+            //     nativeInitializeGLFWNativeBridge）：vmGlfwClass 恒 NULL →
+            //     pojavInit→updateMonitorSize→CallStaticVoidMethod(NULL) SIGSEGV
+            //     （hs_err_pid30572 实证，arm64 真机崩溃；x86_64 系老 poemav 不受影响）
+            //   - 本 jar：打包自 FCL official assets/app_runtime/lwjgl/3.3.3/
+            //     lwjgl-3.3.3-merged-modules.jar 的 org/lwjgl/glfw/ 类（GLFW 含
+            //     nativeInitializeGLFWNativeBridge + internalWindowSizeChanged(J)V +
+            //     glfwGetMonitorName，$Functions 走 pojavInit），并合并原 fcl jar 的
+            //     FCLInjector 类 —— 与 jniLibs arm64 poemav 完整配对。
             val lwjglAssetNames: Array<String> = context.assets.list("app_runtime/lwjgl") ?: emptyArray()
-            for (name in lwjglAssetNames.filter { it.endsWith(".jar") }.sorted()) {
+            for (name in lwjglAssetNames.filter { it.endsWith(".jar") && it != "lwjgl-glfw.jar" }.sorted()) {
                 deployed += copyAssetIfMissing("app_runtime/lwjgl/$name", File(lwjglDir, name))
             }
-            // 防呆：GLFW 模块 jar 必须存在；缺失/旧单一 jar 会导致 26.2 启动失败
-            val glfwJar = File(lwjglDir, "lwjgl-glfw.jar")
+            // 防呆：GLFW 模块 jar 必须存在（FCL 配对版）；缺失会导致 26.2 启动失败
+            val glfwJar = File(lwjglDir, "lwjgl-glfw-fcl.jar")
             if (!glfwJar.exists() || glfwJar.length() < 100_000) {
-                log("警告: lwjgl-glfw.jar 缺失或过小（${if (glfwJar.exists()) glfwJar.length() else 0} bytes），26.2 将无法启动（缺少 glfwGetMonitorName）！\n")
+                log("警告: lwjgl-glfw-fcl.jar 缺失或过小（${if (glfwJar.exists()) glfwJar.length() else 0} bytes），26.2 将无法启动（缺 FCL 配对 GLFW）！\n")
             }
 
             // 3. caciocavallo 17
