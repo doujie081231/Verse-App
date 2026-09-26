@@ -11,8 +11,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -95,7 +97,8 @@ fun InstallFlowCard(
 
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = VerseColors.PcBgCard
+        color = VerseColors.PcBgCard,
+        modifier = Modifier.heightIn(max = 480.dp)
     ) {
         Column(
             modifier = Modifier
@@ -111,36 +114,42 @@ fun InstallFlowCard(
             )
             Spacer(Modifier.height(14.dp))
 
-            // 逐步出现的阶段行
-            for (i in 0..activeIndex) {
-                val s = stages[i]
-                val done = allDone || i < activeIndex
-                val active = !failed && i == activeIndex && !allDone
-                StageRow(
-                    label = s.label,
-                    color = s.color,
-                    done = done,
-                    active = active,
-                    localProgress = if (active) localStageProgress(state.stage, state.progress) else 0f,
-                    subText = if (active && state.currentFile.isNotEmpty()) state.currentFile else "",
-                    showDots = active && i < stages.size - 1,
-                    speed = state.speed,
-                    downloaded = state.downloaded,
-                    totalBytes = state.totalBytes
-                )
-                if (i < activeIndex && i < stages.size - 1) {
-                    Spacer(Modifier.height(6.dp))
+            // 逐步出现的阶段行：内容超高时在区域内滚动，保证底部取消按钮不被顶出
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                for (i in 0..activeIndex) {
+                    val s = stages[i]
+                    val done = allDone || i < activeIndex
+                    val active = !failed && i == activeIndex && !allDone
+                    StageRow(
+                        label = s.label,
+                        color = s.color,
+                        done = done,
+                        active = active,
+                        localProgress = if (active) localStageProgress(state.stage, state.progress) else 0f,
+                        subText = if (active && state.currentFile.isNotEmpty()) state.currentFile else "",
+                        showDots = active && i < stages.size - 1,
+                        speed = state.speed,
+                        downloaded = state.downloaded,
+                        totalBytes = state.totalBytes
+                    )
+                    if (i < activeIndex && i < stages.size - 1) {
+                        Spacer(Modifier.height(6.dp))
+                    }
                 }
-            }
 
-            if (failed) {
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    state.error ?: state.message,
-                    fontSize = 12.sp,
-                    color = VerseColors.PcRed,
-                    maxLines = 2
-                )
+                if (failed) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        state.error ?: state.message,
+                        fontSize = 12.sp,
+                        color = VerseColors.PcRed,
+                        maxLines = 2
+                    )
+                }
             }
 
             Spacer(Modifier.height(16.dp))

@@ -249,8 +249,10 @@ public class NeoForgeOldInstallTask extends Task<Version> {
                 // （JVM_IsStaticallyLinked / JVM_SleepNanos），jre-25 处理器无法初始化。
                 // 递归调用仍在持锁期间（Java 监视器可重入），无需额外同步。
                 if (java == 21) {
+                    appendProcessorDiag("exit=" + exitCode + " jre=21 -> retry 17, cmd=" + new CommandBuilder().addAll(command).toString());
                     runJVMProcess(processor, command, 17);
                 } else {
+                    appendProcessorDiag("FATAL: exit=" + exitCode + " java=" + java + ", cmd=" + new CommandBuilder().addAll(command).toString());
                     throw new IOException("Game processor exited abnormally with code " + exitCode);
                 }
             }
@@ -258,6 +260,19 @@ public class NeoForgeOldInstallTask extends Task<Version> {
     }
 
     private static final int MAX_INSTALL_LOG_LINES = 200;
+
+    /** 处理器诊断：追加到设备外部可读汇总文件（用户在无 adb 时可直接取回发回分析） */
+    private static void appendProcessorDiag(String line) {
+        try {
+            java.io.File dir = new java.io.File(android.os.Environment.getExternalStorageDirectory(), "FCL/log");
+            dir.mkdirs();
+            java.io.File f = new java.io.File(dir, "processor_summary.log");
+            try (java.io.FileWriter w = new java.io.FileWriter(f, true)) {
+                w.write("[" + java.time.Instant.now() + "] Neo " + line + "\n");
+            }
+        } catch (Throwable ignored) {
+        }
+    }
 
     private final List<String> installLogs = new ArrayList<>(MAX_INSTALL_LOG_LINES);
 

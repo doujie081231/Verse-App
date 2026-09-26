@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.viewmodel.AccountsViewModel
@@ -582,14 +583,17 @@ internal fun AddAccountSheet(
                                                 isAuthenticating = true
                                                 authStatus = "获取设备码"
                                                 authError = null
+                                                VerseLogger.info("账号弹窗：点击获取设备码，开始请求", "MsaLogin")
                                                 val code = viewModel.getDeviceCode()
                                                 deviceCodeResult = code
                                                 // 与 ZL2 一致：设备码自动复制到剪贴板
                                                 clipboardManager.setText(AnnotatedString(code.userCode))
+                                                VerseLogger.info("账号弹窗：设备码已获取并复制到剪贴板，启动轮询 + 打开发浏览器页", "MsaLogin")
                                                 // 启动后台轮询 + 认证流程，并打开内置浏览器验证页
                                                 viewModel.startMicrosoftLogin(code)
                                                 onMicrosoftWeb(code.verificationUri)
                                             } catch (e: Exception) {
+                                                VerseLogger.error("账号弹窗：获取设备码异常 ${e.javaClass.simpleName}: ${e.message}", "MsaLogin")
                                                 authError = e.message ?: "获取设备码失败"
                                                 isAuthenticating = false
                                                 step = 1

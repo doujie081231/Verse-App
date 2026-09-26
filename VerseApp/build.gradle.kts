@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.0.5"
+        versionCode = 62
+        versionName = "2.1.46"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -90,7 +90,7 @@ android {
             useLegacyPackaging = true
             // lwjgl 栈切到 Pojav 配对版（lwjgl-glfw-classes.jar + Pojav liblwjgl*.so）：
             // lwjgl3-natives-release.aar 也打包了同名 lwjgl native，保留项目 jniLibs 中的 Pojav 版。
-            pickFirsts += listOf("**/liblwjgl*.so")
+            pickFirsts += listOf("**/liblwjgl*.so", "**/libfreetype.so", "**/libshaderc.so")
         }
     }
 }

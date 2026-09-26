@@ -51,6 +51,7 @@ import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.VerseVersionItem
 import com.verse.explorer.app.ui.components.VersionPickerDialog
+import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
@@ -119,6 +120,10 @@ fun ModDetailScreen(
     val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
     var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
     var modpackJob by remember { mutableStateOf<Job?>(null) }
+
+    // 整合包安装前的版本命名弹窗（复刻 FCL RemoteModpackPage 命名逻辑）
+    var showModpackNamingDialog by remember { mutableStateOf(false) }
+    var modpackConfirmName by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         for (ev in modpackChannel) {
@@ -205,8 +210,11 @@ fun ModDetailScreen(
      * 2. 走 FCL 原版整合包安装链路（ModrinthInstallTask = 安装游戏本体 + 加载器
      *    + 解压 overrides + 依赖模组），每个阶段的下载任务以 FCL 任务事件形式
      *    逐阶段展示在弹窗中；下载源由 FCL 引擎（BMCLAPI）负责，不自研。
+     *
+     * @param name 版本名（命名弹窗确认值；为 null 时默认取整合包标题，
+     *            与 FCL RemoteModpackPage 一致）
      */
-    fun startModpackInstall(ver: ResourceVersion) {
+    fun startModpackInstall(ver: ResourceVersion, name: String?) {
         if (downloading) return
         downloading = true
         downloadDone = false
@@ -238,7 +246,9 @@ fun ModDetailScreen(
                 val result = ModpackInstaller.installModpack(
                     gameDir = gameDir,
                     zipFile = file,
-                    name = project?.title
+                    // 与 FCL RemoteModpackPage 一致：默认取 manifest.name（标题），
+                    // 命名弹窗确认后按用户输入
+                    name = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
                 ) { ev ->
                     modpackChannel.trySend(ev)
                 }
@@ -294,56 +304,21 @@ fun ModDetailScreen(
     /** 重试整合包下载/安装 */
     fun retryModpackInstall() {
         val ver = selectedVersion ?: return
-        startModpackInstall(ver)
-    }
-
-    fun startDownload() {
-        val ver = selectedVersion ?: return
-        if (downloading) return
-        if (projectType == "modpack") {
-            startModpackInstall(ver)
-            return
-        }
-        downloading = true
-        downloadDone = false
-        downloadError = null
-        downloadProgress = 0f
-        downloadText = "准备下载..."
-        scope.launch {
-            val result = repository.downloadVersion(
-                projectType = projectType,
-                version = ver,
-                onProgress = { downloaded, total, speed ->
-                    val p = if (total > 0) downloaded.toFloat() / total else 0f
-                    downloadProgress = p
-                    downloadText = buildString {
-                        append("${formatFileSize(downloaded)}")
-                        if (total > 0) append(" / ${formatFileSize(total)}")
-                        if (speed > 0) append("  · ${formatSpeed(speed)}")
-                    }
-                }
-            )
-            downloading = false
-            result.onSuccess {
-                downloadDone = true
-                downloadText = "下载完成"
-            }.onFailure { e ->
-                downloadError = e.message ?: "下载失败"
-                downloadText = downloadError ?: "下载失败"
-            }
-        }
+        startModpackInstall(ver, modpackConfirmName ?: project?.title?.trim()?.takeIf { it.isNotBlank() })
     }
 
     /**
      * 安装入口（与 ZL2 的 DownloadSingleOperation 流程对应）：
-     * 整合包保持直接下载；模组/材质包/光影包等先弹出版本选择卡片，
+     * 整合包先弹版本命名弹窗（复刻 FCL RemoteModpackPage）再下载；
+     * 模组/材质包/光影包等先弹出版本选择卡片，
      * 确认后安装到所选版本的对应文件夹（隔离安装，不写全局目录）。
      */
     fun beginInstall() {
         if (downloading) return
         if (selectedVersion == null) return
         if (projectType == "modpack") {
-            startDownload()
+            // 安装前先弹版本命名弹窗（复刻 FCL RemoteModpackPage），确认后再下载
+            showModpackNamingDialog = true
             return
         }
         pickerMode = "main"
@@ -635,7 +610,9 @@ fun ModDetailScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    // ===== 前置依赖（对齐 PC .md-deps-section）=====
+                    // ===== 前置依赖（对齐 PC .md-deps-section；与 versepc2 一致：仅 mod 类型展示，
+                    // 整合包/材质包/光影等资源类型隐藏，不再渲染且不拉取依赖详情）=====
+                    if (projectType == "mod") {
                     val deps = remember(versions) {
                         versions.flatMap { it.dependencies }
                             .distinctBy { it.projectId }
@@ -790,6 +767,7 @@ fun ModDetailScreen(
                             }
                         }
                         Spacer(Modifier.height(8.dp))
+                        }
                     }
 
                     // ===== 主体：主区 + 侧栏（对齐 PC .md-layout）=====
@@ -1042,6 +1020,23 @@ fun ModDetailScreen(
                 )
             }
         }
+    }
+
+    // ===== 整合包安装前的版本命名弹窗（复刻 FCL RemoteModpackPage：默认名=标题，无加载器后缀）=====
+    if (showModpackNamingDialog) {
+        VersionNamingDialog(
+            gameVersion = project?.title?.trim()?.takeIf { it.isNotBlank() }
+                ?: selectedVersion?.versionNumber ?: "",
+            selectedLoaderId = null,
+            conflictsWith = { VersionManager(GameConfig.getGameDir(context)).versionIdConflicts(it) },
+            onDismiss = { showModpackNamingDialog = false },
+            onConfirm = { name ->
+                showModpackNamingDialog = false
+                modpackConfirmName = name
+                val ver = selectedVersion ?: return@VersionNamingDialog
+                startModpackInstall(ver, name)
+            }
+        )
     }
 
     // ===== 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）=====

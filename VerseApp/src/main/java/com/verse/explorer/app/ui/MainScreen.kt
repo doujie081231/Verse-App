@@ -6,11 +6,14 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -145,18 +149,11 @@ fun MainScreen(
 
     // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）
     Box(modifier = Modifier.fillMaxSize().background(VerseColors.PcGlassBg)) {
-        Row(modifier = Modifier.fillMaxSize()) {
-                if (showSidebar) {
-                    PcStyleSidebar(
-                        navController = navController,
-                        currentRoute = currentRoute
-                    )
-                }
-
+        Box(modifier = Modifier.fillMaxSize()) {
                 NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = { TabEnterTransition },
             exitTransition = { TabExitTransition },
             popEnterTransition = { TabEnterTransition },
@@ -249,6 +246,14 @@ fun MainScreen(
                 ModDetailScreen(navController, projectId, "shader", source)
             }
         }
+
+        // 悬浮圆形导航（最上层图层，不占页面布局，页面内容全宽居中）
+        if (showSidebar) {
+            FloatingNavOverlay(
+                navController = navController,
+                currentRoute = currentRoute
+            )
+        }
         }
     }
 }
@@ -266,12 +271,14 @@ private fun navigateToTab(navController: NavHostController, route: String) {
 }
 
 @Composable
-private fun PcStyleSidebar(
+private fun FloatingNavOverlay(
     navController: NavHostController,
     currentRoute: String?
 ) {
+    var expanded by remember { mutableStateOf(false) }
     val openSubmenus = remember { mutableStateMapOf<String, Boolean>() }
 
+    // 子页激活时自动展开对应父级菜单（对齐原侧边栏行为）
     LaunchedEffect(currentRoute) {
         mainNavItems.filter { it.isSubmenuToggle }.forEach { item ->
             val isChildActive = item.submenuItems.any { it.route == currentRoute }
@@ -281,121 +288,165 @@ private fun PcStyleSidebar(
         }
     }
 
-    Surface(
-        color = VerseColors.PcBgSecondary,
-        tonalElevation = 0.dp,
-        modifier = Modifier.fillMaxHeight()
-    ) {
-        Column(
-            modifier = Modifier
-                .width(80.dp)
-                .fillMaxHeight()
-                .padding(vertical = 8.dp)
-        ) {
-            Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 面板展开时：面板外的空白区域点击收起
+        if (expanded) {
+            Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { expanded = false }
+            )
+        }
+
+        // 圆形导航按钮（对齐 versepc2 .sidebar-toggle-fab：悬浮最上层、避开状态栏、不占页面布局）
+        Box(
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(start = 12.dp, top = 8.dp)
+                .size(40.dp)
+                .shadow(8.dp, CircleShape)
+                .clip(CircleShape)
+                .background(VerseColors.PcBgCard.copy(alpha = 0.94f))
+                .border(1.dp, VerseColors.PcBorder.copy(alpha = 0.6f), CircleShape)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { expanded = !expanded },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                if (expanded) Icons.Filled.Close else Icons.Filled.Menu,
+                "导航菜单",
+                Modifier.size(20.dp),
+                VerseColors.PcTextPrimary
+            )
+        }
+
+        // 展开容器：竖着的整个胶囊容器（两端半圆），图标按钮放里面，从按钮处向下划出
+        AnimatedVisibility(
+            visible = expanded,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(start = 12.dp, top = 56.dp),
+            enter = expandVertically(
+                animationSpec = tween(220, easing = FastOutSlowInEasing),
+                expandFrom = Alignment.Top
+            ) + fadeIn(tween(180)),
+            exit = shrinkVertically(
+                animationSpec = tween(160, easing = FastOutLinearInEasing),
+                shrinkTowards = Alignment.Top
+            ) + fadeOut(tween(120))
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = VerseColors.PcBgCard.copy(alpha = 0.95f),
+                border = BorderStroke(1.dp, VerseColors.PcBorder.copy(alpha = 0.6f)),
+                shadowElevation = 10.dp
             ) {
-                mainNavItems.forEach { item ->
-                    if (item.isSubmenuToggle) {
-                        val isOpen = openSubmenus[item.label] ?: false
-                        val isChildActive = item.submenuItems.any { it.route == currentRoute }
-                        val isToggleActive = isChildActive
-
-                        SidebarNavButton(
-                            icon = item.icon,
-                            label = item.label,
-                            isActive = isToggleActive,
-                            showIndicator = isToggleActive,
-                            onClick = {
-                                val currentState = openSubmenus[item.label] ?: false
-                                openSubmenus[item.label] = !currentState
-                            }
-                        )
-
-                        AnimatedVisibility(
-                            visible = isOpen,
-                            enter = expandVertically(tween(250)) + fadeIn(tween(200)),
-                            exit = shrinkVertically(tween(200)) + fadeOut(tween(150))
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(1.dp),
-                                modifier = Modifier.padding(top = 2.dp)
-                            ) {
-                                item.submenuItems.forEach { subScreen ->
-                                    val isSubActive = currentRoute == subScreen.route
-                                    SidebarSubButton(
-                                        label = subScreen.title,
-                                        isActive = isSubActive,
-                                        onClick = {
-                                            navigateToTab(navController, subScreen.route)
-                                        }
-                                    )
+                Column(
+                    modifier = Modifier
+                        .width(56.dp)
+                        .heightIn(max = 500.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    mainNavItems.forEach { item ->
+                        if (item.isSubmenuToggle) {
+                            val isOpen = openSubmenus[item.label] ?: false
+                            val isChildActive = item.submenuItems.any { it.route == currentRoute }
+                            NavCircleButton(
+                                icon = item.icon,
+                                label = item.label,
+                                isActive = isChildActive,
+                                onClick = {
+                                    openSubmenus[item.label] = !(openSubmenus[item.label] ?: false)
                                 }
+                            )
+                            AnimatedVisibility(
+                                visible = isOpen,
+                                enter = expandVertically(tween(200)) + fadeIn(tween(180)),
+                                exit = shrinkVertically(tween(160)) + fadeOut(tween(120))
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    item.submenuItems.forEach { subScreen ->
+                                        NavCircleMini(
+                                            icon = subScreenIcon(subScreen),
+                                            label = subScreen.title,
+                                            isActive = currentRoute == subScreen.route,
+                                            onClick = {
+                                                expanded = false
+                                                navigateToTab(navController, subScreen.route)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            NavCircleButton(
+                                icon = item.icon,
+                                label = item.label,
+                                isActive = currentRoute == item.screen?.route,
+                                onClick = {
+                                    expanded = false
+                                    item.screen?.let { screen ->
+                                        navigateToTab(navController, screen.route)
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = VerseColors.PcBorder,
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+
+                    NavCircleButton(
+                        icon = footerNavItem.icon,
+                        label = footerNavItem.label,
+                        isActive = currentRoute == footerNavItem.screen?.route,
+                        onClick = {
+                            expanded = false
+                            footerNavItem.screen?.let { screen ->
+                                navigateToTab(navController, screen.route)
                             }
                         }
-                    } else {
-                        val isActive = currentRoute == item.screen?.route
-                        SidebarNavButton(
-                            icon = item.icon,
-                            label = item.label,
-                            isActive = isActive,
-                            showIndicator = isActive,
-                            onClick = {
-                                item.screen?.let { screen ->
-                                    navigateToTab(navController, screen.route)
-                                }
-                            }
-                        )
-                    }
+                    )
                 }
             }
-
-            HorizontalDivider(
-                color = VerseColors.PcBorder,
-                thickness = 1.dp,
-                modifier = Modifier.padding(horizontal = 12.dp)
-            )
-
-            Spacer(Modifier.height(4.dp))
-
-            SidebarNavButton(
-                icon = footerNavItem.icon,
-                label = footerNavItem.label,
-                isActive = currentRoute == footerNavItem.screen?.route,
-                showIndicator = currentRoute == footerNavItem.screen?.route,
-                onClick = {
-                    footerNavItem.screen?.let { screen ->
-                    navigateToTab(navController, screen.route)
-                }
-                }
-            )
         }
     }
 }
 
+/** 胶囊容器内的主图标按钮（圆形，只放图标） */
 @Composable
-private fun SidebarNavButton(
+private fun NavCircleButton(
     icon: ImageVector,
     label: String,
     isActive: Boolean,
-    showIndicator: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isActive) VerseColors.PcAccent.copy(alpha = 0.1f) else Color.Transparent
-    val iconColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
-    val textColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
-
     Box(
         modifier = Modifier
-            .width(60.dp)
-            .height(56.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor)
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(if (isActive) VerseColors.PcAccent else VerseColors.PcBgTertiary)
+            .border(
+                1.dp,
+                if (isActive) VerseColors.PcAccent.copy(alpha = 0.6f) else VerseColors.PcBorder.copy(alpha = 0.5f),
+                CircleShape
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -403,54 +454,28 @@ private fun SidebarNavButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (showIndicator) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(3.dp)
-                    .height(20.dp)
-                    .clip(RoundedCornerShape(topEnd = 3.dp, bottomEnd = 3.dp))
-                    .background(VerseColors.PcAccent)
-            )
-        }
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 4.dp)
-        ) {
-            Icon(
-                icon,
-                label,
-                Modifier.size(22.dp),
-                iconColor
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                label,
-                fontSize = 10.sp,
-                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                color = textColor,
-                maxLines = 1
-            )
-        }
+        Icon(
+            icon,
+            label,
+            Modifier.size(20.dp),
+            if (isActive) VerseColors.PcAccentText else VerseColors.PcTextSecondary
+        )
     }
 }
 
+/** 胶囊容器内的子图标按钮（资源子页面，更小一圈） */
 @Composable
-private fun SidebarSubButton(
+private fun NavCircleMini(
+    icon: ImageVector,
     label: String,
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    val bgColor = if (isActive) VerseColors.PcAccent.copy(alpha = 0.08f) else Color.Transparent
-    val textColor = if (isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted
-
     Box(
         modifier = Modifier
-            .width(60.dp)
-            .height(28.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(bgColor)
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(if (isActive) VerseColors.PcAccent.copy(alpha = 0.5f) else VerseColors.PcBgSecondary)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -458,12 +483,20 @@ private fun SidebarSubButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
+        Icon(
+            icon,
             label,
-            fontSize = 10.sp,
-            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-            color = textColor,
-            maxLines = 1
+            Modifier.size(16.dp),
+            if (isActive) VerseColors.PcAccentText else VerseColors.PcTextMuted
         )
     }
+}
+
+/** 资源子页面的图标映射 */
+private fun subScreenIcon(screen: Screen): ImageVector = when (screen) {
+    Screen.Mods -> Icons.Outlined.Extension
+    Screen.Modpacks -> Icons.Outlined.Inventory2
+    Screen.ResourcePacks -> Icons.Outlined.Palette
+    Screen.Shaders -> Icons.Outlined.Brush
+    else -> Icons.Outlined.Widgets
 }

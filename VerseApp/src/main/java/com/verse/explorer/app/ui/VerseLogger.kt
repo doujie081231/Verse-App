@@ -83,7 +83,9 @@ object VerseLogger {
     }
 
     fun debug(message: String, tag: String = "VerseX") {
-        log("DEBUG", tag, message)
+        // 高频调试日志（触摸/指针等逐帧事件）轻量化：只输出到 logcat，不写文件、不进 StateFlow。
+        // 否则滑动时每帧会触发 2 次磁盘 flush + logState 状态更新（UI 重组），把输入线程拖死导致卡顿。
+        Log.d("VerseX", "[${dateFormat.format(Date())}] [$tag/DEBUG] $message")
     }
 
     private fun log(level: String, tag: String, message: String) {

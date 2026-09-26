@@ -5,6 +5,8 @@ import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.download.SmartDownloadClient
 import com.verse.explorer.core.util.FileUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -44,42 +46,51 @@ class ResourceRepository(
         val allHits = mutableListOf<ModrinthSearchHit>()
         var total = 0
 
-        // CurseForge 仅对 mod/modpack/resourcepack/shader/datapack 有意义
-        if (source.isBlank() || source == "curseforge") {
-            try {
-                val cf = CurseForgeApi.search(
-                    query = query,
-                    projectType = projectType,
-                    loader = loaders.firstOrNull() ?: "",
-                    gameVersion = gameVersions.firstOrNull() ?: "",
-                    sort = if (query.isBlank()) "downloads" else sort,
-                    limit = limit,
-                    offset = offset
-                )
-                allHits.addAll(cf.hits)
-                total += cf.total
-            } catch (e: Exception) {
-                // CurseForge 失败不影响 Modrinth
-            }
-        }
+        // CurseForge 与 Modrinth 并行请求（对齐 versepc2 tokio::join!），
+        // 避免 source=全部 时串行等待两个慢源（旧实现先 CF 后 MR，最坏 2 倍超时）。
+        coroutineScope {
+            val cfDeferred = if (source.isBlank() || source == "curseforge") {
+                async {
+                    runCatching {
+                        CurseForgeApi.search(
+                            query = query,
+                            projectType = projectType,
+                            loader = loaders.firstOrNull() ?: "",
+                            gameVersion = gameVersions.firstOrNull() ?: "",
+                            sort = if (query.isBlank()) "downloads" else sort,
+                            limit = limit,
+                            offset = offset
+                        )
+                    }
+                }
+            } else null
 
-        if (source.isBlank() || source == "modrinth") {
-            try {
-                val mrResult = ModrinthApi.searchProjects(
-                    query = query,
-                    projectType = projectType,
-                    categories = categories,
-                    gameVersions = gameVersions,
-                    loaders = loaders,
-                    sort = if (query.isBlank()) "downloads" else sort,
-                    limit = limit,
-                    offset = offset,
-                    useMirror = useMirror
-                )
-                allHits.addAll(mrResult.hits)
-                total += mrResult.totalHits
-            } catch (e: Exception) {
-                // Modrinth 失败不影响 CurseForge
+            val mrDeferred = if (source.isBlank() || source == "modrinth") {
+                async {
+                    runCatching {
+                        ModrinthApi.searchProjects(
+                            query = query,
+                            projectType = projectType,
+                            categories = categories,
+                            gameVersions = gameVersions,
+                            loaders = loaders,
+                            sort = if (query.isBlank()) "downloads" else sort,
+                            limit = limit,
+                            offset = offset,
+                            useMirror = useMirror
+                        )
+                    }
+                }
+            } else null
+
+            // 任一源失败不影响另一源（与旧逻辑 try/catch 语义一致）
+            cfDeferred?.await()?.onSuccess {
+                allHits.addAll(it.hits)
+                total += it.total
+            }
+            mrDeferred?.await()?.onSuccess {
+                allHits.addAll(it.hits)
+                total += it.totalHits
             }
         }
 

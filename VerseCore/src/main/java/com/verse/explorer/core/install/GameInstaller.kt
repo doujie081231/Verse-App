@@ -129,6 +129,7 @@ class GameInstaller(private val context: Context) {
 
     suspend fun installVersion(
         version: MinecraftVersion,
+        installName: String = version.id,
         loaderType: String? = null,
         loaderVersion: String? = null,
         progressCallback: (InstallProgress) -> Unit
@@ -137,10 +138,19 @@ class GameInstaller(private val context: Context) {
             try {
                 progressCallback(InstallProgress(InstallStage.PREPARING, "准备安装..."))
 
-                val versionDir = File(versionsDir, version.id)
+                // Pojav 语义（.pojav-src modloaders/ForgeDownloadTask、FabriclikeDownloadTask 实证）：
+                // 原版基础版本永远落盘真实 MC 版本号目录，加载器版本由安装器生成独立 id。
+                // 带加载器安装时，基础原版固定写入 versions/<version.id>/（可跨实例复用，
+                // 已存在则整个下载阶段按文件级 SHA 校验跳过），加载器版本 id = 命名弹窗的
+                // 实例名（见 installFcl 的 newVersionId），经 inheritsFrom/jar 引用基础版本。
+                // 仅原版安装时实例名即版本目录名：json 的 id/jar 与 JAR 文件名同步写回，
+                // 否则 getVersion 会因目录名与 json id 不一致报 'xxx does not exist'。
+                val installId = installName.ifBlank { version.id }
+                val baseId = if (loaderType.isNullOrBlank() || loaderVersion.isNullOrBlank()) installId else version.id
+                val versionDir = File(versionsDir, baseId)
                 if (!versionDir.exists()) versionDir.mkdirs()
 
-                val versionJsonFile = File(versionDir, "${version.id}.json")
+                val versionJsonFile = File(versionDir, "$baseId.json")
                 var versionJson: JsonObject? = if (versionJsonFile.exists()) {
                     try { gson.fromJson(versionJsonFile.readText(), JsonObject::class.java) } catch (_: Exception) { null }
                 } else null
@@ -160,6 +170,11 @@ class GameInstaller(private val context: Context) {
                             ))
                             versionJson = downloadVersionJson(version.id, mirrorIndex)
                             if (versionJson != null) {
+                                // 与 FCL 仓库语义一致：json 的 id/jar 必须与目录名一致，
+                                // 否则 getVersion(baseId) 找不到 '<baseId>.json' 报不存在
+                                // （原版自定义名安装时为实例名；带加载器时为真实 MC 版本号，值不变）。
+                                versionJson.addProperty("id", baseId)
+                                versionJson.addProperty("jar", baseId)
                                 versionJsonFile.writeText(versionJson.toString())
                                 Log.d("GameInstaller", "Version JSON downloaded from ${mirror.name}")
                                 break
@@ -192,7 +207,7 @@ class GameInstaller(private val context: Context) {
                     val clientUrl = clientDownload.get("url")?.asString
                     val clientSize = clientDownload.get("size")?.asLong ?: 0L
                     val clientSha1 = clientDownload.get("sha1")?.asString
-                    val clientJar = File(versionDir, "${version.id}.jar")
+                    val clientJar = File(versionDir, "$baseId.jar")
 
                     if (clientUrl != null) {
                         val needDownload = !clientJar.exists() || clientJar.length() < 1024 ||
@@ -213,7 +228,7 @@ class GameInstaller(private val context: Context) {
                                 val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})"
                                 progressCallback(InstallProgress(
                                     InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f,
-                                    "${version.id}.jar", progress.mirrorName,
+                                    "$baseId.jar", progress.mirrorName,
                                     speed = progress.speed, downloaded = progress.downloaded, totalBytes = progress.total
                                 ))
                             }
@@ -380,14 +395,17 @@ class GameInstaller(private val context: Context) {
                         gameDir = gameDir,
                         versionId = version.id,
                         loaderType = loaderType,
-                        loaderVersion = loaderVersion
-                    ) { message, p ->
-                        progressCallback(InstallProgress(
-                            InstallStage.DOWNLOADING_LIBRARIES,
-                            message,
-                            0.92f + 0.06f * p.coerceIn(0f, 1f)
-                        ))
-                    }
+                        loaderVersion = loaderVersion,
+                        baseVersionId = baseId,
+                        newVersionId = installId,
+                        progress = { message, p ->
+                            progressCallback(InstallProgress(
+                                InstallStage.DOWNLOADING_LIBRARIES,
+                                message,
+                                0.92f + 0.06f * p.coerceIn(0f, 1f)
+                            ))
+                        }
+                    )
                     loaderResult.getOrThrow()
                     progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "$loaderType 安装完成", 0.98f))
                 }

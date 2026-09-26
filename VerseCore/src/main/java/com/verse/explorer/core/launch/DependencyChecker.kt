@@ -650,6 +650,7 @@ class DependencyChecker(private val context: Context) {
             "Zink" to listOf("libzink.so", "libvulkan.so"),
             "VirGL" to listOf("libvirglrenderer.so", "libvirgl.so"),
             "GL4ES" to listOf("libgl4es.so"),
+            "MobileGlues" to listOf("libmobileglues.so"),
             "Mesa" to listOf("libEGL.so", "libGLESv2.so")
         )
 

@@ -205,8 +205,13 @@ fun AccountsScreen(
             initialType = addSheetInitialType,
             onDismiss = { showAddSheet = false },
             onMicrosoftWeb = { url ->
+                VerseLogger.info("账号页：准备打开内置浏览器验证页 url=${url.ifBlank { "<空!>" }}（长度=${url.length}）", "MsaLogin")
+                if (url.isBlank()) {
+                    VerseLogger.warn("账号页：verification_uri 为空！内置浏览器页将无地址可打开，登录必然失败", "MsaLogin")
+                }
                 msaWebUrl = url
                 showMsaWeb = true
+                VerseLogger.info("账号页：showMsaWeb=true，开始渲染浏览器页（此日志之后若没有'浏览器页：创建 WebView'，说明 Compose 未渲染出浏览器页）", "MsaLogin")
             },
             onProfilesAvailable = { url, user, pass, profiles ->
                 pendingAuthlibUrl = url
@@ -361,6 +366,7 @@ fun AccountsScreen(
     LaunchedEffect(msaLoginState) {
         when (val state = msaLoginState) {
             is MicrosoftLoginState.Success -> {
+                VerseLogger.info("账号页：登录成功 ${state.account.username}，收回浏览器页", "MsaLogin")
                 showMsaWeb = false
                 showAddSheet = false
                 android.widget.Toast.makeText(
@@ -371,7 +377,11 @@ fun AccountsScreen(
                 viewModel.resetMicrosoftLogin()
             }
             is MicrosoftLoginState.Failed -> {
+                VerseLogger.warn("账号页：登录失败 -> ${state.message}", "MsaLogin")
                 showMsaWeb = false
+            }
+            is MicrosoftLoginState.Cancelled -> {
+                VerseLogger.warn("账号页：登录已取消", "MsaLogin")
             }
             else -> {}
         }

@@ -82,14 +82,8 @@ internal class JvmArgsBuilder(
         }
         if (gcArg.isNotEmpty()) args.add(gcArg)
 
-        // 规避 aarch64 JIT 编译器 bug:
-        // "Internal Error (assembler_aarch64.hpp:245/246), guarantee(val < (1ULL << nbits)) failed: Field too big for insn"
-        // 限制 JIT 优化级别到 C1，避免触发 C2 编译器的 aarch64 立即数溢出断言失败
-        // 影响 JDK 21/25 等版本
-        if (config.javaVersion >= 21) {
-            args.add("-XX:TieredStopAtLevel=1")
-            Log.i(TAG, "Applied -XX:TieredStopAtLevel=1 for java ${config.javaVersion} to avoid aarch64 JIT bug")
-        }
+        // 已移除 -XX:TieredStopAtLevel=1（对齐 FCL：FCL 保留 C2 完整 JIT）。
+        // C1-only 会让区块构建/光照等热循环慢数倍；本机 6 份 hs_err 均无 C2 aarch64 断言。
 
         // FCL-style: gl4es 会触发 System.gc()，禁用以避免卡顿
         if (rendererId == RendererManager.ID_GL4ES || rendererId == RendererManager.ID_VGPU) {

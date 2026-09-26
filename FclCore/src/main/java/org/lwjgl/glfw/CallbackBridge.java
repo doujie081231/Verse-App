@@ -287,6 +287,29 @@ public class CallbackBridge {
 
     public static native int getFps();
 
+    // ===== FCL 1.3.3.5 pojavexec 需要的 native 声明（80096 JNI_OnLoad 逐个 GetStaticMethodID/RegisterNatives，
+    // Verse 类若缺 → CallbackBridge.<clinit> NoSuchMethodError 崩溃；空实现/不调用无害） =====
+    public static native void nativeResetInputState();
+
+    public static native void nativeSetGrabbing(boolean grab);
+
+    public static native String nativeClipboard(int action, byte[] copy);
+
+    public static native boolean nativeNotifyLauncher(int type, int[] data);
+
+    public static native long nativeCreateGamepadAxisBuffer();
+
+    public static native long nativeCreateGamepadButtonBuffer();
+
+    public static native boolean nativeEnableGamepadDirectInput();
+
+    // FCL 1.3.3.5 pojavexec JNI_OnLoad 会 GetStaticMethodID(CallbackBridge, "notifyLauncher", "(I[I)Z")；
+    // Verse 无 launcher 通知机制，仅需方法存在（空实现返回 false）避免 NoSuchMethodError。
+    @SuppressWarnings("unused")
+    public static boolean notifyLauncher(int type, int[] data) {
+        return false;
+    }
+
     static {
         // 保持只加载 pojavexec：其 fcl_orig 环境为游戏侧 LWJGL 的真实输入出口
         // （critical_send_* 读取 pojav_environ->GLFW_invoke_* 并受 isInputReady 门控）。

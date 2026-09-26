@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.verse.explorer.app.VerseApplication
+import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.account.Account
 import com.verse.explorer.core.account.AccountType
 import com.verse.explorer.core.account.AsyncStatus
@@ -84,7 +85,10 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     }
 
     suspend fun getDeviceCode(): DeviceCodeResponse {
-        return msAuth.getDeviceCode()
+        VerseLogger.info("账号页：请求微软设备码", "MsaLogin")
+        val code = msAuth.getDeviceCode()
+        VerseLogger.info("账号页：设备码获取成功 user_code=${code.userCode} verification_uri=${code.verificationUri}（浏览器页将打开此地址）", "MsaLogin")
+        return code
     }
 
     private val _microsoftLoginState = MutableStateFlow<MicrosoftLoginState>(MicrosoftLoginState.Idle)
@@ -99,21 +103,32 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
      * 轮询期间用户在内置浏览器页完成验证；离开浏览器页时调用 [cancelMicrosoftLogin]。
      */
     fun startMicrosoftLogin(deviceCode: DeviceCodeResponse) {
-        if (microsoftLoginJob?.isActive == true) return
+        if (microsoftLoginJob?.isActive == true) {
+            VerseLogger.warn("微软登录：上次轮询仍在进行，忽略重复启动", "MsaLogin")
+            return
+        }
+        VerseLogger.info("微软登录：启动认证轮询 user_code=${deviceCode.userCode} verification_uri=${deviceCode.verificationUri}（应已同步打开内置浏览器页）", "MsaLogin")
         _microsoftLoginState.value = MicrosoftLoginState.Polling(deviceCode)
         microsoftLoginJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val token = msAuth.awaitDeviceAuth(deviceCode)
+                VerseLogger.info("微软登录：设备码授权成功，进入完整认证链", "MsaLogin")
                 val result = msAuth.authenticate(token.accessToken, token.refreshToken) { status ->
                     mainHandler.post {
+                        VerseLogger.info("微软登录：认证进度 ${status.name}", "MsaLogin")
                         _microsoftLoginState.value = MicrosoftLoginState.Authenticating(status)
                     }
                 }
                 if (result.success && result.account != null) {
                     // 与 ZL2 一致：同一档案更新而不是重复添加
                     val saved = saveMicrosoftAccount(result.account!!)
+                    VerseLogger.info("微软登录：认证成功，保存账号 ${saved.username} (uuid=${saved.uuid})", "MsaLogin")
                     _microsoftLoginState.value = MicrosoftLoginState.Success(saved)
                 } else {
+                    VerseLogger.error(
+                        "微软登录：认证失败 error=${result.error}, needPurchase=${result.needPurchase}, needCreateProfile=${result.needCreateProfile}, needRelogin=${result.needRelogin}",
+                        "MsaLogin"
+                    )
                     _microsoftLoginState.value = MicrosoftLoginState.Failed(
                         message = result.error,
                         needPurchase = result.needPurchase,
@@ -122,8 +137,10 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
             } catch (e: CancellationException) {
+                VerseLogger.warn("微软登录：流程被取消（用户离开浏览器页）", "MsaLogin")
                 _microsoftLoginState.value = MicrosoftLoginState.Cancelled
             } catch (e: Exception) {
+                VerseLogger.error("微软登录：流程异常 ${e.javaClass.simpleName}: ${e.message}", "MsaLogin")
                 _microsoftLoginState.value = MicrosoftLoginState.Failed(message = e.message)
             }
         }
@@ -131,6 +148,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
 
     /** 用户离开内置浏览器页时取消登录（与 ZL2 的 checkIfInWebScreen 取消逻辑对应） */
     fun cancelMicrosoftLogin() {
+        VerseLogger.warn("微软登录：取消（返回/离开浏览器页）", "MsaLogin")
         microsoftLoginJob?.cancel()
         microsoftLoginJob = null
         _microsoftLoginState.value = MicrosoftLoginState.Cancelled

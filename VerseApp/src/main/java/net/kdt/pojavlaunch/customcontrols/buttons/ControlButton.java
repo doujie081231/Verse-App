@@ -37,6 +37,9 @@ public class ControlButton extends TextView implements ControlInterface {
     protected boolean mIsToggled = false;
     protected boolean mIsPointerOutOfBounds = false;
 
+    /** 按下本按钮的指针 ID（多指支持：只有落在本按钮内的指针才触发按下/抬起，其他指针事件不影响本按钮） */
+    private int mDownPointerId = -1;
+
     public ControlButton(ControlLayout layout, ControlData properties) {
         super(layout.getContext());
         mControlLayout = layout;
@@ -119,9 +122,13 @@ public class ControlButton extends TextView implements ControlInterface {
                     if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
                 }
 
+                // 多指支持：只跟踪按下本按钮的指针（mDownPointerId）；其他指针的移动不影响本按钮
+                final int moveIndex = mDownPointerId == -1 ? -1 : event.findPointerIndex(mDownPointerId);
+                if(moveIndex == -1) break;
+
                 //If out of bounds
-                if(event.getX() < getControlView().getLeft() || event.getX() > getControlView().getRight() ||
-                        event.getY() < getControlView().getTop()  || event.getY() > getControlView().getBottom()){
+                if(event.getX(moveIndex) < getControlView().getLeft() || event.getX(moveIndex) > getControlView().getRight() ||
+                        event.getY(moveIndex) < getControlView().getTop()  || event.getY(moveIndex) > getControlView().getBottom()){
                     if(getProperties().isSwipeable && !mIsPointerOutOfBounds){
                         //Remove keys
                         if(!triggerToggle()) {
@@ -146,14 +153,26 @@ public class ControlButton extends TextView implements ControlInterface {
 
             case MotionEvent.ACTION_DOWN: // 0
             case MotionEvent.ACTION_POINTER_DOWN: // 5
-                if(!getProperties().isToggle){
-                    sendKeyPresses(true);
+                // 多指支持：仅当新指针（actionIndex）落在本按钮内才按下本按钮，
+                // 其他指针按下（如另一指点在游戏区）不触发本按钮，避免按钮误按下/粘滞
+                final int newIndex = event.getActionIndex();
+                final float newX = event.getX(newIndex);
+                final float newY = event.getY(newIndex);
+                if (newX >= 0 && newX <= getWidth() && newY >= 0 && newY <= getHeight()) {
+                    mDownPointerId = event.getPointerId(newIndex);
+                    if(!getProperties().isToggle){
+                        sendKeyPresses(true);
+                    }
                 }
                 break;
 
             case MotionEvent.ACTION_UP: // 1
             case MotionEvent.ACTION_CANCEL: // 3
             case MotionEvent.ACTION_POINTER_UP: // 6
+                // 多指支持：仅按下本按钮的指针抬起时才释放按键；其他指针抬起不影响本按钮
+                final int upIndex = event.getActionIndex();
+                final int upPointerId = event.getPointerId(upIndex);
+                if (mDownPointerId != -1 && upPointerId != mDownPointerId) break;
                 if(getProperties().passThruEnabled){
                     View gameSurface = getControlLayoutParent().getGameSurface();
                     if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
@@ -164,6 +183,7 @@ public class ControlButton extends TextView implements ControlInterface {
                 if(!triggerToggle()) {
                     sendKeyPresses(false);
                 }
+                mDownPointerId = -1;
                 break;
 
             default:

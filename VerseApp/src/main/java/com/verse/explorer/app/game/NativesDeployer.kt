@@ -368,39 +368,22 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
 
-            // 2. lwjgl 模块 jar 集（迁移自 FCL LWJGL-Pojav 官方套装，与 Pojav patched
-            // liblwjgl*.so / libpojavexec.so 配对）：
-            //   - lwjgl-glfw.jar 含 glfwGetMonitorName —— MC 1.19.4+/26.x Monitor 必需
-            //   - 含 shaderc/spvc/vma/vulkan 等 26.2 全部渲染模块
-            // 每次启动清空旧 jar 后从 APK 全量重建，避免历史 3.4.x 官方 jar 掺入 classpath
+            // 2. lwjgl 栈对齐 FCL 1.3.3.5 官方自洽套装：assets/app_runtime/lwjgl/3.4.1/
+            // 多 jar（GLFW 在 merged-modules，含 Preedit 回调与 glfwGetMonitorName，
+            // internalWindowSizeChanged(J)V，配 libpojavexec 80096 + liblwjgl*.so 3.4.1）。
+            // 每次启动清空旧 jar 后从 APK 全量重建，避免历史 jar 掺入 classpath
             val lwjglDir = File(FCLPath.LWJGL_DIR)
             lwjglDir.mkdirs()
             lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
-            // GLFW 模块：必须用 FCL 官方配对版 lwjgl-glfw-fcl.jar，不可用标准 LWJGL 版。
-            // 原因（2026-09-22/2026-09-23 日志实证）：官方 jniLibs poemav（libpojavexec.so，
-            // arm64-v8a 64456B 为 FCL official 新版）只导出 pojavInit 等 pojav* 符号与
-            // Java_* JNI natives，不导出标准 LWJGL 需要的 C 符号 glfwInit；且其 vmGlfwClass
-            // 由 Java 侧调用 GLFW.nativeInitializeGLFWNativeBridge() 初始化（JNI_OnLoad
-            // runtime 分支不再直接写 vmGlfwClass）。
-            //   - 标准 lwjgl-glfw.jar：$Functions 用 apiGetFunctionAddress("glfwInit")
-            //     → poemav 中找不到 → "A required function is missing: glfwInit" 崩溃
-            //   - 老协议 Pojav/FCL GLFW 类（internalWindowSizeChanged (JII)V、无
-            //     nativeInitializeGLFWNativeBridge）：vmGlfwClass 恒 NULL →
-            //     pojavInit→updateMonitorSize→CallStaticVoidMethod(NULL) SIGSEGV
-            //     （hs_err_pid30572 实证，arm64 真机崩溃；x86_64 系老 poemav 不受影响）
-            //   - 本 jar：打包自 FCL official assets/app_runtime/lwjgl/3.3.3/
-            //     lwjgl-3.3.3-merged-modules.jar 的 org/lwjgl/glfw/ 类（GLFW 含
-            //     nativeInitializeGLFWNativeBridge + internalWindowSizeChanged(J)V +
-            //     glfwGetMonitorName，$Functions 走 pojavInit），并合并原 fcl jar 的
-            //     FCLInjector 类 —— 与 jniLibs arm64 poemav 完整配对。
             val lwjglAssetNames: Array<String> = context.assets.list("app_runtime/lwjgl") ?: emptyArray()
-            for (name in lwjglAssetNames.filter { it.endsWith(".jar") && it != "lwjgl-glfw.jar" }.sorted()) {
+            for (name in lwjglAssetNames.filter { it.endsWith(".jar") }.sorted()) {
                 deployed += copyAssetIfMissing("app_runtime/lwjgl/$name", File(lwjglDir, name))
             }
-            // 防呆：GLFW 模块 jar 必须存在（FCL 配对版）；缺失会导致 26.2 启动失败
-            val glfwJar = File(lwjglDir, "lwjgl-glfw-fcl.jar")
-            if (!glfwJar.exists() || glfwJar.length() < 100_000) {
-                log("警告: lwjgl-glfw-fcl.jar 缺失或过小（${if (glfwJar.exists()) glfwJar.length() else 0} bytes），26.2 将无法启动（缺 FCL 配对 GLFW）！\n")
+            // 防呆：FCL 官方 3.4.1 多 jar 套装必须存在（GLFW/Preedit 在 merged-modules）；
+            // 缺失会导致 26.2 启动失败（KeyboardHandler NoClassDefFoundError / pojavexec JNI_OnLoad 失败）
+            val lwjglMainJar = File(lwjglDir, "lwjgl.jar")
+            if (!lwjglMainJar.exists() || lwjglMainJar.length() < 100_000) {
+                log("警告: FCL 3.4.1 lwjgl 套装缺失（lwjgl.jar=${if (lwjglMainJar.exists()) lwjglMainJar.length() else 0} bytes），26.2 将无法启动！\n")
             }
 
             // 3. caciocavallo 17

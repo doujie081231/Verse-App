@@ -136,6 +136,8 @@ public class FCLBridge implements Serializable {
         this.handler = new Handler();
         this.callback = callback;
         this.surface = surface;
+        // native setFCLBridge 由 libfcl 提供（fcl->object_FCLBridge，日志线程/退出钩子依赖），
+        // 缺失会导致 logger_thread CallVoidMethod(NULL) JNI 崩溃；同时保留 Java 静态桥
         setFCLBridge(this);
         CallbackBridge.setFCLBridge(this);
         receiveLog("==================== Before Start ====================\n");

@@ -1,5 +1,6 @@
 package com.verse.explorer.app.game
 
+import android.graphics.SurfaceTexture
 import android.view.Surface
 import androidx.activity.ComponentActivity
 import com.verse.explorer.app.data.SettingsRepository
@@ -20,6 +21,7 @@ import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
 import com.verse.explorer.launcher.fcl.util.FCLPath
 import com.verse.explorer.jvmlauncher.JvmLauncherAPI
+import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
 import kotlinx.coroutines.CancellationException
@@ -58,6 +60,9 @@ class GameLaunchOrchestrator(
     private var currentVersionId: String? = null
     private var hasLaunched = false
     private var isLaunching = false
+    // JVM 是否已启动过（bridge.execute 已调用）：用于保护 stopGame/release 中的 nativeSetInputReady(false)，
+    // 避免在 JVM 从未 dlopen pojavexec 时首次初始化 org.lwjgl.glfw.CallbackBridge（ART AssertNoPendingException 崩溃）。
+    private var jvmStarted = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val surfaceDeferred = CompletableDeferred<Surface>()
@@ -184,7 +189,11 @@ class GameLaunchOrchestrator(
             VerseLogger.warn("中断游戏线程失败: ${e.message}", TAG)
         }
         try {
-            CallbackBridge.nativeSetInputReady(false)
+            // 仅当 JVM 已启动过才复位输入：类从未初始化时调用 nativeSetInputReady 会触发
+            // org.lwjgl.glfw.CallbackBridge 首次 loadLibrary（pojavexec JNI_OnLoad）→ 若 JVM 未 dlopen 则 ART 崩溃。
+            if (jvmStarted) {
+                CallbackBridge.nativeSetInputReady(false)
+            }
         } catch (e: Exception) {
             VerseLogger.warn("nativeSetInputReady 失败: ${e.message}", TAG)
         }
@@ -208,12 +217,16 @@ class GameLaunchOrchestrator(
             VerseLogger.error("fclBridge interrupt failed: ${e.message}")
         }
         try {
-            CallbackBridge.nativeSetInputReady(false)
+            if (jvmStarted) {
+                CallbackBridge.nativeSetInputReady(false)
+            }
         } catch (e: Throwable) {
             VerseLogger.error("nativeSetInputReady failed: ${e.message}")
         }
         try {
-            CallbackBridge.setFCLBridge(null)
+            if (jvmStarted) {
+                CallbackBridge.setFCLBridge(null)
+            }
         } catch (e: Throwable) {
             VerseLogger.error("setFCLBridge failed: ${e.message}")
         }
@@ -224,7 +237,8 @@ class GameLaunchOrchestrator(
         }
     }
 
-    fun onSurfaceCreated(surface: Surface) {
+    fun onSurfaceCreated(surface: Surface, surfaceTexture: SurfaceTexture?) {
+        surfaceTextureRef = surfaceTexture
         if (!surfaceReady) {
             surfaceReady = true
             surfaceDeferred.complete(surface)
@@ -240,6 +254,7 @@ class GameLaunchOrchestrator(
 
     private var surfaceWidth = 0
     private var surfaceHeight = 0
+    private var surfaceTextureRef: SurfaceTexture? = null
 
     fun onSurfaceDestroyed() {
         VerseLogger.info("Surface destroyed, stopping game")
@@ -342,7 +357,30 @@ class GameLaunchOrchestrator(
         VerseLogger.info("[8/9 JVM启动] bridge 返回: $bridge (isValid=${bridge != null}), 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
 
         // 9) JVM 启动完成，把 Surface 交给游戏渲染线程
+        // 照搬 FCL LauncherHelper.L239 + JVMActivity.onSurfaceTextureAvailable：
+        // 窗口缩放三同步 —— fclBridge.setScaleFactor + SurfaceTexture.setDefaultBufferSize + pushEventWindow。
+        // 之前只缩 LaunchOptions 窗口尺寸、未缩 Surface 缓冲导致错位黑块。
+        val scaleFactor = MenuSetting.windowScale
+        VerseLogger.info("[9/9 渲染接入] windowScale=$scaleFactor, 窗口=${(surfaceWidth * scaleFactor).toInt()}x${(surfaceHeight * scaleFactor).toInt()}", TAG)
+        bridge.setScaleFactor(scaleFactor)
+        val surfaceTexture = surfaceTextureRef
+        if (surfaceTexture != null && surfaceWidth > 0 && surfaceHeight > 0) {
+            var winWidth = ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
+            var winHeight = (surfaceHeight * scaleFactor).toInt()
+            if (FCLBridge.FORCE_RESOLUTION) {
+                winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+                winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+            }
+            // setDefaultBufferSize 是纯 Java SurfaceTexture API，缩放真正生效处（渲染缓冲按比例缩小）。
+            // 注意：此处【不能】调用 bridge.pushEventWindow —— 它引用 org.lwjgl.glfw.CallbackBridge
+            // （游戏 JVM 侧类），在 execute 启动 JVM 前触发其静态初始化会失败并把类标记为 failed，
+            // 导致随后 execute 里的 CallbackBridge.setFCLBridge 一并拒绝初始化（游戏无法启动）。
+            // 窗口尺寸已由 LaunchOptions(setWidth/Height) + setDefaultBufferSize 双重保证。
+            surfaceTexture.setDefaultBufferSize(winWidth, winHeight)
+            bridge.setSurfaceTexture(surfaceTexture)
+        }
         VerseLogger.info("[9/9 渲染接入] bridge.execute(surface=$surface, callback) ...", TAG)
+        jvmStarted = true
         withContext(Dispatchers.Main) {
             bridge.execute(surface, bridgeCallback)
         }
@@ -464,8 +502,20 @@ class GameLaunchOrchestrator(
     }
 
     private fun buildLaunchOptions(params: GameLaunchParams, javaVersion: JavaVersion): LaunchOptions {
-        val effectiveWidth = if (surfaceWidth > 0) surfaceWidth else params.gameWidth
-        val effectiveHeight = if (surfaceHeight > 0) surfaceHeight else params.gameHeight
+        // 照搬 FCL FCLGameRepository.getLaunchOptions（L369-370）：
+        // setWidth((int)(screenWidth * scaleFactor)) / setHeight(...) —— 窗口尺寸按 windowScale 缩放。
+        // 缩放三同步的另外两处：execute 前 setScaleFactor + setDefaultBufferSize/pushEventWindow（见第 9 步）。
+        val scaleFactor = MenuSetting.windowScale
+        val effectiveWidth = if (surfaceWidth > 0) {
+            ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
+        } else {
+            params.gameWidth
+        }
+        val effectiveHeight = if (surfaceHeight > 0) {
+            (surfaceHeight * scaleFactor).toInt()
+        } else {
+            params.gameHeight
+        }
         // ZL2 式版本隔离：-Duser.home 与运行目录指向版本文件夹（与 getRunDirectory 一致）
         val runDir = File(File(File(params.gameDirPath), "versions"), params.versionId).apply { mkdirs() }
         return LaunchOptions.Builder()
@@ -630,7 +680,11 @@ class GameLaunchOrchestrator(
         hasLaunched = false
         isLaunching = false
         fclBridge = null
-        CallbackBridge.setFCLBridge(null)
+        // 仅在 JVM 已启动过（类已初始化）时复位桥接，避免首次触发 org.lwjgl.glfw.CallbackBridge 类初始化崩溃。
+        if (jvmStarted) {
+            CallbackBridge.setFCLBridge(null)
+        }
+        jvmStarted = false
 
         val intent = restarter.buildRestartIntent(params)
         activity.finish()

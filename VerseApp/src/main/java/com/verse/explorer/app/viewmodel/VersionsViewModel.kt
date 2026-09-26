@@ -27,6 +27,8 @@ data class VersionsUiState(
 
 data class InstallState(
     val versionId: String = "",
+    /** 实际安装的版本目录名（命名弹窗自定义，默认等于 versionId） */
+    val installName: String = "",
     val stage: InstallStage = InstallStage.PREPARING,
     val message: String = "",
     val progress: Float = 0f,
@@ -71,6 +73,9 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
     val downloadingVersions: StateFlow<Set<String>> = _downloadingVersions.asStateFlow()
 
     private var installJob: Job? = null
+
+    /** 本次安装开始前基础原版目录（versions/<version.id>）是否已存在——决定取消/失败时是否清理它 */
+    private var installBaseDirExisted = false
 
     private val _installState = MutableStateFlow(InstallState())
     val installState: StateFlow<InstallState> = _installState.asStateFlow()
@@ -138,21 +143,38 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 
-    fun installVersion(version: MinecraftVersion, loaderType: String? = null, loaderVersion: String? = null) {
+    fun installVersion(
+        version: MinecraftVersion,
+        installName: String = version.id,
+        loaderType: String? = null,
+        loaderVersion: String? = null
+    ) {
         gameInstaller.cancelled = false
         installJob = viewModelScope.launch {
             _downloadingVersions.value = _downloadingVersions.value + version.id
             _installState.value = InstallState(
                 versionId = version.id,
+                installName = installName,
                 isInstalling = true
             )
+            // 带加载器安装时基础原版落盘 versions/<version.id>/（Pojav 语义，跨实例复用）。
+            // 记录安装前基础目录是否已存在：失败/取消时只清理本次新建的基础目录，
+            // 复用的既有基础版本不能删（否则其他实例的 inheritsFrom 悬空）。
+            val baseDirExisted = File(GameConfig.getVersionsDir(gameDir), version.id).exists()
+            installBaseDirExisted = baseDirExisted
+
+            fun cleanupFailedInstall() {
+                cleanupVersion(installName.ifBlank { version.id })
+                if (!baseDirExisted) cleanupVersion(version.id)
+            }
 
             try {
-                val success = gameInstaller.installVersion(version, loaderType, loaderVersion) { progress ->
+                val success = gameInstaller.installVersion(version, installName, loaderType, loaderVersion) { progress ->
                     // 取消/关闭后忽略后台残留进度回调，避免弹窗二次弹出（一次性取消）
                     if (installJob?.isActive == true) {
                         _installState.value = InstallState(
                             versionId = version.id,
+                            installName = installName,
                             stage = progress.stage,
                             message = progress.message,
                             progress = progress.progress,
@@ -172,18 +194,23 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
                     loadLocalVersions()
                     _installState.value = InstallState(
                         versionId = version.id,
+                        installName = installName,
                         isInstalling = false,
                         isCompleted = true
                     )
+                } else {
+                    // GameInstaller 内部失败走 FAILED 进度返回 false（不抛异常），同样要清理
+                    cleanupFailedInstall()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                cleanupVersion(version.id)
+                cleanupFailedInstall()
                 _installState.value = InstallState()
                 throw e
             } catch (e: com.verse.explorer.core.install.GameInstaller.CancelledInstallException) {
-                cleanupVersion(version.id)
+                cleanupFailedInstall()
                 _installState.value = InstallState(
                     versionId = version.id,
+                    installName = installName,
                     isInstalling = false,
                     message = "已取消下载"
                 )
@@ -204,11 +231,14 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         gameInstaller.cancel()
         installJob?.cancel()
         installJob = null
-        val currentVersion = _installState.value.versionId
-        if (currentVersion.isNotEmpty()) {
-            cleanupVersion(currentVersion)
+        val currentState = _installState.value
+        if (currentState.versionId.isNotEmpty()) {
+            // 删除实际安装目录（命名弹窗改名后 ≠ versionId）；
+            // 基础原版目录仅在本次安装新建时一并删除（复用的既有基础不能删）
+            cleanupVersion(currentState.installName.ifBlank { currentState.versionId })
+            if (!installBaseDirExisted) cleanupVersion(currentState.versionId)
             _installState.value = InstallState()
-            _downloadingVersions.value = _downloadingVersions.value - currentVersion
+            _downloadingVersions.value = _downloadingVersions.value - currentState.versionId
         }
     }
 
@@ -300,6 +330,11 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
 
     fun resetInstallState() {
         _installState.value = InstallState()
+    }
+
+    /** 命名校验：与 FCL versionIdConflicts 对应，判断自定义安装名是否与已安装版本冲突 */
+    fun versionIdConflicts(name: String): Boolean {
+        return versionManager.versionIdConflicts(name)
     }
 
     fun clearError() {

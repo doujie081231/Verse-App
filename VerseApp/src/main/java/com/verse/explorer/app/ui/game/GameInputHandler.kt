@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode
 import com.tungsten.fcl.control.GestureMode
@@ -70,6 +71,7 @@ class GameInputHandler(
     private var cancelMouseRight = false
 
     private val holdRunnable = Runnable {
+        VerseLogger.debug("hold fire! gesture=${effectiveGestureMode()} grab=$isGrabbing cancelL=$cancelMouseLeft cancelR=$cancelMouseRight", "TouchDiag")
         if (!MenuSetting.isDisableGesture) {
             if (effectiveGestureMode() == GestureMode.BUILD) {
                 sendKeyEvent(MOUSE_LEFT, true)
@@ -82,6 +84,19 @@ class GameInputHandler(
             }
         }
     }
+
+    // 本次触摸是否发生过滑动（位移超过 TAP_MAX_DIST）。滑动转视角的手指在抬起时
+    // 绝不应被判定为 tap/长按点击（否则转视角同时触发挖掘/攻击 → 视角跳转抽搐）。
+    // FCL TouchPad 事件流完整（独立 view 接收），Verse 经 Activity.dispatchTouchEvent
+    // 手动分流（按钮指针跳过）后事件时序错乱，tap 判定会误触发，需用滑动标志兜底。
+    private var hasMoved = false
+
+    // 触摸诊断日志节流：DOWN/UP/状态切换全量打印；MOVE 按窗口采样，避免高频刷输入线程
+    private var lastMoveDiagTime = 0L
+    private var lastMoveDeltaDiagTime = 0L
+    // 上次抓取态 MOVE 处理时间：按钮遮挡期间（指针全落按钮上 toInput=false）滑动位移不被跟踪，
+    // 重新进入时基线 downX/downY 过期 → 一次巨 delta → 视角跳屏。超时强制重置基线。
+    private var lastGrabbedMoveTime = 0L
 
     private val clickDownRunnable = Runnable { sendKeyEvent(MOUSE_LEFT, true) }
     private val clickUpRunnable = Runnable { sendKeyEvent(MOUSE_LEFT, false) }
@@ -203,23 +218,50 @@ class GameInputHandler(
         return false
     }
 
-    fun handleTouchEvent(event: MotionEvent) {
+    fun handleTouchEvent(event: MotionEvent, skipPointerIds: Set<Int> = emptySet()) {
         val bridge = bridgeProvider() ?: run {
             Log.d("VerseX", "[Input] handleTouchEvent: bridge is null")
             return
         }
+        // 多指支持：主指针 = 第一个不在虚拟按钮上的指针（按钮指针由覆盖层按钮消费），
+        // 这样"左手按方向键 + 右手空白区转视角"可同时工作
+        val mainIndex = (0 until event.pointerCount).firstOrNull { event.getPointerId(it) !in skipPointerIds } ?: 0
+        diagEvent(event, skipPointerIds, mainIndex)
         if (isGrabbing) {
-            handleGrabbedTouch(event)
+            handleGrabbedTouch(event, mainIndex)
         } else {
-            handleGuiTouch(event)
+            handleGuiTouch(event, mainIndex)
         }
         if (isGrabbing) {
             lastPointerCount = event.pointerCount
         }
     }
 
+    /** 触摸诊断日志（仅 logcat，MOVE 采样节流防刷输入线程） */
+    private fun diagEvent(event: MotionEvent, skipIds: Set<Int>, mainIndex: Int) {
+        val action = when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> "DOWN"
+            MotionEvent.ACTION_POINTER_DOWN -> "P_DOWN"
+            MotionEvent.ACTION_MOVE -> "MOVE"
+            MotionEvent.ACTION_UP -> "UP"
+            MotionEvent.ACTION_POINTER_UP -> "P_UP"
+            MotionEvent.ACTION_CANCEL -> "CANCEL"
+            else -> "A${event.actionMasked}"
+        }
+        val now = System.currentTimeMillis()
+        val isStateChange = action != "MOVE"
+        if (!isStateChange && now - lastMoveDiagTime < 120) return
+        lastMoveDiagTime = now
+        val ptrs = StringBuilder()
+        for (i in 0 until event.pointerCount) {
+            if (i > 0) ptrs.append(" ")
+            ptrs.append("p$i(id=${event.getPointerId(i)},${event.getX(i).toInt()},${event.getY(i).toInt()})")
+        }
+        VerseLogger.debug("in: ev=$action cnt=${event.pointerCount} main=$mainIndex skip=$skipIds grab=$isGrabbing | $ptrs", "TouchDiag")
+    }
+
     // ===== FCL TouchPad CursorEnabled（GUI 态）分支 =====
-    private fun handleGuiTouch(event: MotionEvent) {
+    private fun handleGuiTouch(event: MotionEvent, mainIndex: Int) {
         val bridge = bridgeProvider() ?: return
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             if (event.action == MotionEvent.ACTION_MOVE) {
@@ -229,11 +271,12 @@ class GameInputHandler(
             return
         }
         if (MenuSetting.mouseMoveMode == MouseMoveMode.CLICK.id) {
-            setPointer(event.x, event.y)
+            setPointer(event.getX(mainIndex), event.getY(mainIndex))
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> handler.postDelayed(clickDownRunnable, CLICK_DELAY)
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                    handler.removeCallbacks(clickDownRunnable)
+                    // 照搬 FCL TouchPad：DOWN/UP 各排一次延迟发送，【不】removeCallbacks(clickDown)。
+                    // 否则快速点按（DOWN→UP < 33ms）时按下事件被取消，鼠标左键从未按下 → 点击无效。
                     handler.postDelayed(clickUpRunnable, CLICK_DELAY)
                 }
             }
@@ -241,23 +284,23 @@ class GameInputHandler(
             // MouseMoveMode.SLIDE
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.x
-                    downY = event.y
+                    downX = event.getX(mainIndex)
+                    downY = event.getY(mainIndex)
                     downTime = System.currentTimeMillis()
                     initialX = cursorX
                     initialY = cursorY
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val deltaX = (event.x - downX) * MenuSetting.mouseSensitivityCursor.toFloat()
-                    val deltaY = (event.y - downY) * MenuSetting.mouseSensitivityCursor.toFloat()
+                    val deltaX = (event.getX(mainIndex) - downX) * MenuSetting.mouseSensitivityCursor.toFloat()
+                    val deltaY = (event.getY(mainIndex) - downY) * MenuSetting.mouseSensitivityCursor.toFloat()
                     val targetX = (initialX + deltaX).coerceIn(0f, screenWidth.toFloat())
                     val targetY = (initialY + deltaY).coerceIn(0f, screenHeight.toFloat())
                     setPointer(targetX, targetY)
                 }
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
                     if (System.currentTimeMillis() - downTime <= TAP_MAX_TIME
-                        && kotlin.math.abs(event.x - downX) <= TAP_MAX_DIST
-                        && kotlin.math.abs(event.y - downY) <= TAP_MAX_DIST
+                        && kotlin.math.abs(event.getX(mainIndex) - downX) <= TAP_MAX_DIST
+                        && kotlin.math.abs(event.getY(mainIndex) - downY) <= TAP_MAX_DIST
                     ) {
                         sendKeyEvent(MOUSE_LEFT, true)
                         sendKeyEvent(MOUSE_LEFT, false)
@@ -269,32 +312,42 @@ class GameInputHandler(
     }
 
     // ===== FCL TouchPad CursorDisabled（抓取/游戏内）分支 =====
-    private fun handleGrabbedTouch(event: MotionEvent) {
+    private fun handleGrabbedTouch(event: MotionEvent, mainIndex: Int) {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) return
-        if (MenuSetting.isDisableLeftTouch && event.x <= screenWidth / 2f) {
+        if (MenuSetting.isDisableLeftTouch && event.getX(mainIndex) <= screenWidth / 2f) {
+            VerseLogger.debug("gLeftSkip x=${event.getX(mainIndex).toInt()} main=$mainIndex", "TouchDiag")
             return
         }
         initialX = pointerX
         initialY = pointerY
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                currentPointerID = event.getPointerId(0)
-                bridgeProvider()?.refreshHitResultType()
-                downX = event.x
-                downY = event.y
+                currentPointerID = event.getPointerId(mainIndex)
+                downX = event.getX(mainIndex)
+                downY = event.getY(mainIndex)
                 downTime = System.currentTimeMillis()
+                lastGrabbedMoveTime = downTime
+                hasMoved = false
                 handler.postDelayed(holdRunnable, HOLD_DELAY)
+                VerseLogger.debug("gDown cur=$currentPointerID dX=${downX.toInt()} dY=${downY.toInt()} t=$downTime holdScheduled", "TouchDiag")
             }
             MotionEvent.ACTION_MOVE -> {
                 val pointerCount = event.pointerCount
                 val pointerIndex = event.findPointerIndex(currentPointerID)
-                if (pointerIndex == -1 || lastPointerCount != pointerCount || !shouldBeDown) {
+                val now = System.currentTimeMillis()
+                // 按钮遮挡守卫：指针全落按钮期间（toInput=false）滑动位移未被跟踪，
+                // 重新进入时基线已过期 → 强制重置，避免一次巨 delta 视角跳屏
+                val staleBaseline = now - lastGrabbedMoveTime > 150
+                if (pointerIndex == -1 || lastPointerCount != pointerCount || !shouldBeDown || staleBaseline) {
+                    VerseLogger.debug("gReset cur=$currentPointerID mainId=${event.getPointerId(mainIndex)} lastN=$lastPointerCount cnt=$pointerCount sb=$shouldBeDown idx=$pointerIndex stale=$staleBaseline", "TouchDiag")
                     shouldBeDown = true
-                    currentPointerID = event.getPointerId(0)
-                    downX = event.x
-                    downY = event.y
+                    currentPointerID = event.getPointerId(mainIndex)
+                    downX = event.getX(mainIndex)
+                    downY = event.getY(mainIndex)
+                    lastGrabbedMoveTime = now
                     return
                 }
+                lastGrabbedMoveTime = now
                 val newDownX = event.getX(pointerIndex)
                 val newDownY = event.getY(pointerIndex)
                 val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
@@ -306,15 +359,39 @@ class GameInputHandler(
                 } else {
                     setPointer(initialX + deltaX, initialY + deltaY)
                 }
-                if ((kotlin.math.abs(deltaX) > 1 || kotlin.math.abs(deltaY) > 1)
-                    && System.currentTimeMillis() - downTime < HOLD_DELAY
+                if (kotlin.math.abs(newDownX - downX) > TAP_MAX_DIST
+                    || kotlin.math.abs(newDownY - downY) > TAP_MAX_DIST
                 ) {
-                    handler.removeCallbacks(holdRunnable)
+                    // 发生滑动：标记 hasMoved 并彻底取消长按 —— 滑动转视角绝不应触发 BUILD/FIGHT 点击。
+                    // （FCL 仅 MOVE 位移>1 且 <400ms 时移除，滑动后手指停留仍会在满 400ms 触发长按；
+                    //   Verse 手动分流下误判率高，滑动过即取消更符合"滑动=转视角"预期。）
+                    hasMoved = true
                 }
+                handler.removeCallbacks(holdRunnable)
                 downX = newDownX
                 downY = newDownY
+                // delta/基线采样日志（独立节流，与 diagEvent 概要错开）
+                if (now - lastMoveDeltaDiagTime >= 120) {
+                    lastMoveDeltaDiagTime = now
+                    VerseLogger.debug("gMove cur=$currentPointerID idx=$pointerIndex dX=${downX.toInt()} dY=${downY.toInt()} new=(${newDownX.toInt()},${newDownY.toInt()}) dlt=($deltaX,$deltaY) pX=${pointerX.toInt()} pY=${pointerY.toInt()} moved=$hasMoved sens=${MenuSetting.mouseSensitivity} scale=$scale", "TouchDiag")
+                }
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // 新指针按下：旧基线（downX/downY/currentPointerID）必然失效，
+                // 强制 next MOVE 走重置分支重新校准，避免旧基线导致巨 delta 视角跳屏
+                shouldBeDown = false
+                lastGrabbedMoveTime = 0L
+                VerseLogger.debug("gPtrDown ev=${event.actionMasked} cnt=${event.pointerCount} main=$mainIndex mainId=${event.getPointerId(mainIndex)} forcedReset", "TouchDiag")
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                VerseLogger.debug("gIgnore ev=${event.actionMasked} cnt=${event.pointerCount} main=$mainIndex mainId=${event.getPointerId(mainIndex)}", "TouchDiag")
             }
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                val isTap = !hasMoved
+                    && System.currentTimeMillis() - downTime <= TAP_MAX_TIME
+                    && kotlin.math.abs(event.getX(mainIndex) - downX) <= TAP_MAX_DIST
+                    && kotlin.math.abs(event.getY(mainIndex) - downY) <= TAP_MAX_DIST
+                VerseLogger.debug("gUp moved=$hasMoved dt=${System.currentTimeMillis() - downTime} tap=$isTap cancelL=$cancelMouseLeft cancelR=$cancelMouseRight", "TouchDiag")
                 pointerId = null
                 shouldBeDown = false
                 currentPointerID = -1
@@ -327,10 +404,8 @@ class GameInputHandler(
                 }
                 cancelMouseLeft = false
                 cancelMouseRight = false
-                if (System.currentTimeMillis() - downTime <= TAP_MAX_TIME
-                    && kotlin.math.abs(event.x - downX) <= TAP_MAX_DIST
-                    && kotlin.math.abs(event.y - downY) <= TAP_MAX_DIST
-                ) {
+                // 仅未滑动过的手指才判定 tap：滑动转视角的手指抬起不算点击（否则视角跳转）。
+                if (isTap) {
                     if (!MenuSetting.isDisableGesture) {
                         if (effectiveGestureMode() == GestureMode.BUILD) {
                             sendKeyEvent(MOUSE_RIGHT, true)

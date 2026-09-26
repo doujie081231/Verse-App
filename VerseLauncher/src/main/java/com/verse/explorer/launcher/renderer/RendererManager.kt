@@ -34,6 +34,7 @@ object RendererManager {
     const val ID_FREEDRENO = "freedreno"
     const val ID_VIRGL = "virgl"
     const val ID_VGPU = "vgpu"
+    const val ID_MOBILEGLUES = "mobileglues"
 
     data class RendererConfig(
         val displayName: String,
@@ -68,13 +69,19 @@ object RendererManager {
         maxMcVersion = "1.21.4"
     )
 
-    // FCL 对齐（egl_loader.c）：GLES 用 ANGLE 时 EGL 必须配套 ANGLE，
-    // 否则 POJAVEXEC_EGL 落到系统 Mali EGL，ng_gl4es 创建窗口即 SIGSEGV。
+    // 完全对齐 FCL 1.3.3.5 Renderer.ID_NGGL4ES + FCLauncher.addRendererEnv：
+    //   Renderer.java: eglName="libEGL.so"（系统 Mali EGL），glName="libng_gl4es.so"
+    //   pojavEnv: LIBGL_USE_MC_COLOR=1, LIBGL_GL=31, LIBGL_ES=3, LIBGL_NORMALIZE=1, LIBGL_NOERROR=1,
+    //             LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so
+    //   FCLauncher: POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so
+    // 之前误用 ANGLE（libEGL_angle.so + libGLESv2_angle.so）作为 EGL/GLES，与 FCL 的系统 Mali 驱动不同，
+    // 且 libng_gl4es.so 是 2026-04 旧构建；FCL 1.3.3.5 用 2026-08 新构建。水面贴图错乱与滑动卡顿
+    // 的对照差异即在此（FCL 同机正常）。
     val NGGL4ES = RendererConfig(
         displayName = "NGGL4ES/Krypton Wrapper",
         id = ID_NGGL4ES,
         glName = "libng_gl4es.so",
-        eglName = "libEGL_angle.so",
+        eglName = "libEGL.so",
         pojavRenderer = "opengles3",
         envVars = mapOf(
             "POJAV_RENDERER" to "opengles3",
@@ -85,14 +92,11 @@ object RendererManager {
             "LIBGL_NORMALIZE" to "1",
             "LIBGL_NOINTOVLHACK" to "1",
             "LIBGL_NOERROR" to "1",
-            // FCL 对齐（egl_loader.c）：GLES 用 ANGLE 时 EGL 必须配套 ANGLE，
-            // 否则 POJAVEXEC_EGL 落到系统 Mali EGL，ng_gl4es 创建窗口即 SIGSEGV。
-            "LIBGL_GLES" to "libGLESv2_angle.so",
-            "POJAVEXEC_EGL" to "libEGL_angle.so",
+            "POJAVEXEC_EGL" to "libEGL.so",
             "LIBGL_NAME" to "libng_gl4es.so",
-            "LIBEGL_NAME" to "libEGL_angle.so"
+            "LIBEGL_NAME" to "libEGL.so"
         ),
-        requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so", "libEGL_angle.so", "libGLESv2_angle.so"),
+        requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so"),
         minMcVersion = "",
         maxMcVersion = ""
     )
@@ -193,9 +197,38 @@ object RendererManager {
         maxMcVersion = "1.16.5"
     )
 
+    // 对齐 MobileGlues 官方插件 V2.0.0（MobileGL-Dev/MobileGlues-release）AndroidManifest 的
+    //   FCL 插件元数据：renderer="MobileGlues:libmobileglues.so:libmobileglues.so"（glName 与
+    //   eglName 均为 libmobileglues.so，MobileGlues 自带 EGL 实现），pojavEnv="LIBGL_ES=3:
+    //   POJAV_RENDERER=opengles3:POJAVEXEC_EGL=libmobileglues.so:LIBGL_EGL=libmobileglues.so:
+    //   MG_COUNT_LAUNCH=1"，des="MobileGlues (OpenGL 4.0, 1.17+)"，minMCver=1.17。
+    //   LIBGL_NAME 同步取 glName，与其余渲染器配置风格一致。
+    //   MG 配置目录默认 /sdcard/MG（无 config.json 时驱动用内置默认值，源码 settings.cpp 走
+    //   "Failed to load config. Use default config." 路径）；MG_ANGLE_DIR 不设置，驱动按 soname
+    //   在进程内搜索 ANGLE（本工程已打包 libEGL_angle.so/libGLESv2_angle.so）。
+    val MOBILEGLUES = RendererConfig(
+        displayName = "MobileGlues",
+        id = ID_MOBILEGLUES,
+        glName = "libmobileglues.so",
+        eglName = "libmobileglues.so",
+        pojavRenderer = "opengles3",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles3",
+            "POJAVEXEC_EGL" to "libmobileglues.so",
+            "LIBGL_EGL" to "libmobileglues.so",
+            "LIBGL_NAME" to "libmobileglues.so",
+            "LIBGL_ES" to "3",
+            "MG_COUNT_LAUNCH" to "1"
+        ),
+        requiredLibs = listOf("libmobileglues.so"),
+        minMcVersion = "1.17",
+        maxMcVersion = ""
+    )
+
     private val allRenderers: List<RendererConfig> = listOf(
         GL4ES,
         NGGL4ES,
+        MOBILEGLUES,
         ZINK,
         FREEDRENO,
         VIRGL,

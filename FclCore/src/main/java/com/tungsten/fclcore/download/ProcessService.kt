@@ -71,9 +71,74 @@ class ProcessService : Service() {
         val fullCommand = arrayOf(
             "-XX:TieredStopAtLevel=1",
             "-XX:-UseCompressedOops",
-            "-XX:-UseCompressedClassPointers"
+            "-XX:-UseCompressedClassPointers",
+            // 宿主适配：处理器 JVM 崩溃（SIGABRT=退出码 6）时 hs_err 默认写到
+            // 内部 cwd（cache/fclauncher，adb 不可读），无法定位根因。
+            // 重定向到外部可读目录，崩溃后可直接取回分析。
+            "-XX:ErrorFile=/storage/emulated/0/Android/data/com.verse.explorer/files/installer_hs_err_pid%p.log"
         ) + command!!
         val jre = "jre-$java-${com.tungsten.fclauncher.utils.FCLPath.JRE_ARCH}"
+        // 诊断汇总：每次处理器执行把命令/退出码/异常追加到外部可读汇总文件
+        val diagFile = File(
+            Environment.getExternalStorageDirectory(),
+            "FCL/log/processor_summary.log"
+        )
+        fun appendDiag(line: String) {
+            try {
+                diagFile.parentFile?.mkdirs()
+                FileUtils.writeTextWithAppendMode(diagFile, line + "\n")
+            } catch (_: Throwable) {
+            }
+        }
+        // 宿主适配（诊断/加固）：处理器 JVM 直接以 java 二进制 + ProcessBuilder 启动，
+        // 复现桌面 FCL 原版跑 installertools 处理器的方式；stdout+stderr 合并落盘到
+        // 外部可读文件，避免 pojava fc 管道的 stderr 丢失导致退出码 6 无任何日志。
+        // JRE 二进制完整性先校验（bin/java + lib/libjli.so 存在），失败回退 FCL API installer。
+        val javaExec = File(
+            File(
+                com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH,
+                jre
+            ),
+            "bin/java"
+        )
+        val jreRoot = File(
+            com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH,
+            jre
+        )
+        val jreLib = File(File(jreRoot, "lib"), "libjli.so")
+        if (javaExec.isFile && (jreLib.isFile || jreLib.exists())) {
+            try {
+                // Android 应用进程 exec(2) 需要可执行位；JRE 解压后可能未设置，
+                // 递归对 bin/ 与 lib/ 下文件设置可执行位（与游戏启动 ensureJreExecutable 一致）
+                jreRoot.walkTopDown().forEach { f ->
+                    if (f.isFile && (f.name == "java" || f.extension == "so" || f.name == "javac")) {
+                        f.setExecutable(true, false)
+                        f.setReadable(true, false)
+                    }
+                }
+                val logFile = File(
+                    Environment.getExternalStorageDirectory(),
+                    "FCL/log/processor_${System.currentTimeMillis()}.log"
+                )
+                logFile.parentFile?.mkdirs()
+                appendDiag("== exec path: java=$java jre=$jre cmd=${fullCommand.joinToString(" ")}")
+                val proc = ProcessBuilder(
+                    listOf(javaExec.absolutePath) + fullCommand.toList()
+                )
+                    .redirectErrorStream(true)
+                    .redirectOutput(logFile)
+                    .start()
+                val exit = proc.waitFor()
+                appendDiag("   exit=$exit log=${logFile.absolutePath}")
+                sendCode(exit)
+                return START_NOT_STICKY
+            } catch (e: Throwable) {
+                Logging.LOG.log(Level.WARNING, "ProcessBuilder java 启动失败(" + e.javaClass.simpleName + ": " + e.message + ")，回退 FCLauncher")
+                appendDiag("!! exec failed: " + e.javaClass.simpleName + ": " + e.message)
+            }
+        } else {
+            appendDiag("!! exec skipped: javaExec=$javaExec exists=${javaExec.isFile}, jreLib=$jreLib exists=${jreLib.exists()}")
+        }
         val config = FCLConfig(
             applicationContext,
             Environment.getExternalStorageDirectory().absolutePath + "/FCL/log",
@@ -120,6 +185,12 @@ class ProcessService : Service() {
             }
 
             override fun onExit(code: Int) {
+                try {
+                    val df = File(Environment.getExternalStorageDirectory(), "FCL/log/processor_summary.log")
+                    df.parentFile?.mkdirs()
+                    FileUtils.writeTextWithAppendMode(df, "   [fcl path] exit=$code\n")
+                } catch (_: Throwable) {
+                }
                 sendCode(code)
             }
         }

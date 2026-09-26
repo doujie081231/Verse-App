@@ -1,5 +1,6 @@
 package com.verse.explorer.app.launch
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -62,7 +63,7 @@ class GameLaunchController(private val context: Context) {
                 val phaseSteps = launchCheck(versionId) ?: return@launch
                 val (account, version, bestRuntime, javaVersion, javaHome, steps) = phaseSteps
 
-                val maxMemory = settingsRepo.getMaxMemory()
+                val maxMemory = resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory())
                 val gcType = settingsRepo.getGcType()
                 val renderer = resolveRendererForVersion(resolveMinecraftVersionForJudgement(version.id), settingsRepo.getRenderer())
                 val launchMethod = settingsRepo.getLaunchMethod()
@@ -132,6 +133,41 @@ class GameLaunchController(private val context: Context) {
                     errors = listOf("系统异常: ${e.message ?: "未知错误"}")
                 )
             }
+        }
+    }
+
+    /**
+     * 启动内存分配（照搬 FCL FCLGameRepository.getAllocatedMemory + MemoryUtils.getFreeDeviceMemory）：
+     * autoMemory 模式下按启动时实时可用内存计算建议值，与用户设定的下限取大。
+     * 可用内存充足时自动加大（对齐 FCL 默认 autoMemory=true），避免固定 -Xmx 与设备可用内存不匹配。
+     */
+    private fun resolveLaunchMaxMemory(userMax: Int, userMin: Int): Int {
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am.getMemoryInfo(memInfo)
+            val freeM = (memInfo.availMem / 1048576L).toInt()
+            // FCL getAllocatedMemory(minimum, available, auto=true)：available 扣 384MiB 预留后取 80%（≤8GB 时）
+            val availableM = freeM - 384
+            if (availableM <= 0) {
+                userMax
+            } else {
+                val threshold = 8 * 1024
+                val suggested = if (availableM <= threshold) {
+                    (availableM * 0.8).toInt()
+                } else {
+                    ((threshold * 0.8) + (availableM - threshold) * 0.2).toInt()
+                }.coerceAtMost(16384)
+                val allocated = maxOf(userMax, suggested)
+                VerseLogger.info(
+                    "内存分配（FCL autoMemory 算法）: 用户设定=${userMax}M, 可用=${freeM}M, 建议=${suggested}M, 实际=$allocated M",
+                    "LaunchController"
+                )
+                allocated
+            }
+        } catch (e: Exception) {
+            VerseLogger.warn("内存自动分配失败，使用用户设定值: ${e.message}", "LaunchController")
+            userMax
         }
     }
 

@@ -6,6 +6,8 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,7 +17,7 @@ import java.util.concurrent.TimeUnit
 class VersionManager(private val gameDir: File) {
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
@@ -50,66 +52,69 @@ class VersionManager(private val gameDir: File) {
             }
         }
 
-        var lastException: Exception? = null
-
-        for (mirrorIndex in GameConfig.MOJANG_MIRRORS.indices) {
-            val mirror = GameConfig.MOJANG_MIRRORS[mirrorIndex]
-            try {
-                val url = GameConfig.getVersionManifestUrl(mirrorIndex)
-                Log.d("VersionManager", "Fetching version manifest from: $url (${mirror.name})")
-
-                val request = Request.Builder()
-                    .url(url)
-                    .header("Accept", "application/json")
-                    .header("User-Agent", "VerseExplorerX/1.0")
-                    .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w("VersionManager", "HTTP ${response.code} from ${mirror.name}: $url")
-                        lastException = Exception("HTTP ${response.code}: ${mirror.name}")
-                        return@use
-                    }
-
-                    val body = response.body?.string()
-                    if (body.isNullOrBlank()) {
-                        Log.w("VersionManager", "Empty response from ${mirror.name}")
-                        lastException = Exception("Empty response: ${mirror.name}")
-                        return@use
-                    }
-
-                    if (!body.trimStart().startsWith("{")) {
-                        Log.w("VersionManager", "Invalid JSON from ${mirror.name}: ${body.take(100)}")
-                        lastException = Exception("Invalid JSON: ${mirror.name}")
-                        return@use
-                    }
-
-                    Log.d("VersionManager", "Got response from ${mirror.name}, length: ${body.length}")
-
-                    val manifest = gson.fromJson(body, VersionManifest::class.java)
-                    Log.d("VersionManager", "Parsed ${manifest.versions.size} versions from ${mirror.name}")
-                    Log.d("VersionManager", "Latest release: ${manifest.latest.release}, snapshot: ${manifest.latest.snapshot}")
-
-                    // 写缓存
+        // 多源并发竞速：所有镜像同时请求，先成功者胜出（避免首源慢/超时阻塞整列表）
+        coroutineScope {
+            var lastException: Exception? = null
+            val jobs = GameConfig.MOJANG_MIRRORS.indices.map { index ->
+                async {
                     try {
-                        cacheFile.parentFile?.mkdirs()
-                        val cached = CachedManifest(System.currentTimeMillis(), manifest)
-                        cacheFile.writeText(gson.toJson(cached))
-                        Log.d("VersionManager", "Version manifest cached to ${cacheFile.absolutePath}")
+                        fetchManifestFromMirror(index, cacheFile)
                     } catch (e: Exception) {
-                        Log.w("VersionManager", "Failed to write cache: ${e.message}")
+                        Log.w("VersionManager", "Error from ${GameConfig.MOJANG_MIRRORS[index].name}: ${e.message}", e)
+                        lastException = e
+                        null
                     }
-
-                    return@withContext manifest
                 }
-            } catch (e: Exception) {
-                Log.w("VersionManager", "Error from ${mirror.name}: ${e.message}", e)
-                lastException = e
-                continue
             }
+            jobs.forEach { job ->
+                val manifest = job.await()
+                if (manifest != null) {
+                    return@coroutineScope manifest
+                }
+            }
+            throw lastException ?: Exception("Failed to fetch version manifest from all mirrors")
         }
+    }
 
-        throw lastException ?: Exception("Failed to fetch version manifest from all mirrors")
+    /** 从单个镜像拉取版本清单（成功则写缓存并返回） */
+    private fun fetchManifestFromMirror(mirrorIndex: Int, cacheFile: File): VersionManifest {
+        val mirror = GameConfig.MOJANG_MIRRORS[mirrorIndex]
+        val url = GameConfig.getVersionManifestUrl(mirrorIndex)
+        Log.d("VersionManager", "Fetching version manifest from: $url (${mirror.name})")
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "VerseExplorerX/1.0")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code}: ${mirror.name}")
+            }
+            val body = response.body?.string()
+            if (body.isNullOrBlank()) {
+                throw Exception("Empty response: ${mirror.name}")
+            }
+            if (!body.trimStart().startsWith("{")) {
+                throw Exception("Invalid JSON: ${mirror.name}")
+            }
+            Log.d("VersionManager", "Got response from ${mirror.name}, length: ${body.length}")
+
+            val manifest = gson.fromJson(body, VersionManifest::class.java)
+            Log.d("VersionManager", "Parsed ${manifest.versions.size} versions from ${mirror.name}")
+            Log.d("VersionManager", "Latest release: ${manifest.latest.release}, snapshot: ${manifest.latest.snapshot}")
+
+            try {
+                cacheFile.parentFile?.mkdirs()
+                val cached = CachedManifest(System.currentTimeMillis(), manifest)
+                cacheFile.writeText(gson.toJson(cached))
+                Log.d("VersionManager", "Version manifest cached to ${cacheFile.absolutePath}")
+            } catch (e: Exception) {
+                Log.w("VersionManager", "Failed to write cache: ${e.message}")
+            }
+            return manifest
+        }
     }
 
     fun getLocalVersions(): List<MinecraftVersion> {
@@ -148,6 +153,16 @@ class VersionManager(private val gameDir: File) {
                 null
             }
         }
+    }
+
+    /**
+     * 与 FCL GameRepository.versionIdConflicts 对应：
+     * 命名冲突 = versions 目录下已存在同名版本目录。
+     */
+    fun versionIdConflicts(id: String): Boolean {
+        val versionsDir = GameConfig.getVersionsDir(gameDir)
+        if (!versionsDir.exists() || !versionsDir.isDirectory) return false
+        return versionsDir.listFiles { f -> f.isDirectory }?.any { it.name == id } == true
     }
 
     private fun hasInheritedJar(versionId: String, jsonFile: File, versionsDir: File): Boolean {

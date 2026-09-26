@@ -28,8 +28,9 @@ import java.time.Instant
  * - 处理器由 FCL 原版 InstallTask 经 SocketServer + ProcessService(:jvm) 执行
  *   （Forge/NeoForge/OptiFine 的 processors 链路，与 FCL 一致）；
  * - 安装器下载源用 BMCLAPI（BMCLAPIDownloadProvider）；
- * - 完成后把任务 resolve 出的合并版本写回 versions/<id>/<id>.json，供 Verse 启动器读取
- *   （对应 FCL 仓库自身的版本写盘语义）。
+ * - 完成后把安装任务产出的补丁版本原样写回 versions/<id>/<id>.json（仅 id 改实命名、
+ *   inheritsFrom 指向基础原版），库/参数/游戏JAR沿继承链由启动侧 resolve 合并——
+ *   与 FCL 仓库自身的版本写盘语义（saveAsync）一致。
  */
 object FclLoaderInstaller {
 
@@ -41,6 +42,8 @@ object FclLoaderInstaller {
         versionId: String,
         loaderType: String,
         loaderVersion: String,
+        baseVersionId: String = versionId,
+        newVersionId: String = "$versionId-$loaderType-$loaderVersion",
         progress: (String, Float) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -48,8 +51,8 @@ object FclLoaderInstaller {
 
             val repo = DefaultGameRepository(gameDir)
             repo.refreshVersions()
-            val base = repo.getVersion(versionId)
-                ?: throw IOException("版本 $versionId 不存在")
+            val base = repo.getVersion(baseVersionId)
+                ?: throw IOException("版本 $baseVersionId 不存在")
 
             val dm = DefaultDependencyManager(
                 repo,
@@ -107,97 +110,32 @@ object FclLoaderInstaller {
             executor.test()
             executor.getException()?.let { throw it }
 
-            // FCL 语义（版本隔离）：加载器作为独立子版本写入自己的版本目录，不覆盖原版。
-            // 版本 id "<mc>-<loader>-<loaderVer>"（如 1.20.1-forge-47.0.1），
-            // 与 InstalledVersionsScreen.loaderBadge / isModdedVersion 的 id 判定一致。
+            // FCL 语义写盘（对齐 FCL 仓库 saveAsync）：安装任务产出的补丁版本原样落盘——
+            // 仅把 id 改为实命名（命名弹窗结果）、inheritsFrom 指向基础原版版本目录
+            // （如官方 Forge/NeoForge 安装器内嵌 JSON 已带 inheritsFrom 则原样保留，
+            // 与 FCL 对官方安装器 JSON 原样保留的行为一致）。
             //
-            // 库列表必须用 resolve 后的完整库（原版库 + 补丁库去重）：
-            // Verse 的 ClasspathBuilder.buildFclClasspath 只读 config.version.libraries，
-            // 不会递归合并 inheritsFrom 父版本库；仅写补丁库会导致启动类路径缺原版库
-            // （fabric 缺 jopt-simple / neoforge 静默退出）。inheritsFrom 与 jar 仍指向
-            // 原版，供资产索引、启动参数、游戏 JAR 沿继承链解析。
+            // 不再在此预合并库列表/参数/游戏JAR：全部沿继承链由启动侧 resolve() 合并
+            // （VerseLauncher DefaultGameRepository.refreshVersions 已按 FCL resolve 语义
+            // 递归合并父版本库并按 group:artifact 去重），写盘 JSON 与 FCL 官方产物一致：
+            //   { id, inheritsFrom: <原版>, libraries: [仅加载器库], arguments, mainClass, ... }
+            //
+            // 注意：安装任务返回的补丁 id 是 patch id（如 "forge"/"fabric-loader"），
+            // 写盘时必须替换为 newId，否则版本列表会出现 patch 名的孤立条目。
             val patch = installTask.getResult()
                 ?: throw IOException("安装器未返回补丁版本")
-            val attached = if (patch.inheritsFrom.isNullOrEmpty() && patch.id != versionId) {
-                patch.setInheritsFrom(versionId)
-            } else patch
-            val resolved = attached.resolve(repo)
-            // 类路径上去重同一 group:artifact 的库（补丁库先到先得）：
-            // 原版 asm 9.6 + 补丁 asm 9.10.1 同存会触发 Fabric verifyClasspath 拒绝启动。
-            // 注意去重键必须保留 classifier（如 forge-universal 与 forge-client 是
-            // group:artifact:version:classifier 四段，去掉 version 后 key 分别为
-            // net.minecraftforge:forge:universal / :client，两者都必须保留，
-            // minecraft 客户端类只存在于 client jar）；不能用 substringBeforeLast(":")，
-            // 否则 client 与 universal 共享同一 key 会被误删。
-            val seenArtifacts = java.util.HashSet<String>()
-            val libraries = resolved.libraries.filter { lib ->
-                val name = lib.name
-                val parts = name.split(":")
-                val key = when {
-                    parts.size >= 4 -> "${parts[0]}:${parts[1]}:${parts[3]}"
-                    parts.size == 3 -> "${parts[0]}:${parts[1]}"
-                    parts.size == 2 -> "${parts[0]}:${parts[1]}"
-                    else -> name
-                }
-                // 原版带 log4j-slf4j-impl（module: org.apache.logging.log4j.slf4j），
-                // 补丁/NeoForge 带 log4j-slf4j2-impl（module: org.apache.logging.log4j.slf4j2.impl）。
-                // 两者都含 module-info 且都向 ALL-MODULE-PATH 导出 org.apache.logging.slf4j，
-                // 同存会触发 java.lang.module.ResolutionException（模块导出冲突）。
-                // 保留补丁侧 log4j-slf4j2-impl，剔除原版 log4j-slf4j-impl。
-                if (key.endsWith(":log4j-slf4j-impl")) {
-                    return@filter false
-                }
-                seenArtifacts.add(key)
-            }
-            val newId = "$versionId-$loaderType-$loaderVersion"
-            // arguments：
-            //  - jvm 部分必须用 resolve 后的完整参数（含 -p module path、--add-opens、
-            //    ${library_directory} 等，ForgeBootstrap 靠它们发现 net/minecraft/client
-            //    Minecraft.class；只写 patch 的 jvm 会因缺 module path 报
-            //    "Could not find net/minecraft/client/Minecraft.class"）。
-            //  - game 部分用加载器自身参数（ForgeBootstrap 会把版本 JSON 的
-            //    arguments.game 追加到 argv；写 resolved 的完整 game 会把
-            //    --username/--gameDir/--width 等通用参数重复传入，
-            //    ModLauncher 抛 MultipleArgumentsForOptionException）。
-            val patchArgs = patch.arguments.orElse(null)
-            val resolvedArgs = resolved.arguments.orElse(null)
-            val mergedArgs = if (resolvedArgs != null && patchArgs != null) {
-                resolvedArgs.withGame(patchArgs.getGame())
+            val newId = newVersionId.ifBlank { "$versionId-$loaderType-$loaderVersion" }
+            val written = if (patch.inheritsFrom.isNullOrEmpty() && patch.id != baseVersionId) {
+                patch.setInheritsFrom(baseVersionId)
             } else {
-                patchArgs ?: resolvedArgs
-            }
-            val flat = com.tungsten.fclcore.game.Version(
-                false,
-                newId,
-                resolved.version,
-                resolved.priority,
-                patch.minecraftArguments.orElse(null),
-                mergedArgs,
-                resolved.mainClass,
-                versionId,   // inheritsFrom=原版（资产/参数/游戏JAR沿继承链解析）
-                versionId,   // jar=原版，找不到本版本 JAR 时沿继承回落
-                resolved.assetIndex,
-                null, // assets 由 inheritsFrom 沿继承链解析
-                resolved.complianceLevel,
-                resolved.javaVersion,
-                libraries,
-                resolved.compatibilityRules,
-                resolved.downloads,
-                resolved.logging,
-                resolved.type,
-                resolved.time,
-                resolved.releaseTime,
-                resolved.minimumLauncherVersion,
-                null,
-                false,
-                null
-            )
+                patch
+            }.setId(newId)
             val dir = File(File(gameDir, "versions"), newId)
             if (!dir.exists()) dir.mkdirs()
-            File(dir, "$newId.json").writeText(JsonUtils.GSON.toJson(flat))
+            File(dir, "$newId.json").writeText(JsonUtils.GSON.toJson(written))
             // Forge 安装器已把所有加载器库放进 libraries/ 公共目录，无需复制 JAR；
-            // 游戏 JAR 经 inheritsFrom/jar 字段沿继承链由启动器定位。
-            Log.i("FclLoaderInstaller", "加载器版本已写入: $newId (inheritsFrom=$versionId, libraries=${libraries.size})")
+            // 游戏 JAR 沿 inheritsFrom 继承链由启动器 resolve 后定位。
+            Log.i("FclLoaderInstaller", "加载器版本已写入(FCL继承式): $newId (inheritsFrom=${written.inheritsFrom ?: "无"}, libraries=${(written.libraries ?: emptyList()).size})")
 
             progress("$loaderType 安装完成", 0.98f)
         }

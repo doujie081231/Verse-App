@@ -28,14 +28,19 @@ import com.verse.explorer.app.ui.components.PcTextInput
 import com.verse.explorer.app.ui.components.PcTextInputRow
 import com.verse.explorer.app.ui.components.pcTextFieldColors
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.tungsten.fcl.setting.MenuSetting
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val settingsRepo = SettingsRepository
+    // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
+    MenuSetting.init(context.filesDir)
     // 左侧子页索引：0=启动设置 1=个性化 2=其他
     var selectedPage by remember { mutableIntStateOf(0) }
     val pages = listOf("启动设置", "个性化", "其他")
+    // 渲染分辨率比例（FCL windowScale，100% = 屏幕物理分辨率；调低降低渲染压力缓解卡顿）
+    var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
     var maxMemory by remember { mutableFloatStateOf(settingsRepo.getMaxMemory().toFloat()) }
     var minMemory by remember { mutableFloatStateOf(settingsRepo.getMinMemory().toFloat()) }
@@ -82,12 +87,15 @@ fun SettingsScreen(navController: NavHostController) {
             setLauncherVisibility(launcherVisibility)
             setThemeColor(themeColor)
         }
+        // 渲染分辨率比例（FCL windowScale）写入 menu_setting.json，启动链路三同步缩放生效
+        MenuSetting.windowScale = renderScale.coerceIn(25, 300) / 100.0
+        MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
     }
 
     fun resetAll() {
         settingsRepo.resetToDefaults()
         maxMemory = 2048f; minMemory = 512f; gcType = "G1GC"
-        customJvmArgs = ""; renderer = "gl4es"; launchMethod = "pojav"
+        customJvmArgs = ""; renderer = "nggl4es"; launchMethod = "pojav"
         gameWidth = "854"; gameHeight = "480"; fullscreen = false
         downloadSource = "bmclapi"; javaVersion = "17"
         language = "简体中文"; keepScreenOn = true; showFps = false
@@ -243,6 +251,43 @@ fun SettingsScreen(navController: NavHostController) {
                                         }
                                     }
                                 }
+                                Spacer(Modifier.height(12.dp))
+                                // 渲染分辨率比例（FCL windowScale：游戏渲染分辨率 = 屏幕 × 比例，三同步缩放，
+                                // 调低降低渲染压力缓解卡顿；对应游戏内控制面板的「窗口比例」滑块）
+                                Text(
+                                    "渲染分辨率比例",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = VerseColors.PcTextSecondary
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(
+                                        100 to "100%",
+                                        85 to "85%",
+                                        70 to "70%",
+                                        55 to "55%"
+                                    ).forEach { (v, label) ->
+                                        val active = renderScale == v
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (active) VerseColors.PcAccent else VerseColors.PcBgTertiary,
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (active) VerseColors.PcAccent else VerseColors.PcBorder
+                                            ),
+                                            modifier = Modifier.clickable { renderScale = v }
+                                        ) {
+                                            Text(
+                                                label,
+                                                fontSize = 11.sp,
+                                                color = if (active) VerseColors.PcAccentText else VerseColors.PcTextSecondary,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
                             }
                             Spacer(Modifier.height(8.dp))
                             val rendererOptions = remember(context) {

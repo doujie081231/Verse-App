@@ -25,14 +25,17 @@ import java.util.concurrent.TimeUnit
  *  - 3743    = datapack（数据包）
  */
 object CurseForgeApi {
+    // 官方 API 与国内镜像（与 versepc2 src-tauri/src/api/resources.rs 完全一致；
+    // CurseForge 官方 API 国内 TTFB 慢，镜像 mod.mcimirror.top 优先）
     private const val CURSEFORGE_API = "https://api.curseforge.com/v1"
+    private const val CURSEFORGE_API_MIRROR = "https://mod.mcimirror.top/curseforge/v1"
 
     // 默认 API Key（与 VersePC 后端一致，仅用于公开 API 只读访问）
     private const val DEFAULT_API_KEY = "\$2a\$10\$bL4bIL5pUWqfcO7KQtnMReakwtfHbNKh6v1uTpKlzhwoueEJQnPnm"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
     private val gson = Gson()
@@ -64,16 +67,60 @@ object CurseForgeApi {
         "User-Agent" to "VerseExplorerX/1.0"
     )
 
-    private fun execute(requestBuilder: Request.Builder): String {
-        val request = requestBuilder.build()
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string() ?: ""
-            if (!response.isSuccessful) {
-                throw Exception("CurseForge HTTP ${response.code}: ${body.take(200)}")
+    /**
+     * 带镜像回退 + 60s 缓存的请求（与 ModrinthApi.fetchWithMirror 同一套机制，对齐 versepc2）：
+     *   - 镜像可用时：镜像(8s) → 官方(10s) → 官方(20s)
+     *   - 镜像不可用（熔断）时：官方(10s) → 官方(20s)
+     *   - 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
+     *   - 镜像连续失败 3 次熔断 60s（MirrorCircuitBreaker 为 Modrinth/CurseForge 共享）
+     *   - [cacheTtlMs] 为 null 时不缓存（对齐 versepc2：仅 search 接口走 60s 缓存）
+     */
+    private suspend fun executeWithMirror(path: String, cacheTtlMs: Long? = 60_000): String =
+        withContext(Dispatchers.IO) {
+            val officialUrl = "$CURSEFORGE_API$path"
+            val mirrorUrl = officialUrl.replace(CURSEFORGE_API, CURSEFORGE_API_MIRROR)
+
+            cacheTtlMs?.let {
+                ApiUrlCache.get(officialUrl, it)?.let { cached -> return@withContext cached }
             }
-            return body
+
+            val steps = if (MirrorCircuitBreaker.isAvailable()) {
+                listOf(Pair(mirrorUrl, 8_000L), Pair(officialUrl, 10_000L), Pair(officialUrl, 20_000L))
+            } else {
+                listOf(Pair(officialUrl, 10_000L), Pair(officialUrl, 20_000L))
+            }
+
+            var lastError: Exception? = null
+            for ((stepUrl, timeoutMs) in steps) {
+                val isMirror = stepUrl.startsWith(CURSEFORGE_API_MIRROR)
+                try {
+                    val httpClient = client.newBuilder()
+                        .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .build()
+                    val builder = Request.Builder().url(stepUrl)
+                    buildHeaders().forEach { (k, v) -> builder.header(k, v) }
+                    httpClient.newCall(builder.build()).execute().use { response ->
+                        val body = response.body?.string() ?: ""
+                        if (response.isSuccessful) {
+                            if (isMirror) MirrorCircuitBreaker.mirrorSuccess()
+                            cacheTtlMs?.let { ApiUrlCache.put(officialUrl, body, it) }
+                            return@withContext body
+                        }
+                        // 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
+                        if (response.code == 403 || response.code == 404) {
+                            if (!isMirror) throw Exception("CurseForge HTTP ${response.code}: ${body.take(200)}")
+                        } else if (isMirror) {
+                            MirrorCircuitBreaker.mirrorFailed()
+                        }
+                        lastError = Exception("CurseForge HTTP ${response.code}: ${body.take(200)}")
+                    }
+                } catch (e: Exception) {
+                    if (isMirror) MirrorCircuitBreaker.mirrorFailed()
+                    lastError = e
+                }
+            }
+            throw lastError ?: Exception("CurseForge 请求失败: $path")
         }
-    }
 
     /**
      * 搜索 CurseForge 资源。
@@ -90,7 +137,7 @@ object CurseForgeApi {
     ): ResourceSearchResult = withContext(Dispatchers.IO) {
         val classId = classIdForType(projectType) ?: return@withContext ResourceSearchResult()
 
-        val sb = StringBuilder("$CURSEFORGE_API/mods/search?gameId=432&classId=$classId")
+        val sb = StringBuilder("/mods/search?gameId=432&classId=$classId")
         if (query.isNotBlank()) sb.append("&searchFilter=${java.net.URLEncoder.encode(query, "UTF-8")}")
         // sortField: 1=featured,2=popularity,3=lastUpdated,4=name,5=authored
         sb.append("&sortField=").append(if (sort == "newest" || sort == "updated") 3 else 2)
@@ -100,9 +147,7 @@ object CurseForgeApi {
         loaderToId(loader)?.let { sb.append("&modLoaderType=$it") }
         if (gameVersion.isNotBlank()) sb.append("&gameVersion=${java.net.URLEncoder.encode(gameVersion, "UTF-8")}")
 
-        val body = execute(Request.Builder().url(sb.toString()).also { req ->
-            buildHeaders().forEach { (k, v) -> req.header(k, v) }
-        })
+        val body = executeWithMirror(sb.toString(), 60_000)
 
         val resp = gson.fromJson(body, CfSearchResponse::class.java)
         ResourceSearchResult(
@@ -140,9 +185,7 @@ object CurseForgeApi {
 
     /** 获取项目详情（映射为统一详情模型） */
     suspend fun getProjectDetail(modId: String): ResourceDetail = withContext(Dispatchers.IO) {
-        val body = execute(Request.Builder().url("$CURSEFORGE_API/mods/$modId").also { req ->
-            buildHeaders().forEach { (k, v) -> req.header(k, v) }
-        })
+        val body = executeWithMirror("/mods/$modId", null)
         val resp = gson.fromJson(body, CfSingleResponse::class.java)
         val mod = resp.data ?: throw Exception("CurseForge 项目不存在")
         ResourceDetail(
@@ -172,13 +215,11 @@ object CurseForgeApi {
         loader: String = "",
         gameVersion: String = ""
     ): List<ResourceVersion> = withContext(Dispatchers.IO) {
-        val sb = StringBuilder("$CURSEFORGE_API/mods/$modId/files?pageSize=100")
+        val sb = StringBuilder("/mods/$modId/files?pageSize=100")
         loaderToId(loader)?.let { sb.append("&modLoaderType=$it") }
         if (gameVersion.isNotBlank()) sb.append("&gameVersion=${java.net.URLEncoder.encode(gameVersion, "UTF-8")}")
 
-        val body = execute(Request.Builder().url(sb.toString()).also { req ->
-            buildHeaders().forEach { (k, v) -> req.header(k, v) }
-        })
+        val body = executeWithMirror(sb.toString(), null)
         val resp = gson.fromJson(body, CfFilesResponse::class.java)
         (resp.data ?: emptyList()).map { file ->
             val sha1 = (file.hashes ?: emptyList()).firstOrNull { it.algo == 1 }?.value ?: ""
@@ -230,9 +271,7 @@ object CurseForgeApi {
      */
     suspend fun getModfile(projectId: Int, fileId: Int): ResourceFile? = withContext(Dispatchers.IO) {
         try {
-            val body = execute(Request.Builder().url("$CURSEFORGE_API/mods/$projectId/files/$fileId").also { req ->
-                buildHeaders().forEach { (k, v) -> req.header(k, v) }
-            })
+            val body = executeWithMirror("/mods/$projectId/files/$fileId", null)
             val resp = gson.fromJson(body, CfSingleFileResponse::class.java)
             val file = resp.data ?: return@withContext null
             val sha1 = (file.hashes ?: emptyList()).firstOrNull { it.algo == 1 }?.value ?: ""

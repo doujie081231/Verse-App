@@ -21,6 +21,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.version.LoaderRepository
 import com.verse.explorer.app.domain.model.version.*
 import com.verse.explorer.app.ui.components.InstallFlowCard
+import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.install.InstallStage
@@ -56,6 +57,9 @@ fun VersionDetailScreen(
     var loaderError by remember { mutableStateOf<String?>(null) }
     var isLoadingVersions by remember { mutableStateOf(false) }
     var versionInfoText by remember { mutableStateOf("") }
+    // 命名弹窗（复刻 FCL）：确认下载时先弹窗确认版本名，再进入下载
+    var showNamingDialog by remember { mutableStateOf(false) }
+    var confirmedInstallName by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(selectedLoader) {
         if (selectedLoader.isNotEmpty()) {
@@ -336,16 +340,8 @@ fun VersionDetailScreen(
                         }
                         Button(
                             onClick = {
-                                viewModel.installVersion(
-                                    com.verse.explorer.core.version.MinecraftVersion(
-                                        id = versionId,
-                                        type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
-                                        url = versionUrl,
-                                        releaseTime = ""
-                                    ),
-                                    if (selectedLoader.isNotEmpty()) selectedLoader else null,
-                                    selectedLoaderVersion
-                                )
+                                // 先弹命名弹窗（复刻 FCL 命名逻辑），确认后再下载
+                                showNamingDialog = true
                             },
                             modifier = Modifier.weight(1.5f),
                             shape = RoundedCornerShape(8.dp),
@@ -382,12 +378,43 @@ fun VersionDetailScreen(
                             url = versionUrl,
                             releaseTime = ""
                         ),
+                        confirmedInstallName ?: versionId,
                         if (selectedLoader.isNotEmpty()) selectedLoader else null,
                         selectedLoaderVersion
                     )
                 }
             )
         }
+    }
+
+    // 下载前的版本命名弹窗（复刻 FCL）
+    if (showNamingDialog) {
+        VersionNamingDialog(
+            gameVersion = versionId,
+            selectedLoaderId = selectedLoader.takeIf { it.isNotEmpty() },
+            conflictsWith = {
+                // 已安装版本重名，或带加载器时与基础原版目录（真实 MC 版本号）同名：
+                // 后者会让实例 versions/<name>/ 覆盖基础版本目录，必须禁止
+                viewModel.versionIdConflicts(it) ||
+                    (selectedLoader.isNotEmpty() && it == versionId)
+            },
+            onDismiss = { showNamingDialog = false },
+            onConfirm = { name ->
+                showNamingDialog = false
+                confirmedInstallName = name
+                viewModel.installVersion(
+                    com.verse.explorer.core.version.MinecraftVersion(
+                        id = versionId,
+                        type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
+                        url = versionUrl,
+                        releaseTime = ""
+                    ),
+                    installName = name,
+                    loaderType = if (selectedLoader.isNotEmpty()) selectedLoader else null,
+                    loaderVersion = selectedLoaderVersion
+                )
+            }
+        )
     }
 }
 

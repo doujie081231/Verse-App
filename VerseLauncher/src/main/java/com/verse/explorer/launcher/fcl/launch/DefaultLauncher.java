@@ -126,14 +126,11 @@ public class DefaultLauncher extends Launcher {
 
         res.addDefault("-XX:ActiveProcessorCount=", String.valueOf(Runtime.getRuntime().availableProcessors()));
 
-        // 规避 aarch64 JIT 编译器 bug（与 JvmArgsBuilder 的修复对齐）：
-        // JDK 21/25 在 aarch64 上 C2 编译渲染相关热代码时可能触发
-        // "assembler_aarch64.hpp guarantee(val < (1ULL << nbits)) failed: Field too big for insn"
-        // 导致渲染线程启动期 libjvm.so 内 SIGSEGV（本机 26.2 + JDK 25 即复现此崩溃）。
-        // 限制 JIT 到 C1 可彻底规避。
-        if (options.getJava().getVersion() >= 21) {
-            res.add("-XX:TieredStopAtLevel=1");
-        }
+        // 已移除 -XX:TieredStopAtLevel=1（对齐 FCL）：
+        // FCL 1.3.3.5 全部 dex/原生库/资源里都没有该参数，即 FCL 保留 C2 完整 JIT。
+        // 本机 6 份 hs_err 崩溃报告均为 libjvm.so 内 SIGSEGV（空指针/启动期），
+        // 无一份是 C2 的 "assembler_aarch64 ... Field too big for insn" 断言；
+        // 而 C1-only 会让区块构建/光照等热循环慢数倍，造成加载区块卡顿。
 
         // 把 JVM 崩溃报告（hs_err_pid*.log）重定向到外部可访问目录，便于无 root 取回分析。
         try {
@@ -461,8 +458,18 @@ public class DefaultLauncher extends Launcher {
         File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 0);
         if (localLwjglJars == null || localLwjglJars.length == 0) return;
         Arrays.sort(localLwjglJars, Comparator.comparing(File::getName));
+        // 现代加载器（Forge/NeoForge 1.20.5+ / 26.x，mainClass 为 *bootstrap*）会把整个
+        // classpath 当作模块路径解析：lwjgl-lwjglx.jar（LWJGL2 兼容层，模块 org.lwjgl.lwjglx）
+        // 与 lwjgl-*-merged.jar（模块 org.lwjgl）都导出 org.lwjgl 包 → 分包冲突
+        // ResolutionException（ForgeBootstrap 实测）。LWJGL2 兼容层仅旧 MC（≤1.12）需要，
+        // 现代版本是 LWJGL3，直接剔除 lwjglx 避免模块解析冲突。
+        boolean modernModuleLoader = version.getMainClass() != null
+                && version.getMainClass().toLowerCase(Locale.ROOT).contains("bootstrap");
         Set<String> temp = new LinkedHashSet<>();
         for (File jar : localLwjglJars) {
+            if (modernModuleLoader && jar.getName().contains("lwjglx")) {
+                continue;
+            }
             temp.add(jar.getAbsolutePath());
         }
         for (String entry : classpath) {

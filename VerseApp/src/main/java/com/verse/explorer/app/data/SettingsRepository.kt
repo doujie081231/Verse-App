@@ -114,7 +114,7 @@ object SettingsRepository {
 
         private const val DEFAULT_GC_TYPE = "G1GC"
         private const val DEFAULT_CUSTOM_JVM_ARGS = ""
-        private const val DEFAULT_RENDERER = "gl4es"
+        private const val DEFAULT_RENDERER = "nggl4es"
         private const val DEFAULT_LAUNCH_METHOD = "pojav"
         private const val DEFAULT_BE_GESTURE = true
         private const val DEFAULT_VK_DRIVER_SYSTEM = false

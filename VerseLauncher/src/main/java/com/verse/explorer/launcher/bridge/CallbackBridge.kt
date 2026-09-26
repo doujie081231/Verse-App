@@ -33,7 +33,6 @@ object CallbackBridge {
 
     @JvmStatic
     fun sendCursorPos(x: Double, y: Double) {
-        android.util.Log.d("VerseX", "[Bridge] sendCursorPos($x,$y)")
         absoluteMouseX = x.toFloat()
         absoluteMouseY = y.toFloat()
         GlfwCallbackBridge.sendCursorPos(absoluteMouseX, absoluteMouseY)
@@ -41,7 +40,6 @@ object CallbackBridge {
 
     @JvmStatic
     fun sendCursorDelta(dx: Double, dy: Double) {
-        android.util.Log.d("VerseX", "[Bridge] sendCursorDelta($dx,$dy)")
         absoluteMouseX += dx.toFloat()
         absoluteMouseY += dy.toFloat()
         GlfwCallbackBridge.sendCursorPos(absoluteMouseX, absoluteMouseY)

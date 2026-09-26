@@ -6,6 +6,8 @@ import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -69,6 +71,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private lateinit var textureView: TextureView
     private var surface: Surface? = null
     private var graphicOutputShown = false
+    // 输入是否已安全启用：仅由真实首帧信号（onSurfaceTextureUpdated 第2帧 / atlas-blocks 日志）置位。
+    // 首次调用 CallbackBridge.nativeSetInputReady 会触发 org.lwjgl.glfw.CallbackBridge 类初始化
+    // （loadLibrary libpojavexec.so → JNI_OnLoad），必须在游戏 JVM 已 dlopen pojavexec 之后执行，
+    // 否则 UI 线程在 <clinit> 中再 FindClass 会触发 ART AssertNoPendingException 崩溃（见 2.1.17 崩堆栈）。
+    // 6 秒兜底只挂载 UI、不置位本标志，因此不会在 JVM 未就绪时触碰 JNI。
+    private var inputReady = false
     private var surfaceUpdateCount = 0
 
     /** FCL GameMenu.hitResultType：触控按下时由 refreshHitResultType 刷新，供 BUILD/FIGHT 手势判定 */
@@ -220,6 +228,21 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             )
 
             orchestrator.startLaunch()
+            // 画面就绪信号兜底：Surface 首帧信号（onSurfaceTextureUpdated）若未触发，
+            // 6 秒后仅隐藏加载遮罩，等待真实首帧信号再走完整 onGraphicOutput()。
+            // 不能在此调用 onGraphicOutput/setupTouchControls/setupInGameControlOverlay：
+            // 它们引用 org.lwjgl.glfw.CallbackBridge（physicalWidth/addGrabListener/nativeSetInputReady），
+            // 若游戏 JVM 尚未 dlopen pojavexec，UI 线程首次触发该类 <clinit> → JNI_OnLoad 内 FindClass
+            // → ART AssertNoPendingException 崩溃（2.1.17 崩堆栈：onCreate$lambda$9→onGraphicOutput→nativeSetInputReady）。
+            // 同时不置 graphicOutputShown：dispatchTouchEvent 在 false 时不向游戏转发触摸（安全）。
+            // JVM 出画面后 onSurfaceTextureUpdated 首帧自会走完整 onGraphicOutput()。
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!graphicOutputShown && !isFinishing && !isDestroyed) {
+                    VerseLogger.warn("画面就绪信号超时（6s），仅隐藏加载遮罩（输入/按钮待真实首帧信号）", "GameActivity")
+                    statusOverlay.hide()
+                    multiplayerEntryContainer?.visibility = View.VISIBLE
+                }
+            }, 6000)
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
             VerseLogger.error("GameActivity onCreate failed: ${e.message}\n${e.stackTraceToString()}")
@@ -340,8 +363,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         } catch (e: Throwable) {
             VerseLogger.error("orchestrator.release() failed: ${e.message}")
         }
-        CallbackBridge.nativeSetInputReady(false)
-        CallbackBridge.setFCLBridge(null)
+        // 仅当输入已安全启用过才复位：类从未初始化时调用会触发首次 loadLibrary（见 inputReady 注释）。
+        if (inputReady) {
+            CallbackBridge.nativeSetInputReady(false)
+            CallbackBridge.setFCLBridge(null)
+        }
         VerseLogger.close()
         super.onDestroy()
     }
@@ -369,47 +395,80 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 // 快捷输入框可见时让 EditText 正常接收焦点与键盘
                 return super.dispatchTouchEvent(ev)
             }
-            // Pojav 触控模块：触摸命中虚拟按键/摇杆时交给覆盖层消费，
-            // 其余区域直接转发给游戏（等价于 Pojav 中 MinecraftGLSurface 接住非按钮触摸）
-            if (isTouchOnVirtualControl(ev)) {
-                touchOverlay?.dispatchTouchEvent(ev)
-                return true
-            }
             // 双指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
             if (inGameControl?.isOverlayVisible() == true) {
                 return super.dispatchTouchEvent(ev)
             }
-            // 无遮挡的正常游戏态：在透传给游戏前检测双指下滑手势
-            if (inGameControl?.trackMultiTouch(ev) == true) {
+            // ===== Pojav/FCL 触控分流（手动，事件流完整） =====
+            // 手机触屏走普通 touch 事件（pointer capture 不影响触摸源）：
+            //   · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
+            //   · 空白区 → GameInputHandler（FCL FCLInput 移植），含 hasMoved：滑动过的
+            //     手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
+            //   · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
+            val gestureSkipIds = virtualControlPointerIndexes(ev)
+            if (inGameControl?.trackMultiTouch(ev, gestureSkipIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
                 inGameControl?.fireSwipe()
                 return true
             }
-            // FCL TouchPad CursorDisabled 分支：禁用左半屏触控（x <= screenW/2 不转发）
-            if (inputHandler.isGrabbing() && MenuSetting.isDisableLeftTouch
-                && ev.x <= resources.displayMetrics.widthPixels / 2f
-            ) {
-                return true
+            val buttonIndexes = virtualControlPointerIndexes(ev)
+            if (buttonIndexes.isNotEmpty()) {
+                touchOverlay?.dispatchTouchEvent(ev)
             }
-            VerseLogger.debug("TOUCH forward a=${ev.actionMasked} x=${ev.x.toInt()} y=${ev.y.toInt()}", "Input")
-            inputHandler.handleTouchEvent(ev)
+            val skipIds = mutableSetOf<Int>()
+            for (i in buttonIndexes) skipIds.add(ev.getPointerId(i))
+            diagDispatch(ev, buttonIndexes, skipIds)
+            if (skipIds.size < ev.pointerCount) {
+                if (inputHandler.isGrabbing() && MenuSetting.isDisableLeftTouch) {
+                    val mainIndex = (0 until ev.pointerCount)
+                        .firstOrNull { ev.getPointerId(it) !in skipIds } ?: 0
+                    if (ev.getX(mainIndex) <= resources.displayMetrics.widthPixels / 2f) {
+                        return true
+                    }
+                }
+                inputHandler.handleTouchEvent(ev, skipIds)
+            }
             return true
         }
-        VerseLogger.debug("TOUCH skip a=${ev.actionMasked} (not graphic output yet)", "Input")
         return super.dispatchTouchEvent(ev)
     }
 
-    /** 判断触摸点是否落在某个虚拟按键/摇杆上（Pojav ControlLayout 子控件区域内） */
-    private fun isTouchOnVirtualControl(ev: MotionEvent): Boolean {
-        val layout = controlLayout ?: return false
-        return runCatching {
-            layout.getButtonChildren().any { iface ->
-                val v = iface.getControlView() ?: return@any false
-                if (v.visibility != View.VISIBLE) return@any false
-                ev.rawX >= v.x && ev.rawX <= v.x + v.width &&
-                    ev.rawY >= v.y && ev.rawY <= v.y + v.height
+    /** 分流诊断日志节流（MOVE 采样，仅 logcat） */
+    private var lastDispatchDiagTime = 0L
+
+    /** 分流诊断：按钮跳过 / 是否进入 inputHandler / 左触控拦截（定位滑动跳屏根因） */
+    private fun diagDispatch(ev: MotionEvent, btnIdx: Set<Int>, skip: Set<Int>) {
+        val now = System.currentTimeMillis()
+        val isMove = ev.actionMasked == MotionEvent.ACTION_MOVE
+        if (isMove && now - lastDispatchDiagTime < 150) return
+        lastDispatchDiagTime = now
+        val grabbing = inputHandler.isGrabbing()
+        val disableLeft = MenuSetting.isDisableLeftTouch
+        val toInput = skip.size < ev.pointerCount
+        val mainIdx = (0 until ev.pointerCount).firstOrNull { ev.getPointerId(it) !in skip } ?: -1
+        val mainX = if (mainIdx >= 0) ev.getX(mainIdx).toInt() else -1
+        val leftSkip = toInput && grabbing && disableLeft && mainX <= resources.displayMetrics.widthPixels / 2
+        VerseLogger.debug("disp btn=$btnIdx skip=$skip cnt=${ev.pointerCount} toInput=$toInput grab=$grabbing leftDisable=$disableLeft mainX=$mainX leftSkip=$leftSkip", "TouchDiag")
+    }
+
+    /** 返回落在虚拟按钮上的指针 index 集合（逐指针判定，支持多指） */
+    private fun virtualControlPointerIndexes(ev: MotionEvent): Set<Int> {
+        val layout = controlLayout ?: return emptySet()
+        val buttons = runCatching { layout.getButtonChildren() }.getOrNull() ?: return emptySet()
+        val hit = mutableSetOf<Int>()
+        for (i in 0 until ev.pointerCount) {
+            val x = ev.getRawX(i)
+            val y = ev.getRawY(i)
+            for (iface in buttons) {
+                val v = iface.getControlView() ?: continue
+                if (v.visibility != View.VISIBLE) continue
+                if (x >= v.x && x <= v.x + v.width && y >= v.y && y <= v.y + v.height) {
+                    hit.add(i)
+                    break
+                }
             }
-        }.getOrDefault(false)
+        }
+        return hit
     }
 
     private fun isTouchOnMultiplayerButton(ev: MotionEvent): Boolean {
@@ -454,7 +513,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // FCL GameMenu.onLog：日志同时写入游戏内日志窗口（显示日志/自动显示日志开关控制）
         logWindow?.appendLog(log)
         // 兜底：部分版本日志不含 atlas/blocks，但仍以 Surface 首帧渲染为准（见 onSurfaceTextureUpdated）。
-        if (!graphicOutputShown && log.contains("atlas/blocks")) {
+        // 输入启用仅由真实信号置位（inputReady），避免在 JVM 未 dlopen pojavexec 时初始化 CallbackBridge JNI。
+        if (!inputReady && log.contains("atlas/blocks")) {
+            inputReady = true
             graphicOutputShown = true
             runOnUiThread { onGraphicOutput() }
         }
@@ -541,9 +602,42 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         hint.visibility = View.GONE
         panel.visibility = View.GONE
         inGameControl = overlay
-        // 演示遮罩：游戏画面出现后自动弹出提示
-        overlay.showHint()
-        VerseLogger.info("双指下滑遮罩 + 控制面板已挂载", "Control")
+        // 双指下滑手势已随 FCL 事件流迁移移除，演示遮罩一并去除（不再 showHint）
+        // ===== FCL MenuView 悬浮入口对应 =====
+        // 双指下滑手势已随 FCL 事件流迁移移除（正常游戏态不再拦截触摸），
+        // 控制面板改由右侧竖胶囊悬浮入口唤出（记忆规范：竖着的整个胶囊容器内放圆形图标按钮）。
+        val density = resources.displayMetrics.density
+        val menuEntryCapsule = FrameLayout(this).apply {
+            val dot = TextView(this@GameActivity).apply {
+                text = "≡"
+                setTextColor(Color.WHITE)
+                textSize = 18f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0x66F4F4F4.toInt())
+                    setStroke((1.5f * density).toInt(), 0xAAFFFFFF.toInt())
+                }
+                layoutParams = FrameLayout.LayoutParams(
+                    (44 * density).toInt(), (44 * density).toInt()
+                ).apply { gravity = Gravity.CENTER }
+            }
+            addView(dot)
+            setOnClickListener {
+                if (!MenuSetting.isLockMenuView) {
+                    inGameControl?.showPanel()
+                }
+            }
+            visibility = View.VISIBLE
+        }
+        addContentView(
+            menuEntryCapsule,
+            FrameLayout.LayoutParams(
+                (44 * density).toInt(), (44 * density).toInt(),
+                Gravity.RIGHT or Gravity.CENTER_VERTICAL
+            ).apply { rightMargin = (6 * density).toInt() }
+        )
+        VerseLogger.info("控制面板已挂载（悬浮入口 + 面板）", "Control")
     }
 
     /**
@@ -556,6 +650,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         try {
             Tools.init(this)
             LauncherPreferences.init(this)
+            // 照搬 Pojav Tools.updateWindowSize：触控布局坐标变量 ${bottom}/${screen_height}/${margin}
+            // 依赖 org.lwjgl.glfw.CallbackBridge.physicalWidth/Height（ControlData.getControlLayoutVariables）。
+            // 未设置时 bottom = 0 - height 为负，方向键（▲◀▶▼）被定位到屏幕外不可见。
+            org.lwjgl.glfw.CallbackBridge.physicalHeight = resources.displayMetrics.heightPixels
+            org.lwjgl.glfw.CallbackBridge.physicalWidth = resources.displayMetrics.widthPixels
 
             val surface = MinecraftGLSurface(this)
             surface.id = R.id.main_game_render_view
@@ -565,11 +664,32 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             controlLayout = layout
 
             val jsonPath = Tools.CTRLMAP_PATH + "/Default.json"
-            if (!java.io.File(jsonPath).exists()) {
-                CustomControls(this).save(jsonPath)
+            val defaultFile = java.io.File(jsonPath)
+            // Pojav 整套触控按钮布局迁移：优先从 APK assets 部署官方 default.json
+            // （来源 .pojav-src/app_pojavlauncher/src/main/assets/default.json，含 Keyboard/GUI/PRI/SEC/
+            // Mouse/Debug/Chat/Tab/3rd/▲◀▶▼/Inv/◇/⬛ 共 16 键）。一次性标记，之后保留用户自定义布局。
+            val pojavMark = java.io.File(Tools.CTRLMAP_PATH, ".pojav_default_v1")
+            if (!defaultFile.exists() || !pojavMark.exists()) {
+                runCatching {
+                    assets.open("game/default_controls.json").use { input ->
+                        defaultFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    pojavMark.writeText("pojav-default-v1")
+                    VerseLogger.info("已部署 Pojav 官方触控布局（16 键）到 $jsonPath", "Touch")
+                }.onFailure {
+                    VerseLogger.warn("部署 Pojav 官方布局失败，回退 CustomControls 生成: ${it.message}", "Touch")
+                    if (!defaultFile.exists()) {
+                        CustomControls(this).save(jsonPath)
+                    }
+                }
             }
             layout.loadLayout(jsonPath)
 
+            // ===== Pojav/FCL 触控架构 =====
+            // Pojav Touchpad view：虚拟鼠标 + GrabListener（isGrabbing 状态同步）。
+            // 触摸分发：手机触屏走普通 touch 事件（Activity dispatchTouchEvent 手动分流，
+            // 按钮→ControlLayout，空白→GameInputHandler=FCL FCLInput 移植）；
+            // 滑动转视角由指针捕获（captured pointer，isGrabbing 时）驱动。
             val touchpad = Touchpad(this, null)
             org.lwjgl.glfw.CallbackBridge.addGrabListener(touchpad)
 
@@ -653,7 +773,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         val s = Surface(surfaceTexture)
         surface = s
         if (::orchestrator.isInitialized) {
-            orchestrator.onSurfaceCreated(s)
+            orchestrator.onSurfaceCreated(s, surfaceTexture)
             orchestrator.onSurfaceChanged(width, height)
         }
     }
@@ -662,6 +782,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         VerseLogger.info("Surface texture size changed: ${width}x${height}")
         if (::orchestrator.isInitialized) {
             orchestrator.onSurfaceChanged(width, height)
+            // 照搬 FCL JVMActivity.onSurfaceTextureSizeChanged（L141-150）：
+            // 尺寸变化时同步 setDefaultBufferSize + pushEventWindow，保证窗口缩放不产生错位黑块
+            val bridge = orchestrator.fclBridge
+            if (bridge != null) {
+                val scaleFactor = MenuSetting.windowScale
+                var winWidth = ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
+                var winHeight = (height * scaleFactor).toInt()
+                if (FCLBridge.FORCE_RESOLUTION) {
+                    winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+                    winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+                }
+                surfaceTexture.setDefaultBufferSize(winWidth, winHeight)
+                // pushEventWindow 依赖游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge；只在游戏已运行
+                // （execute 完成、类已成功初始化）后推送，execute 前调用会污染类状态导致启动失败。
+                if (graphicOutputShown) {
+                    runCatching {
+                        bridge.pushEventWindow(winWidth, winHeight)
+                    }
+                }
+            }
         }
     }
 
@@ -679,9 +819,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // FCL 原版以 Surface 首帧渲染作为图形就绪信号（JVMActivity.onSurfaceTextureUpdated），
         // 此时 JVM 窗口已建立、开始出画面，才隐藏覆盖层并启用输入。
         // 跳过第一帧避免初始空帧误触发，从第二帧起判定。
-        if (!graphicOutputShown) {
+        // 仅当 inputReady 未置位时处理：6 秒兜底只挂 UI 不置位，真实首帧到达后仍会补发输入启用。
+        if (!inputReady) {
             surfaceUpdateCount++
             if (surfaceUpdateCount >= 2) {
+                inputReady = true
                 graphicOutputShown = true
                 onGraphicOutput()
             }

@@ -6,7 +6,69 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * 镜像源熔断状态（对齐 versepc2 download/mirror.rs）：
+ * 连续 3 次失败熔断 60 秒，熔断期间跳过镜像源，避免镜像异常拖慢列表加载。
+ */
+internal object MirrorCircuitBreaker {
+    private val fails = AtomicInteger(0)
+    private val downUntil = AtomicLong(0L)
+
+    fun isAvailable(): Boolean {
+        val until = downUntil.get()
+        if (until != 0L) {
+            if (System.currentTimeMillis() >= until) {
+                fails.set(0)
+                downUntil.set(0L)
+                return true
+            }
+            return false
+        }
+        return true
+    }
+
+    fun mirrorFailed() {
+        if (fails.incrementAndGet() >= 3) {
+            downUntil.set(System.currentTimeMillis() + 60_000)
+        }
+    }
+
+    fun mirrorSuccess() {
+        fails.set(0)
+        downUntil.set(0L)
+    }
+}
+
+/**
+ * 60 秒 TTL 内存缓存（对齐 versepc2 api/resources.rs 的 api_cache）：
+ * URL → body，超 2000 项清理过期项，命中缓存直接返回避免重复请求。
+ */
+internal object ApiUrlCache {
+    private class Entry(val body: String, val ts: Long)
+    private val map = ConcurrentHashMap<String, Entry>()
+
+    fun get(url: String, ttlMs: Long = 60_000): String? {
+        val e = map[url] ?: return null
+        if (System.currentTimeMillis() - e.ts > ttlMs) {
+            map.remove(url)
+            return null
+        }
+        return e.body
+    }
+
+    fun put(url: String, body: String, ttlMs: Long = 60_000) {
+        if (map.size > 2000) {
+            val now = System.currentTimeMillis()
+            map.entries.removeIf { now - it.value.ts > ttlMs * 2 }
+        }
+        map[url] = Entry(body, System.currentTimeMillis())
+    }
+}
 
 data class ModrinthSearchResult(
     val offset: Int,
@@ -156,19 +218,100 @@ data class ModrinthCategory(
 )
 
 object ModrinthApi {
-    // BMCLAPI 不支持 modrinth API 镜像（返回 404），直接使用官方 API
+    // 官方 API 与国内镜像（与 versepc2 src-tauri/src/api/resources.rs 完全一致；
+    // Modrinth 官方 API 国内 TTFB 慢，镜像 mod.mcimirror.top 优先）
     private const val MODRINTH_API = "https://api.modrinth.com/v2"
+    private const val MODRINTH_API_MIRROR = "https://mod.mcimirror.top/modrinth/v2"
+    /** CDN 图片镜像 host：cdn.modrinth.com / cdn-alt.modrinth.com 替换为该 host（versepc2 to_modrinth_cdn_mirror） */
+    private const val CDN_MIRROR_HOST = "mod.mcimirror.top"
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
     private val gson = GsonBuilder()
         .serializeNulls()
         .create()
 
-    private fun getApiBaseUrl(useMirror: Boolean): String = MODRINTH_API
+    /**
+     * 带镜像回退 + 60s 缓存的 JSON 请求（对齐 versepc2 fetch_json_with_mirror + cached_fetch_json）：
+     *   - 镜像可用时：镜像(8s) → 官方(10s) → 官方(20s)
+     *   - 镜像不可用（熔断）时：官方(10s) → 官方(20s)
+     *   - 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
+     *   - 镜像连续失败 3 次熔断 60s，期间只走官方，避免镜像异常拖慢列表
+     *   - [cacheTtlMs] 为 null 时不缓存（对齐 versepc2：仅 search 接口走 60s 缓存）
+     */
+    private suspend fun fetchWithMirror(path: String, useMirror: Boolean, cacheTtlMs: Long? = 60_000): String =
+        withContext(Dispatchers.IO) {
+            val officialUrl = "$MODRINTH_API$path"
+            val mirrorUrl = officialUrl.replace(MODRINTH_API, MODRINTH_API_MIRROR)
+
+            cacheTtlMs?.let {
+                ApiUrlCache.get(officialUrl, it)?.let { cached -> return@withContext cached }
+            }
+
+            val steps = if (useMirror && MirrorCircuitBreaker.isAvailable()) {
+                listOf(Pair(mirrorUrl, 8_000L), Pair(officialUrl, 10_000L), Pair(officialUrl, 20_000L))
+            } else {
+                listOf(Pair(officialUrl, 10_000L), Pair(officialUrl, 20_000L))
+            }
+
+            var lastError: Exception? = null
+            for ((stepUrl, timeoutMs) in steps) {
+                val isMirror = stepUrl.startsWith(MODRINTH_API_MIRROR)
+                try {
+                    // 每步用独立 callTimeout 的 client（共享连接池），对齐 versepc2 分步超时
+                    val httpClient = client.newBuilder()
+                        .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                        .build()
+                    val request = Request.Builder().url(stepUrl)
+                        .header("User-Agent", "VerseExplorerX/1.0")
+                        .header("Accept", "application/json")
+                        .build()
+                    httpClient.newCall(request).execute().use { response ->
+                        val body = response.body?.string() ?: throw Exception("Empty response")
+                        if (response.isSuccessful) {
+                            if (isMirror) MirrorCircuitBreaker.mirrorSuccess()
+                            cacheTtlMs?.let { ApiUrlCache.put(officialUrl, body, it) }
+                            return@withContext body
+                        }
+                        // 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
+                        if (response.code == 403 || response.code == 404) {
+                            if (!isMirror) throw Exception("HTTP ${response.code} for $stepUrl")
+                        } else if (isMirror) {
+                            MirrorCircuitBreaker.mirrorFailed()
+                        }
+                        lastError = Exception("HTTP ${response.code} for $stepUrl")
+                    }
+                } catch (e: Exception) {
+                    if (isMirror) MirrorCircuitBreaker.mirrorFailed()
+                    lastError = e
+                }
+            }
+            throw lastError ?: Exception("Failed to fetch from all sources")
+        }
+
+    /**
+     * 将 Modrinth CDN 图片地址替换为国内镜像（对齐 versepc2 to_modrinth_cdn_mirror），
+     * 避免 cdn.modrinth.com / cdn-alt.modrinth.com 在国内加载缓慢/失败。
+     */
+    private fun toCdnMirror(url: String): String {
+        return if (url.contains("cdn.modrinth.com")) {
+            url.replace("cdn.modrinth.com", CDN_MIRROR_HOST)
+        } else if (url.contains("cdn-alt.modrinth.com")) {
+            url.replace("cdn-alt.modrinth.com", CDN_MIRROR_HOST)
+        } else {
+            url
+        }
+    }
+
+    /** markdown 正文/画廊中的内嵌图片链接同样走 CDN 镜像 */
+    private fun applyCdnMirror(text: String): String {
+        return text
+            .replace("cdn.modrinth.com", CDN_MIRROR_HOST)
+            .replace("cdn-alt.modrinth.com", CDN_MIRROR_HOST)
+    }
 
     suspend fun searchProjects(
         query: String = "",
@@ -208,137 +351,44 @@ object ModrinthApi {
             params.add("facets=${java.net.URLEncoder.encode(facetsJson, "UTF-8")}")
         }
 
-        var lastException: Exception? = null
-        for (tryMirror in listOf(useMirror, false)) {
-            try {
-                val url = "${getApiBaseUrl(tryMirror)}/search?${params.joinToString("&")}"
-                val request = Request.Builder().url(url)
-                    .header("User-Agent", "VerseExplorerX/1.0")
-                    .header("Accept", "application/json")
-                    .build()
-
-                val response = client.newCall(request).execute()
-                try {
-                    val body = response.body?.string() ?: throw Exception("Empty response")
-                    if (response.isSuccessful) {
-                        val result = gson.fromJson(body, ModrinthSearchResult::class.java)
-                        // 替换 cdn.modrinth.com 为图片代理（国内可能无法直接访问）
-                        result.hits.forEach { hit ->
-                            hit.iconUrl?.let { url ->
-                                if (url.contains("cdn.modrinth.com")) {
-                                    val proxyUrl = url
-                                        .removePrefix("https://")
-                                        .removePrefix("http://")
-                                    hit.iconUrl = "https://images.weserv.nl/?url=$proxyUrl"
-                                }
-                            }
-                        }
-                        return@withContext result
-                    }
-                } finally {
-                    response.close()
-                }
-            } catch (e: Exception) {
-                lastException = e
-                continue
-            }
+        val body = fetchWithMirror("/search?${params.joinToString("&")}", useMirror, 60_000)
+        val result = gson.fromJson(body, ModrinthSearchResult::class.java)
+        // 替换 CDN 图片为国内镜像（对齐 versepc2：图片不再走国外代理）
+        result.hits.forEach { hit ->
+            hit.iconUrl?.let { url -> hit.iconUrl = toCdnMirror(url) }
         }
-        throw lastException ?: Exception("Failed to fetch from all sources")
+        result
     }
 
     suspend fun getProject(projectId: String, useMirror: Boolean = true): ModrinthProject = withContext(Dispatchers.IO) {
-        var lastException: Exception? = null
-        for (tryMirror in listOf(useMirror, false)) {
-            try {
-                val url = "${getApiBaseUrl(tryMirror)}/project/$projectId"
-                val request = Request.Builder().url(url)
-                    .header("User-Agent", "VerseExplorerX/1.0")
-                    .header("Accept", "application/json")
-                    .build()
-                val response = client.newCall(request).execute()
-                try {
-                    val body = response.body?.string() ?: throw Exception("Empty response")
-                    if (response.isSuccessful) {
-                        val project = gson.fromJson(body, ModrinthProject::class.java)
-                        project.iconUrl?.let { url ->
-                            if (url.contains("cdn.modrinth.com")) {
-                                val proxyUrl = url
-                                    .removePrefix("https://")
-                                    .removePrefix("http://")
-                                project.iconUrl = "https://images.weserv.nl/?url=$proxyUrl"
-                            }
-                        }
-                        return@withContext project
-                    }
-                } finally {
-                    response.close()
-                }
-            } catch (e: Exception) {
-                lastException = e
-                continue
-            }
+        val body = fetchWithMirror("/project/$projectId", useMirror, null)
+        val project = gson.fromJson(body, ModrinthProject::class.java)
+        project.iconUrl?.let { url -> project.iconUrl = toCdnMirror(url) }
+        // body 与画廊图片同样走 CDN 镜像（对齐 versepc2 handle_detail 的 to_modrinth_cdn_mirror）
+        if (project.body.isNotEmpty() || !project.gallery.isNullOrEmpty()) {
+            project.copy(
+                body = applyCdnMirror(project.body),
+                gallery = project.gallery?.takeIf { it.isNotEmpty() }?.map { it.copy(url = toCdnMirror(it.url)) }
+            )
+        } else {
+            project
         }
-        throw lastException ?: Exception("Failed to fetch project from all sources")
     }
 
     suspend fun getProjectVersions(projectId: String, useMirror: Boolean = true): List<ModrinthVersion> = withContext(Dispatchers.IO) {
-        var lastException: Exception? = null
-        for (tryMirror in listOf(useMirror, false)) {
-            try {
-                val url = "${getApiBaseUrl(tryMirror)}/project/$projectId/version"
-                val request = Request.Builder().url(url)
-                    .header("User-Agent", "VerseExplorerX/1.0")
-                    .header("Accept", "application/json")
-                    .build()
-                val response = client.newCall(request).execute()
-                try {
-                    val body = response.body?.string() ?: throw Exception("Empty response body for $url")
-                    if (response.isSuccessful) {
-                        val listType = object : com.google.gson.reflect.TypeToken<List<ModrinthVersion>>() {}.type
-                        // gson.fromJson 对空串/"null" 字面量返回 null（已本地复现），
-                        // 若放行到调用侧会变成"对 null 调 map"的 NPE（message=null），表现为版本列表静默为空。
-                        // 这里显式转成带信息的异常，方便日志/UI 定位网络层问题。
-                        val parsed: List<ModrinthVersion> = gson.fromJson(body, listType)
-                            ?: throw Exception("Modrinth 版本接口返回空 body (len=${body.length}, url=$url)")
-                        return@withContext parsed
-                    } else {
-                        throw Exception("HTTP ${response.code} for $url")
-                    }
-                } finally {
-                    response.close()
-                }
-            } catch (e: Exception) {
-                lastException = e
-                continue
-            }
-        }
-        throw lastException ?: Exception("Failed to fetch versions from all sources")
+        val body = fetchWithMirror("/project/$projectId/version", useMirror, null)
+        val listType = object : com.google.gson.reflect.TypeToken<List<ModrinthVersion>>() {}.type
+        // gson.fromJson 对空串/"null" 字面量返回 null（已本地复现），
+        // 若放行到调用侧会变成"对 null 调 map"的 NPE（message=null），表现为版本列表静默为空。
+        // 这里显式转成带信息的异常，方便日志/UI 定位网络层问题。
+        val parsed: List<ModrinthVersion> = gson.fromJson(body, listType)
+            ?: throw Exception("Modrinth 版本接口返回空 body (len=${body.length}, projectId=$projectId)")
+        parsed
     }
 
     suspend fun getTagCategories(useMirror: Boolean = true): List<ModrinthCategory> = withContext(Dispatchers.IO) {
-        var lastException: Exception? = null
-        for (tryMirror in listOf(useMirror, false)) {
-            try {
-                val url = "${getApiBaseUrl(tryMirror)}/tag/category"
-                val request = Request.Builder().url(url)
-                    .header("User-Agent", "VerseExplorerX/1.0")
-                    .header("Accept", "application/json")
-                    .build()
-                val response = client.newCall(request).execute()
-                try {
-                    val body = response.body?.string() ?: throw Exception("Empty response")
-                    if (response.isSuccessful) {
-                        val listType = object : com.google.gson.reflect.TypeToken<List<ModrinthCategory>>() {}.type
-                        return@withContext gson.fromJson(body, listType)
-                    }
-                } finally {
-                    response.close()
-                }
-            } catch (e: Exception) {
-                lastException = e
-                continue
-            }
-        }
-        throw lastException ?: Exception("Failed to fetch categories from all sources")
+        val body = fetchWithMirror("/tag/category", useMirror, 60_000)
+        val listType = object : com.google.gson.reflect.TypeToken<List<ModrinthCategory>>() {}.type
+        gson.fromJson(body, listType)
     }
 }

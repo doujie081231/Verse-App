@@ -703,7 +703,10 @@ class InGameControlOverlay(
             height = FCLBridge.FORCE_RESOLUTION_HEIGHT
         }
         bridge.surfaceTexture?.setDefaultBufferSize(width, height)
-        bridge.pushEventWindow(width, height)
+        // pushEventWindow 依赖游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge，可能未就绪，兜底捕获
+        runCatching {
+            bridge.pushEventWindow(width, height)
+        }
     }
 
     /** 发送键值对话框：SelectKeycodeDialog 的功能等价（多选键码 → 按下 50ms → 释放，FCL onClick 流程） */
@@ -978,25 +981,35 @@ class InGameControlOverlay(
      * 遮罩可见 / 面板可见 / 正常游戏态（GameActivity 分发前）三条路径共用，
      * 手势判定只依赖「两根手指整体下滑距离 ≥ 阈值」，不新增私有逻辑。
      */
-    fun trackMultiTouch(ev: MotionEvent): Boolean {
+    /** 双指下滑手势跟踪。skipPointerIds 为虚拟按钮指针（方向键/功能键）——
+     *  玩家"左手按方向键 + 右手滑动转视角"是标准操作，按钮指针必须排除，
+     *  否则一指定一指滑会被误判成双指下滑 → fireSwipe 弹出控制面板/打断滑动（视角抽搐）。 */
+    fun trackMultiTouch(ev: MotionEvent, skipPointerIds: Set<Int> = emptySet()): Boolean {
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pointerStart.clear()
                 pointerCurrent.clear()
                 multiSwipeFired = false
                 val id = ev.getPointerId(0)
-                pointerStart[id] = ev.getY(0)
-                pointerCurrent[id] = ev.getY(0)
+                if (id !in skipPointerIds) {
+                    pointerStart[id] = ev.getY(0)
+                    pointerCurrent[id] = ev.getY(0)
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = ev.actionIndex
                 val id = ev.getPointerId(index)
-                pointerStart[id] = ev.getY(index)
-                pointerCurrent[id] = ev.getY(index)
+                if (id !in skipPointerIds) {
+                    pointerStart[id] = ev.getY(index)
+                    pointerCurrent[id] = ev.getY(index)
+                }
             }
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until ev.pointerCount) {
-                    pointerCurrent[ev.getPointerId(i)] = ev.getY(i)
+                    val id = ev.getPointerId(i)
+                    if (id !in skipPointerIds) {
+                        pointerCurrent[id] = ev.getY(i)
+                    }
                 }
                 if (pointerStart.size >= 2 && !multiSwipeFired) {
                     var sum = 0f
@@ -1014,9 +1027,11 @@ class InGameControlOverlay(
             }
             MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
                 val id = ev.getPointerId(ev.actionIndex)
-                pointerCurrent.remove(id)
-                pointerStart.remove(id)
-                if (pointerStart.isEmpty()) multiSwipeFired = false
+                if (id !in skipPointerIds) {
+                    pointerCurrent.remove(id)
+                    pointerStart.remove(id)
+                    if (pointerStart.isEmpty()) multiSwipeFired = false
+                }
             }
         }
         return multiSwipeFired

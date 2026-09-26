@@ -1,5 +1,6 @@
 package com.verse.explorer.core.account
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
@@ -36,6 +37,8 @@ class MicrosoftAuthenticator {
     private val gson = Gson()
 
     companion object {
+        private const val TAG = "MsaLogin"
+
         private const val AUTHORITY = "https://login.microsoftonline.com"
         private const val CLIENT_ID = "00000000402b5328"
 
@@ -80,6 +83,7 @@ class MicrosoftAuthenticator {
      * 设备代码用于在单独的设备或浏览器上授权用户
      */
     suspend fun getDeviceCode(): DeviceCodeResponse = withContext(Dispatchers.IO) {
+        Log.i(TAG, "获取设备码: POST ${DEVICE_CODE_URL}（client_id=${CLIENT_ID}, scope=${SCOPES.joinToString(" ")}）")
         withRetry {
             val body = FormBody.Builder()
                 .add("client_id", CLIENT_ID)
@@ -87,15 +91,46 @@ class MicrosoftAuthenticator {
                 .build()
 
             val request = Request.Builder().url(DEVICE_CODE_URL).post(body).build()
-            client.newCall(request).execute().use { response ->
-                val json = parseJson(response.body?.string())
-                DeviceCodeResponse(
-                    userCode = json.get("user_code")?.asString ?: "",
-                    deviceCode = json.get("device_code")?.asString ?: "",
-                    verificationUri = json.get("verification_uri")?.asString ?: "",
-                    expiresIn = json.get("expires_in")?.asInt ?: 0,
-                    interval = json.get("interval")?.asInt ?: 5
-                )
+            try {
+                client.newCall(request).execute().use { response ->
+                    val raw = response.body?.string()
+                    Log.i(TAG, "获取设备码 HTTP ${response.code}（body 长度=${raw?.length}）")
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "获取设备码失败 HTTP ${response.code}: ${raw?.take(300)}")
+                        val errorJson = runCatching { parseJson(raw) }.getOrNull()
+                        throw AuthHttpException(
+                            httpStatus = response.code,
+                            errorCode = errorJson?.get("error")?.takeIf { !it.isJsonNull }?.asString,
+                            message = "获取设备码失败: HTTP ${response.code}"
+                        )
+                    }
+                    val json = parseJson(raw)
+                    val userCode = json.get("user_code")?.asString ?: ""
+                    val verificationUri = json.get("verification_uri")?.asString ?: ""
+                    val deviceCode = json.get("device_code")?.asString ?: ""
+                    val expiresIn = json.get("expires_in")?.asInt ?: 0
+                    val interval = json.get("interval")?.asInt ?: 5
+                    Log.i(
+                        TAG,
+                        "设备码返回: user_code=$userCode, verification_uri=${verificationUri.ifBlank { "<空!>" }}（长度=${verificationUri.length}）, " +
+                            "expires_in=${expiresIn}s, interval=${interval}s, device_code 存在=${deviceCode.isNotEmpty()}"
+                    )
+                    if (verificationUri.isBlank()) {
+                        Log.w(TAG, "verification_uri 为空！内置浏览器页将无地址可打开，登录必然失败")
+                    }
+                    DeviceCodeResponse(
+                        userCode = userCode,
+                        deviceCode = deviceCode,
+                        verificationUri = verificationUri,
+                        expiresIn = expiresIn,
+                        interval = interval
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "获取设备码网络异常: ${e.javaClass.simpleName} ${e.message}", e)
+                throw e
             }
         }
     }
@@ -115,6 +150,7 @@ class MicrosoftAuthenticator {
     ): TokenResponse = withContext(Dispatchers.IO) {
         var pollingInterval = codeResponse.interval * 1000L
         val expireTime = System.currentTimeMillis() + codeResponse.expiresIn * 1000L
+        Log.i(TAG, "开始轮询设备码授权: interval=${codeResponse.interval}s, expiresIn=${codeResponse.expiresIn}s（约 ${codeResponse.expiresIn / 60} 分钟内完成）")
 
         var cancelled = 0
         suspend fun checkIsReallyCancelled(): Boolean {
@@ -143,36 +179,48 @@ class MicrosoftAuthenticator {
                 consecutiveFailures = 0
 
                 if (json.get("token_type")?.asString == "Bearer") {
+                    Log.i(TAG, "轮询成功（第 $pollTime 次）：收到 Bearer 令牌")
                     return@withContext TokenResponse(
                         accessToken = json.get("access_token")?.asString ?: "",
                         refreshToken = json.get("refresh_token")?.takeIf { !it.isJsonNull }?.asString,
                         expiresIn = json.get("expires_in")?.asLong ?: 0
                     )
                 }
+                Log.d(TAG, "轮询 #$pollTime: 响应非 Bearer（token_type=${json.get("token_type")?.asString}），忽略继续")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AuthHttpException) {
                 when (e.errorCode) {
                     // 服务器正常响应，说明网络可用
-                    "authorization_pending" -> consecutiveFailures = 0 // 正常情况，继续轮询
+                    "authorization_pending" -> {
+                        consecutiveFailures = 0 // 正常情况，继续轮询
+                        Log.d(TAG, "轮询 #$pollTime: authorization_pending（等待用户在浏览器授权）")
+                    }
                     "slow_down" -> {
                         consecutiveFailures = 0
                         pollingInterval += 1000L
+                        Log.w(TAG, "轮询 #$pollTime: slow_down（服务器要求放慢，间隔调整为 ${pollingInterval / 1000}s）")
                     }
-                    else -> throw e
+                    else -> {
+                        Log.e(TAG, "轮询 #$pollTime 收到致命错误: error=${e.errorCode}, HTTP ${e.httpStatus}, msg=${e.message}")
+                        throw e
+                    }
                 }
             } catch (e: Exception) {
                 // 轮询期间的临时性错误（网络波动、DNS解析失败、服务器5xx、请求超时等）不应中断整个登录流程
                 // 只要设备码尚未过期，就继续轮询；但网络持续不可用时应提前放弃
                 consecutiveFailures++
+                Log.d(TAG, "轮询 #$pollTime 临时错误（$consecutiveFailures/$MAX_CONSECUTIVE_POLL_FAILURES）: ${e.javaClass.simpleName} ${e.message}")
                 if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES ||
                     System.currentTimeMillis() + pollingInterval >= expireTime
                 ) {
+                    Log.e(TAG, "轮询连续失败 $consecutiveFailures 次或接近过期，放弃轮询：$e")
                     throw e
                 }
             }
 
             if (checkIsReallyCancelled()) {
+                Log.w(TAG, "轮询被用户取消")
                 throw CancellationException("Authentication cancelled")
             }
 
@@ -180,6 +228,7 @@ class MicrosoftAuthenticator {
             delay(pollingInterval)
             ensureActive()
         }
+        Log.w(TAG, "设备码轮询超时（未在 expires_in 内完成授权），抛 AuthenticationTimeoutException")
         throw AuthenticationTimeoutException()
     }
 
@@ -266,10 +315,13 @@ class MicrosoftAuthenticator {
         }
 
         statusUpdate(AsyncStatus.GETTING_XBL_TOKEN)
+        Log.i(TAG, "认证链步骤: XBL（GETTING_XBL_TOKEN）")
         val xblToken = authenticateXBL(finalAccessToken)
         statusUpdate(AsyncStatus.GETTING_XSTS_TOKEN)
+        Log.i(TAG, "认证链步骤: XSTS（GETTING_XSTS_TOKEN）")
         val xstsToken = authenticateXSTS(xblToken.first, xblToken.second)
         statusUpdate(AsyncStatus.AUTHENTICATE_MINECRAFT)
+        Log.i(TAG, "认证链步骤: Minecraft 服务认证（AUTHENTICATE_MINECRAFT）")
         return authenticateMinecraft(xstsToken.first, xstsToken.second)
     }
 
@@ -279,6 +331,7 @@ class MicrosoftAuthenticator {
         update: (AsyncStatus) -> Unit
     ): Pair<String, String> {
         update(AsyncStatus.GETTING_ACCESS_TOKEN)
+        Log.i(TAG, "刷新令牌: POST ${LIVE_AUTH_URL}/oauth20_token.srf")
 
         return withRetry {
             val body = FormBody.Builder()
@@ -290,10 +343,12 @@ class MicrosoftAuthenticator {
             val request = Request.Builder().url("$LIVE_AUTH_URL/oauth20_token.srf").post(body).build()
             val response = client.newCall(request).execute()
             val responseBody = response.body?.string()
+            Log.i(TAG, "刷新令牌 HTTP ${response.code}（body 长度=${responseBody?.length}）")
             if (!response.isSuccessful) {
                 val json = runCatching { parseJson(responseBody) }.getOrNull()
                 val error = json?.get("error")?.asString
                 response.close()
+                Log.w(TAG, "刷新令牌失败: error=$error, HTTP=${response.code}, body=${responseBody?.take(200)}")
                 //刷新令牌已被撤销或失效，无法自动恢复
                 if (error == "invalid_grant") throw CredentialsExpiredException()
                 throw AuthHttpException(
@@ -327,6 +382,8 @@ class MicrosoftAuthenticator {
     }
 
     private fun requestXblToken(rpsTicket: String): Pair<String, String> {
+        // 不打印完整 RpsTicket（含 access token），仅打印结构
+        Log.i(TAG, "XBL 请求: POST $XBL_AUTH_URL/user/authenticate（RpsTicket 带 d= 前缀=${rpsTicket.startsWith("d=")}）")
         val properties = JsonObject().apply {
             addProperty("AuthMethod", "RPS")
             addProperty("SiteName", "user.auth.xboxlive.com")
@@ -344,6 +401,7 @@ class MicrosoftAuthenticator {
             .build()
 
         client.newCall(request).execute().use { response ->
+            if (response.code != 200) Log.w(TAG, "XBL HTTP ${response.code}（非 200）")
             val json = parseJsonOrThrow(response)
             //提取uhs
             val uhs = json.getAsJsonObject("DisplayClaims")
@@ -373,6 +431,7 @@ class MicrosoftAuthenticator {
 
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string()
+            Log.i(TAG, "XSTS POST $XSTS_AUTH_URL/xsts/authorize → HTTP ${response.code}")
             if (!response.isSuccessful) {
                 // XSTS 对账号类问题统一返回 4xx 及 XErr 错误码，
                 // 因此必须从异常响应体中解析 XErr，才能向用户展示真实的失败原因
@@ -380,6 +439,7 @@ class MicrosoftAuthenticator {
                 val xerr = errorJson?.get("XErr")?.takeIf { !it.isJsonNull }?.asLong
                 val status = xerr?.let { XERR_LOOKUP[it] }
                 if (status != null) throw XboxLoginException(status)
+                Log.w(TAG, "XSTS 认证失败: HTTP=${response.code}, XErr=$xerr, body=${responseBody?.take(200)}")
                 throw AuthHttpException(
                     httpStatus = response.code,
                     errorCode = null,
@@ -408,11 +468,13 @@ class MicrosoftAuthenticator {
 
         client.newCall(request).execute().use { response ->
             val responseBody = response.body?.string()
+            Log.i(TAG, "Minecraft 认证 POST $MINECRAFT_SERVICES_URL/authentication/login_with_xbox → HTTP ${response.code}")
             if (!response.isSuccessful) {
                 when (response.code) {
                     429 -> throw MinecraftProfileException(MinecraftProfileException.ExceptionStatus.FREQUENT)
                     403 -> throw MinecraftProfileException(MinecraftProfileException.ExceptionStatus.BLOCKED_IP)
                 }
+                Log.w(TAG, "Minecraft 认证失败: HTTP=${response.code}, body=${responseBody?.take(200)}")
                 throw AuthHttpException(
                     httpStatus = response.code,
                     errorCode = null,
@@ -439,9 +501,11 @@ class MicrosoftAuthenticator {
                 .get()
                 .build()
             client.newCall(request).execute().use { response ->
+                Log.i(TAG, "所有权校验 GET $MINECRAFT_SERVICES_URL/entitlements/mcstore → HTTP ${response.code}")
                 if (response.code != 200) throw NotPurchasedMinecraftException()
                 val json = parseJson(response.body?.string())
                 val items = json.getAsJsonArray("items")
+                Log.i(TAG, "所有权 items 数量=${items?.size()}")
                 if (items == null || items.size() == 0) throw NotPurchasedMinecraftException()
             }
         }
@@ -459,6 +523,7 @@ class MicrosoftAuthenticator {
             .build()
 
         client.newCall(request).execute().use { response ->
+            Log.i(TAG, "获取玩家档案 GET $MINECRAFT_SERVICES_URL/minecraft/profile → HTTP ${response.code}")
             if (!response.isSuccessful) {
                 if (response.code == 404) {
                     // 档案不存在时再查许可证，区分"没创建角色"和"没购买"
