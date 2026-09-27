@@ -65,9 +65,10 @@ class GameInstaller(private val context: Context) {
 
     // 专用于 assets 小文件下载的快速客户端（短超时，对齐 PC 端 30s 策略）
     private val fastHttpClient = downloadManager.httpClient.newBuilder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .dns(SmartDownloadClient.ipv4Only())
         .build()
 
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")

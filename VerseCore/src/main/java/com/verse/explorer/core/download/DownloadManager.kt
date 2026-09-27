@@ -61,9 +61,10 @@ class DownloadManager(
 ) {
     
     val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
+        .dns(SmartDownloadClient.ipv4Only())
         .retryOnConnectionFailure(true)
         .build()
     

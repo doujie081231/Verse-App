@@ -15,10 +15,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Dns
 import java.io.File
 import java.io.RandomAccessFile
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -47,11 +51,45 @@ class SmartDownloadClient(
         private const val TAG = "SmartDownload"
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .dns(ipv4Only())
             .retryOnConnectionFailure(true)
             .build()
+
+        /** 单源探测（probe）最大等待：快速剔除死源，避免拖住整个测速阶段 */
+        private const val PROBE_TIMEOUT_MS = 3_000L
+
+        /**
+         * IPv4-only 解析器（对齐 PCL 下载的 IPv4 遍历策略）：
+         * 设备处于 IPv6 无出站路由环境（如模拟器 fec0:: 黑洞、校园网某类 IPv6 半联通）时，
+         * OkHttp 按 DNS 返回顺序（AAAA 优先）连接会先挂满 connectTimeout 才回退 IPv4，
+         * 表现为"每个阶段卡一段时间"。直接只解析 A 记录，连接一步到 IPv4。
+         *
+         * 同时带 DNS 负缓存：对解析失败的 host（如 download.mcbbs.net 域名失效）记忆 60s，
+         * 直接抛 UnknownHostException 让其瞬时失败，避免每次请求都陷入系统 DNS 阻塞
+         * （Android getaddrinfo 对不可解析域名约 10s 超时，且 withTimeout 无法中断该阻塞）。
+         */
+        private val dnsFailCache = ConcurrentHashMap<String, Long>()
+
+        fun ipv4Only(): Dns = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> {
+                val failUntil = dnsFailCache[hostname] ?: 0L
+                if (System.currentTimeMillis() < failUntil) {
+                    throw java.net.UnknownHostException("$hostname: DNS fail cached")
+                }
+                return try {
+                    InetAddress.getAllByName(hostname).filterIsInstance<Inet4Address>().toList()
+                        .ifEmpty { listOfNotNull(InetAddress.getAllByName(hostname).firstOrNull()) }
+                } catch (e: Exception) {
+                    if (e is java.net.UnknownHostException) {
+                        dnsFailCache[hostname] = System.currentTimeMillis() + 60_000L
+                    }
+                    throw e
+                }
+            }
+        }
 
         /** 小文件竞速阈值：≤1MB */
         private const val RACE_FILE_SIZE_THRESHOLD = 1L * 1024 * 1024
@@ -183,57 +221,81 @@ class SmartDownloadClient(
 
     private suspend fun probeFileSize(urls: List<String>): Long {
         if (urls.isEmpty()) return -1L
-        return coroutineScope {
-            val deferreds = urls.map { url ->
-                async {
-                    try {
-                        val request = Request.Builder().url(url)
-                            .header("User-Agent", "VerseExplorerX/1.0")
-                            .header("Range", "bytes=0-0")
-                            .build()
+
+        // 对齐 probeMirrorsParallel：窗口超时收集，不被死源 DNS 解析拖住
+        val sizes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        val start = System.currentTimeMillis()
+
+        urls.forEach { url ->
+            scope.launch {
+                var size = -1L
+                try {
+                    val request = Request.Builder().url(url)
+                        .header("User-Agent", "VerseExplorerX/1.0")
+                        .header("Range", "bytes=0-0")
+                        .build()
+                    withTimeout(PROBE_TIMEOUT_MS) {
                         httpClient.newCall(request).execute().use { response ->
                             val contentRange = response.header("Content-Range")
-                            if (contentRange != null) {
+                            size = if (contentRange != null) {
                                 val match = Regex("""/(\d+)""").find(contentRange)
                                 match?.groupValues?.get(1)?.toLongOrNull() ?: -1L
                             } else {
                                 response.header("Content-Length")?.toLongOrNull() ?: -1L
                             }
                         }
-                    } catch (_: Exception) {
-                        -1L
                     }
+                } catch (_: Exception) {
+                    size = -1L
                 }
+                sizes[url] = size
             }
-            deferreds.map { it.await() }.maxOrNull() ?: -1L
         }
+
+        while (sizes.size < urls.size && System.currentTimeMillis() - start < PROBE_TIMEOUT_MS) {
+            delay(50)
+        }
+
+        return sizes.values.maxOrNull() ?: -1L
     }
 
     private suspend fun probeMirrorsParallel(urls: List<String>): List<String> {
         if (urls.size <= 1) return urls
-        val results = coroutineScope {
-            val deferreds = urls.map { url ->
-                async {
-                    val start = System.currentTimeMillis()
-                    try {
-                        val request = Request.Builder().url(url)
-                            .header("User-Agent", "VerseExplorerX/1.0")
-                            .header("Range", "bytes=0-0")
-                            .build()
+
+        // 对齐 PCL"不等慢源"：并行 probe，最多等 PROBE_TIMEOUT_MS 收集结果，
+        // 超时后直接返回已完成源（未完成/死源按 0 速度排最后），
+        // 避免某个源 DNS 解析阻塞（如 download.mcbbs.net 域失效约 10s）拖住整个测速阶段。
+        val results = java.util.concurrent.ConcurrentHashMap<String, Double>()
+        val start = System.currentTimeMillis()
+
+        urls.forEach { url ->
+            scope.launch {
+                val t0 = System.currentTimeMillis()
+                var speed = 0.0
+                try {
+                    val request = Request.Builder().url(url)
+                        .header("User-Agent", "VerseExplorerX/1.0")
+                        .header("Range", "bytes=0-0")
+                        .build()
+                    withTimeout(PROBE_TIMEOUT_MS) {
                         httpClient.newCall(request).execute().use { response ->
                             response.body?.byteStream()?.use { it.read(ByteArray(1)) }
                         }
-                        val elapsed = System.currentTimeMillis() - start
-                        val speed = if (elapsed > 0) 1000.0 / elapsed else 0.0
-                        url to speed
-                    } catch (_: Exception) {
-                        url to 0.0
                     }
+                    val elapsed = System.currentTimeMillis() - t0
+                    speed = if (elapsed > 0) 1000.0 / elapsed else 0.0
+                } catch (_: Exception) {
+                    speed = 0.0
                 }
+                results[url] = speed
             }
-            deferreds.map { it.await() }
         }
-        return results.sortedByDescending { it.second }.map { it.first }
+
+        while (results.size < urls.size && System.currentTimeMillis() - start < PROBE_TIMEOUT_MS) {
+            delay(50)
+        }
+
+        return urls.sortedByDescending { results[it] ?: 0.0 }
     }
 
     private suspend fun downloadRace(
@@ -282,7 +344,10 @@ class SmartDownloadClient(
         }
 
         val winnerIdx = try { winner.await() } catch (_: Exception) { -1 }
-        jobs.forEach { it.join() }
+
+        // 竞速：winner 已产生，其余任务（含 DNS 阻塞的死源）不再等待，
+        // 直接清理临时文件，避免被慢源拖住整个下载阶段。
+        jobs.forEach { it.cancel() }
 
         tempFiles.forEachIndexed { idx, file -> if (idx != winnerIdx) file.delete() }
 
