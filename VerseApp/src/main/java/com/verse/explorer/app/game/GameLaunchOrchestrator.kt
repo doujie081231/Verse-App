@@ -311,6 +311,7 @@ class GameLaunchOrchestrator(
         injectOnboardingSkip(repository, params.versionId)
         injectGameLanguage(repository, fclVersion)
         injectGraphicsBackend(repository, fclVersion)
+        dumpRenderOptions(repository, fclVersion, params)
         VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
         // 7) 等待 Surface（渲染窗口）
@@ -479,59 +480,96 @@ class GameLaunchOrchestrator(
     }
 
     /**
-     * 对齐 FCL 启动链的 options.txt 处理（FCLGameLauncher.generateOptionsTxt + LauncherHelper L232-234）：
-     * 1. options.txt 不存在时用 FCL 内置模板生成（渲染关键项：mipmapLevels:0、ao:false、
-     *    renderDistance:2 等）——Krypton/ngGL4es 在 Mali 上对 mipmap 自动生成不可靠，
-     *    强制 mipmapLevels:0 避免水体等材质贴图错乱（真机对照：FCL options.txt 即模板默认，水体正常）。
-     * 2. 每次启动无条件写 preferredGraphicsBackend="default"（LauncherHelper L232-234），
-     *    MC 26.2 据此选择图形后端（default=自动，本机仅 GLES 后端所以实际落 OpenGL）。
-     * 已有 options.txt（含用户设置）不覆盖模板项，仅补 backend。
+     * 对齐 FCL LauncherHelper L232-234 的 options.txt 处理：
+     * 每次启动无条件写 preferredGraphicsBackend="default"（MC 26.2 据此选择图形后端，
+     * 本机仅 GLES 后端所以实际落 OpenGL）。
+     * 注意：不整写旧版 options 模板——MC 26.2 的选项解析器对无引号旧格式行
+     * （fov:0.0/clouds:true 等）报 "Skipping bad option"，可能引发启动期异常；
+     * options.txt 首次由 MC 自行生成，这里只追加/更新 backend 键。
      */
     private fun injectGraphicsBackend(repository: DefaultGameRepository, version: Version) {
         runCatching {
             val runDir = repository.getRunDirectory(version.id)
             runDir.mkdirs()
             val optionsFile = File(runDir, "options.txt")
-
             if (!optionsFile.exists()) {
-                // FCL 内置模板（assets/options.txt）：渲染相关键与 FCL 完全一致
-                val template = """
-                    |fov:0.0
-                    |renderDistance:2
-                    |particles:1
-                    |bobView:false
-                    |anaglyph3d:false
-                    |advancedOpengl:false
-                    |maxFps:260
-                    |fboEnable:true
-                    |fancyGraphics:false
-                    |ao:false
-                    |clouds:true
-                    |snooperEnabled:true
-                    |enableVsync:false
-                    |pauseOnLostFocus:true
-                    |touchscreen:false
-                    |heldItemTooltips:true
-                    |showInventoryAchievementHint:false
-                    |mipmapLevels:0
-                """.trimMargin()
-                optionsFile.writeText(template)
-                VerseLogger.info("已用 FCL 模板生成 options.txt（mipmapLevels:0 等渲染键）", TAG)
+                optionsFile.writeText("")
             }
 
-            // 无条件写入 preferredGraphicsBackend（对齐 LauncherHelper，MC 26.2 图形后端选择）
             var content = optionsFile.readText()
-            val backendRegex = Regex("^preferredGraphicsBackend.*$", RegexOption.MULTILINE)
-            val backendLine = "preferredGraphicsBackend:\"default\""
-            content = if (backendRegex.containsMatchIn(content)) {
-                backendRegex.replace(content, backendLine)
-            } else {
-                content.trimEnd() + "\n" + backendLine + "\n"
-            }
+
+            // 无条件写 preferredGraphicsBackend（对齐 LauncherHelper，MC 26.2 图形后端选择）
+            content = setOption(content, "preferredGraphicsBackend", "\\\"default\\\"")
+
+            // 水体贴图错乱根因：FCL 手机 options.txt 显式 mipmapLevels:0（关闭 mipmap），
+            // Verse 缺失该键走 MC 默认 mipmapLevels:4，Mali-G925 + ng_gl4es 转译层下
+            // mipmap 采样对水体半透明材质处理异常 → 水体错乱。
+            // 对齐 FCL 一路用 low/off 画质（fancyGraphics:false / ao:false）避免 gl4es 混合问题。
+            content = setOption(content, "mipmapLevels", "0")
+            content = setOption(content, "fancyGraphics", "false")
+            content = setOption(content, "ao", "false")
+            // 闪烁 + 远近不一致：对齐 FCL 真机 enableVsync:false。
+            // 浮动水体半透明表面在 Mali-G925 + ng_gl4es 下随帧交换出现撕裂/花屏闪烁，
+            // FCL 关 vsync（FORCE_VSYNC=false）渲染，Verse 默认 enableVsync:true → 闪烁。
+            content = setOption(content, "enableVsync", "false")
+            // 远近水不一致 + 闪烁：FCL 真机 renderDistance:2（低视距，Mali 上远区水体
+            // 大量加载走 LOD/雾过渡产生花屏闪烁），Verse 默认 12 → 对齐 FCL 降到 2。
+            content = setOption(content, "renderDistance", "2")
+
             optionsFile.writeText(content)
-            VerseLogger.info("已注入 preferredGraphicsBackend=default", TAG)
+            VerseLogger.info("已注入 FCL 渲染兼容参数: preferredGraphicsBackend=default, mipmapLevels=0, fancyGraphics=false, ao=false, enableVsync=false, renderDistance=2", TAG)
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
+        }
+    }
+
+    /**
+     * options.txt 精确替换/追加单个键。value 为原始 options 行等号后的字面量（字符串需自带引号）。
+     * 只改目标键，不整写模板，规避 MC 26.2 对旧格式行 "Skipping bad option" 的启动期异常。
+     */
+    private fun setOption(content: String, key: String, value: String): String {
+        val regex = Regex("^$key:.*$", RegexOption.MULTILINE)
+        val line = "${key}:$value"
+        return if (regex.containsMatchIn(content)) {
+            regex.replace(content, line)
+        } else {
+            (if (content.trimEnd().isEmpty()) content else content.trimEnd() + "\n") + line + "\n"
+        }
+    }
+
+    /**
+     * 诊断：启动前 dump 实际生效的 options.txt 渲染参数（对照 FCL 手机 options.txt）。
+     * FCL 真机 26.2 options.txt 关键键：preferredGraphicsBackend:"default" / mipmapLevels:0 /
+     * renderDistance:2 / ao:false / fancyGraphics:false / graphicsPreset:"custom" / renderClouds:"true"。
+     * 若 Verse 侧这些键缺失或默认值过高（mipmap 开、视距大），即为水体贴图错乱/渲染失效的候选根因。
+     */
+    private fun dumpRenderOptions(repository: DefaultGameRepository, version: Version, params: GameLaunchParams) {
+        runCatching {
+            val runDir = repository.getRunDirectory(version.id)
+            val optionsFile = File(runDir, "options.txt")
+            if (!optionsFile.exists() || !optionsFile.isFile) {
+                VerseLogger.warn("[RENDER-DIAG] options.txt 不存在于 ${optionsFile.absolutePath}", TAG)
+                return@runCatching
+            }
+            val content = optionsFile.readText()
+            VerseLogger.info("[RENDER-DIAG] ==== options.txt (${optionsFile.absolutePath}) 完整内容 ====", TAG)
+            content.lineSequence().forEachIndexed { i, line ->
+                if (line.isNotBlank()) VerseLogger.info("[RENDER-DIAG] options[${i}] = $line", TAG)
+            }
+            VerseLogger.info("[RENDER-DIAG] ==== 与水体/渲染相关的键（缺失即默认） ====", TAG)
+            val keys = listOf(
+                "preferredGraphicsBackend", "mipmapLevels", "renderDistance", "simulationDistance",
+                "ao", "fancyGraphics", "graphicsPreset", "renderClouds", "particles", "gamma",
+                "entityShadows", "maxFps", "fullscreen"
+            )
+            keys.forEach { key ->
+                val m = Regex("(?m)^$key:(.*)$").find(content)
+                val v = m?.groupValues?.get(1)?.trim() ?: "<缺失/默认>"
+                VerseLogger.info("[RENDER-DIAG]   $key = $v", TAG)
+            }
+            VerseLogger.info("[RENDER-DIAG] 渲染: renderer=${params.renderer}, windowScale=${MenuSetting.windowScale}（窗口缩放实际尺寸见 [9/9 渲染接入] 行）", TAG)
+        }.onFailure {
+            VerseLogger.warn("[RENDER-DIAG] dump 渲染参数失败: ${it.message}", TAG)
         }
     }
 
