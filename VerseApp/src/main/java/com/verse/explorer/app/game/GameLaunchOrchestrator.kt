@@ -310,6 +310,7 @@ class GameLaunchOrchestrator(
         repository.refreshVersions()
         injectOnboardingSkip(repository, params.versionId)
         injectGameLanguage(repository, fclVersion)
+        injectGraphicsBackend(repository, fclVersion)
         VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
         // 7) 等待 Surface（渲染窗口）
@@ -474,6 +475,63 @@ class GameLaunchOrchestrator(
             optionsFile.writeText(content)
         }.onFailure {
             VerseLogger.warn("自动设置中文失败: ${it.message}", TAG)
+        }
+    }
+
+    /**
+     * 对齐 FCL 启动链的 options.txt 处理（FCLGameLauncher.generateOptionsTxt + LauncherHelper L232-234）：
+     * 1. options.txt 不存在时用 FCL 内置模板生成（渲染关键项：mipmapLevels:0、ao:false、
+     *    renderDistance:2 等）——Krypton/ngGL4es 在 Mali 上对 mipmap 自动生成不可靠，
+     *    强制 mipmapLevels:0 避免水体等材质贴图错乱（真机对照：FCL options.txt 即模板默认，水体正常）。
+     * 2. 每次启动无条件写 preferredGraphicsBackend="default"（LauncherHelper L232-234），
+     *    MC 26.2 据此选择图形后端（default=自动，本机仅 GLES 后端所以实际落 OpenGL）。
+     * 已有 options.txt（含用户设置）不覆盖模板项，仅补 backend。
+     */
+    private fun injectGraphicsBackend(repository: DefaultGameRepository, version: Version) {
+        runCatching {
+            val runDir = repository.getRunDirectory(version.id)
+            runDir.mkdirs()
+            val optionsFile = File(runDir, "options.txt")
+
+            if (!optionsFile.exists()) {
+                // FCL 内置模板（assets/options.txt）：渲染相关键与 FCL 完全一致
+                val template = """
+                    |fov:0.0
+                    |renderDistance:2
+                    |particles:1
+                    |bobView:false
+                    |anaglyph3d:false
+                    |advancedOpengl:false
+                    |maxFps:260
+                    |fboEnable:true
+                    |fancyGraphics:false
+                    |ao:false
+                    |clouds:true
+                    |snooperEnabled:true
+                    |enableVsync:false
+                    |pauseOnLostFocus:true
+                    |touchscreen:false
+                    |heldItemTooltips:true
+                    |showInventoryAchievementHint:false
+                    |mipmapLevels:0
+                """.trimMargin()
+                optionsFile.writeText(template)
+                VerseLogger.info("已用 FCL 模板生成 options.txt（mipmapLevels:0 等渲染键）", TAG)
+            }
+
+            // 无条件写入 preferredGraphicsBackend（对齐 LauncherHelper，MC 26.2 图形后端选择）
+            var content = optionsFile.readText()
+            val backendRegex = Regex("^preferredGraphicsBackend.*$", RegexOption.MULTILINE)
+            val backendLine = "preferredGraphicsBackend:\"default\""
+            content = if (backendRegex.containsMatchIn(content)) {
+                backendRegex.replace(content, backendLine)
+            } else {
+                content.trimEnd() + "\n" + backendLine + "\n"
+            }
+            optionsFile.writeText(content)
+            VerseLogger.info("已注入 preferredGraphicsBackend=default", TAG)
+        }.onFailure {
+            VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }
     }
 
