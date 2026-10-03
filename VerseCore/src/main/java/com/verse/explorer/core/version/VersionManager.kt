@@ -147,7 +147,7 @@ class VersionManager(private val gameDir: File) {
                 val jsonText = jsonFile.readText()
                 val version = gson.fromJson(jsonText, MinecraftVersion::class.java)
                 Log.d("VersionManager", "Loaded local version: ${version.id} (${version.type})")
-                version
+                version.copy(loaderHint = detectLoaderFromJson(jsonText))
             } catch (e: Exception) {
                 Log.w("VersionManager", "Failed to parse ${jsonFile.name}: ${e.message}")
                 null
@@ -163,6 +163,22 @@ class VersionManager(private val gameDir: File) {
         val versionsDir = GameConfig.getVersionsDir(gameDir)
         if (!versionsDir.exists() || !versionsDir.isDirectory) return false
         return versionsDir.listFiles { f -> f.isDirectory }?.any { it.name == id } == true
+    }
+
+    /**
+     * 从版本 json 原文识别加载器（覆盖库、inheritsFrom 与 patches 三处来源）。
+     * 顺序注意：neoforge/optifine/quilt 需先于 forge，因为 neoforge 库名含 "forge" 子串。
+     */
+    fun detectLoaderFromJson(jsonText: String): String? {
+        val t = jsonText.lowercase()
+        return when {
+            t.contains("neoforge") -> "neoforge"
+            t.contains("quilt-loader") || t.contains("org.quiltmc") -> "quilt"
+            t.contains("fabric") -> "fabric"
+            t.contains("optifine") -> "optifine"
+            t.contains("minecraftforge") || t.contains("liteloader") -> "forge"
+            else -> null
+        }
     }
 
     private fun hasInheritedJar(versionId: String, jsonFile: File, versionsDir: File): Boolean {

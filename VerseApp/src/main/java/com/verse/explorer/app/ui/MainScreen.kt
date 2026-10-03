@@ -6,9 +6,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -25,7 +23,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +33,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.verse.explorer.app.data.VersePersonalization
+import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.theme.VerseColors
+import android.net.Uri
 
 sealed class Screen(
     val route: String,
@@ -54,7 +54,7 @@ sealed class Screen(
     object Accounts : Screen("accounts", "账户", Icons.Outlined.Person, Icons.Filled.Person)
     object Settings : Screen("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings)
     object Java : Screen("java", "Java", Icons.Outlined.Code, Icons.Filled.Code)
-    object Console : Screen("console", "控制台", Icons.Outlined.Terminal, Icons.Filled.Terminal)
+    object Console : Screen("console", "问题反馈", Icons.Outlined.Feedback, Icons.Filled.Feedback)
 }
 
 private data class NavItem(
@@ -76,14 +76,13 @@ private val mainNavItems = listOf(
     ),
     NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "联机"),
     NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "账户"),
-    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置"),
-    NavItem(screen = Screen.Java, icon = Icons.Outlined.Code, label = "Java")
+    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置")
 )
 
 private val footerNavItem = NavItem(
     screen = Screen.Console,
-    icon = Icons.Outlined.Terminal,
-    label = "控制台"
+    icon = Icons.Outlined.Feedback,
+    label = "问题反馈"
 )
 
 private val allSidebarRoutes = mainNavItems
@@ -122,7 +121,9 @@ private val DetailPopExitTransition: ExitTransition =
 @Composable
 fun MainScreen(
     jreReady: Boolean = false,
-    onLaunchGame: (String?) -> Unit = {}
+    onLaunchGame: (String?) -> Unit = {},
+    shareImportUri: Uri? = null,
+    onShareImportHandled: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -147,10 +148,19 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）
-    Box(modifier = Modifier.fillMaxSize().background(VerseColors.PcGlassBg)) {
-        Box(modifier = Modifier.fillMaxSize()) {
-                NavHost(
+    // 自定义背景激活时降低玻璃 scrim 透明度，保证背景可见（无背景时维持原有外观）
+    val customBgActive = VersePersonalization.backgroundStyle != "none"
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 底层：用户自定义背景（图片/视频）
+        AppBackground(Modifier.fillMaxSize())
+        // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）
+        Box(modifier = Modifier.fillMaxSize().background(
+            if (customBgActive) VerseColors.PcGlassBg.copy(alpha = 0.60f)
+            else VerseColors.PcGlassBg
+        )) {
+        // 【临时验证版】移除液态玻璃采样源标记
+        NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
             modifier = Modifier.fillMaxSize(),
@@ -168,7 +178,13 @@ fun MainScreen(
             composable(Screen.Settings.route) { SettingsScreen(navController) }
             composable(Screen.Accounts.route) { AccountsScreen(navController) }
             composable(Screen.Lan.route) { LanScreen(navController) }
-            composable(Screen.Java.route) { JavaScreen(navController) }
+            composable(
+                Screen.Java.route,
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { JavaScreen(navController) }
             composable(Screen.Console.route) { ConsoleScreen(navController) }
             composable(
                 "installed_versions",
@@ -247,7 +263,7 @@ fun MainScreen(
             }
         }
 
-        // 悬浮圆形导航（最上层图层，不占页面布局，页面内容全宽居中）
+        // 悬浮圆形导航（最上层图层，不占页面布局）
         if (showSidebar) {
             FloatingNavOverlay(
                 navController = navController,
@@ -255,6 +271,12 @@ fun MainScreen(
             )
         }
         }
+        // 外部分享导入整合包（微信等 ACTION_SEND → 命名 → FCL 安装链路），
+        // 挂在导航外层：无论当前处于哪个页面，分享导入弹窗都能弹出
+        ModpackImportFlow(
+            importSource = shareImportUri,
+            onHandled = onShareImportHandled
+        )
     }
 }
 
@@ -288,6 +310,7 @@ private fun FloatingNavOverlay(
         }
     }
 
+    // 【临时验证版】移除液态玻璃 drawBackdrop，恢复普通半透明面板
     Box(modifier = Modifier.fillMaxSize()) {
         // 面板展开时：面板外的空白区域点击收起
         if (expanded) {
@@ -307,10 +330,8 @@ private fun FloatingNavOverlay(
                 .statusBarsPadding()
                 .padding(start = 12.dp, top = 8.dp)
                 .size(40.dp)
-                .shadow(8.dp, CircleShape)
                 .clip(CircleShape)
-                .background(VerseColors.PcBgCard.copy(alpha = 0.94f))
-                .border(1.dp, VerseColors.PcBorder.copy(alpha = 0.6f), CircleShape)
+                .background(VerseColors.PcBgCard.copy(alpha = 0.85f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -326,12 +347,13 @@ private fun FloatingNavOverlay(
         }
 
         // 展开容器：竖着的整个胶囊容器（两端半圆），图标按钮放里面，从按钮处向下划出
+        // 胶囊宽 56dp、按钮宽 40dp，胶囊左偏移取 4dp 使两者水平中心对齐（按钮中心 x=12+20=32=4+28）
         AnimatedVisibility(
             visible = expanded,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding()
-                .padding(start = 12.dp, top = 56.dp),
+                .padding(start = 4.dp, top = 56.dp),
             enter = expandVertically(
                 animationSpec = tween(220, easing = FastOutSlowInEasing),
                 expandFrom = Alignment.Top
@@ -341,16 +363,16 @@ private fun FloatingNavOverlay(
                 shrinkTowards = Alignment.Top
             ) + fadeOut(tween(120))
         ) {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = VerseColors.PcBgCard.copy(alpha = 0.95f),
-                border = BorderStroke(1.dp, VerseColors.PcBorder.copy(alpha = 0.6f)),
-                shadowElevation = 10.dp
+            Box(
+                modifier = Modifier
+                    .width(56.dp)
+                    .heightIn(max = 500.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(VerseColors.PcBgCard.copy(alpha = 0.85f))
             ) {
                 Column(
                     modifier = Modifier
-                        .width(56.dp)
-                        .heightIn(max = 500.dp)
+                        .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -429,7 +451,7 @@ private fun FloatingNavOverlay(
     }
 }
 
-/** 胶囊容器内的主图标按钮（圆形，只放图标） */
+/** 胶囊容器内的主图标按钮（圆形，只放图标）：对齐官方 LiquidBottomTab，内部内容为普通圆角面板，玻璃由胶囊容器统一提供 */
 @Composable
 private fun NavCircleButton(
     icon: ImageVector,
@@ -441,11 +463,12 @@ private fun NavCircleButton(
         modifier = Modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(if (isActive) VerseColors.PcAccent else VerseColors.PcBgTertiary)
-            .border(
-                1.dp,
-                if (isActive) VerseColors.PcAccent.copy(alpha = 0.6f) else VerseColors.PcBorder.copy(alpha = 0.5f),
-                CircleShape
+            .background(
+                if (isActive) {
+                    VerseColors.PcAccent.copy(alpha = 0.85f)
+                } else {
+                    VerseColors.PcBgTertiary.copy(alpha = 0.55f)
+                }
             )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -463,7 +486,7 @@ private fun NavCircleButton(
     }
 }
 
-/** 胶囊容器内的子图标按钮（资源子页面，更小一圈） */
+/** 胶囊容器内的子图标按钮（资源子页面，更小一圈）：对齐官方，普通圆角面板 */
 @Composable
 private fun NavCircleMini(
     icon: ImageVector,
@@ -475,7 +498,13 @@ private fun NavCircleMini(
         modifier = Modifier
             .size(32.dp)
             .clip(CircleShape)
-            .background(if (isActive) VerseColors.PcAccent.copy(alpha = 0.5f) else VerseColors.PcBgSecondary)
+            .background(
+                if (isActive) {
+                    VerseColors.PcAccent.copy(alpha = 0.8f)
+                } else {
+                    VerseColors.PcBgSecondary.copy(alpha = 0.5f)
+                }
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

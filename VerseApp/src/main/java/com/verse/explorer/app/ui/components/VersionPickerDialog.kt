@@ -96,7 +96,8 @@ fun VersionPickerDialog(
                                     if (it) selected.add(version.id) else selected.remove(version.id)
                                 },
                                 colors = CheckboxDefaults.colors(
-                                    checkedColor = VerseColors.PcAccent
+                                    checkedColor = VerseColors.PcAccent,
+                                    checkmarkColor = VerseColors.PcAccentText
                                 )
                             )
                             // 各版本对应图标（与版本列表一致：正式版草方块 / 快照与特殊圆石 / 旧版）

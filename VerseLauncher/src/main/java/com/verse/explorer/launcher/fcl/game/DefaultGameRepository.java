@@ -85,6 +85,14 @@ public class DefaultGameRepository implements GameRepository {
         return versions.values();
     }
 
+    /** 版本隔离：true（默认）= 运行目录为 versions/<id>；false = 游戏根目录 */
+    private volatile boolean runDirectoryIsolated = true;
+
+    /** 版本级设置注入：关闭该版本的运行目录隔离 */
+    public void setRunDirectoryIsolated(boolean isolated) {
+        this.runDirectoryIsolated = isolated;
+    }
+
     @Override
     public File getVersionRoot(String id) {
         return new File(getBaseDirectory(), "versions/" + id);
@@ -92,9 +100,13 @@ public class DefaultGameRepository implements GameRepository {
 
     @Override
     public File getRunDirectory(String id) {
-        // ZL2 式版本隔离（对应 ZL2 Version.getGameDir 的 isIsolation 分支）：
-        // 运行目录固定为 versions/<id>，mods/saves/resourcepacks/shaderpacks 等随版本存放。
-        // 该值同时作为 FCLConfig.workingDir（bridge.chdir 的工作目录）与 ${game_directory} 参数。
+        // 版本隔离（对应 FCL VersionSetting.isIsolateGameDir → FCLGameRepository.getRunDirectory
+        // 的两种目录类型）：开启时运行目录为 versions/<id>，mods/saves/resourcepacks/shaderpacks
+        // 等随版本存放；关闭时回到游戏根目录。该值同时作为 FCLConfig.workingDir
+        // （bridge.chdir 的工作目录）与 ${game_directory} 参数。
+        if (!runDirectoryIsolated) {
+            return getBaseDirectory();
+        }
         return getVersionRoot(id);
     }
 

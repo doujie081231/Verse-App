@@ -29,7 +29,9 @@ import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.components.PageHeader
-import com.verse.explorer.app.ui.components.PcCompactSelect
+import com.verse.explorer.app.ui.components.PcCompactSearchField
+import com.verse.explorer.app.ui.components.PcCompactFilterBar
+import com.verse.explorer.app.ui.components.PcFilterSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -60,54 +62,22 @@ fun ShadersScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 0.dp)
+                .padding(top = 54.dp)
         ) {
-            PageHeader(title = "光影包管理", compact = true)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            PcCompactFilterBar(
+                selects = listOf(
+                    PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
+                ),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedTextField(
+                PcCompactSearchField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text("搜索光影包...", color = VerseColors.PcTextMuted, fontSize = 13.sp)
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.Search,
-                            contentDescription = null,
-                            tint = VerseColors.PcTextMuted,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(
-                                    Icons.Outlined.Clear,
-                                    contentDescription = null,
-                                    tint = VerseColors.PcTextMuted,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(40.dp),
-                    textStyle = TextStyle(fontSize = 13.sp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VerseColors.PcAccent,
-                        unfocusedBorderColor = VerseColors.PcBorder,
-                        focusedContainerColor = VerseColors.PcBgTertiary,
-                        unfocusedContainerColor = VerseColors.PcBgTertiary,
-                        focusedTextColor = VerseColors.PcTextPrimary,
-                        unfocusedTextColor = VerseColors.PcTextPrimary,
-                        cursorColor = VerseColors.PcAccent
-                    )
+                    placeholder = "搜索光影包...",
+                    onSearch = { viewModel.search(searchQuery) },
+                    modifier = Modifier.weight(1.2f)
                 )
 
                 GlassCard(
@@ -125,21 +95,6 @@ fun ShadersScreen(
                         )
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 对齐 versepc2 mod-filter-bar：分类改为紧凑下拉，一行即可
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PcCompactSelect(
-                    value = uiState.selectedSource.ifEmpty { "全部" },
-                    options = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge"),
-                    onSelect = { viewModel.setSelectedSource(it) },
-                    modifier = Modifier.width(150.dp)
-                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))

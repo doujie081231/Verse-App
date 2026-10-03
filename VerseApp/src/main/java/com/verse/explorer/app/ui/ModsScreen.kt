@@ -29,7 +29,9 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
-import com.verse.explorer.app.ui.components.PcCompactSelect
+import com.verse.explorer.app.ui.components.PcCompactSearchField
+import com.verse.explorer.app.ui.components.PcCompactFilterBar
+import com.verse.explorer.app.ui.components.PcFilterSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -72,7 +74,6 @@ fun ModsScreen(
 
     val loaders = listOf("全部", "Fabric", "Forge", "NeoForge", "Quilt")
     val gameVersions = listOf("全部", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5")
-    val sources = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge")
 
     Box(
         modifier = Modifier
@@ -82,81 +83,24 @@ fun ModsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 0.dp)
+                .padding(top = 54.dp)
         ) {
-            PageHeader(title = "模组管理", compact = true)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            PcCompactFilterBar(
+                selects = listOf(
+                    PcFilterSelect(uiState.selectedLoader, loaders.map { it to it }) { viewModel.setSelectedLoader(it) },
+                    PcFilterSelect(uiState.selectedVersion, gameVersions.map { it to it }) { viewModel.setSelectedVersion(it) },
+                    PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
+                ),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedTextField(
+                PcCompactSearchField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text("搜索模组...", color = VerseColors.PcTextMuted, fontSize = 13.sp)
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Search, null, tint = VerseColors.PcTextMuted, modifier = Modifier.size(14.dp))
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = {
-                                searchQuery = ""
-                                viewModel.search("")
-                            }) {
-                                Icon(Icons.Outlined.Clear, null, tint = VerseColors.PcTextMuted, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(40.dp),
-                    textStyle = TextStyle(fontSize = 13.sp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VerseColors.PcAccent,
-                        unfocusedBorderColor = VerseColors.PcBorder,
-                        focusedContainerColor = VerseColors.PcBgTertiary,
-                        unfocusedContainerColor = VerseColors.PcBgTertiary,
-                        focusedTextColor = VerseColors.PcTextPrimary,
-                        unfocusedTextColor = VerseColors.PcTextPrimary,
-                        cursorColor = VerseColors.PcAccent
-                    ),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                        onSearch = {
-                            viewModel.search(searchQuery)
-                            keyboardController?.hide()
-                        }
-                    )
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 对齐 versepc2 mod-filter-bar：筛选改为紧凑下拉并排成一行，省纵向空间
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                PcCompactSelect(
-                    value = uiState.selectedLoader,
-                    options = loaders.map { it to it },
-                    onSelect = { viewModel.setSelectedLoader(it) },
-                    modifier = Modifier.weight(1f)
-                )
-                PcCompactSelect(
-                    value = uiState.selectedVersion,
-                    options = gameVersions.map { it to it },
-                    onSelect = { viewModel.setSelectedVersion(it) },
-                    modifier = Modifier.weight(1f)
-                )
-                PcCompactSelect(
-                    value = uiState.selectedSource.ifEmpty { "全部" },
-                    options = sources,
-                    onSelect = { viewModel.setSelectedSource(it) },
-                    modifier = Modifier.weight(1f)
+                    placeholder = "搜索模组...",
+                    onSearch = { viewModel.search(searchQuery) },
+                    modifier = Modifier.weight(1.2f)
                 )
             }
 

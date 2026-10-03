@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.VersionSettingsRepository
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.core.config.GameConfig
@@ -63,11 +64,34 @@ class GameLaunchController(private val context: Context) {
                 val phaseSteps = launchCheck(versionId) ?: return@launch
                 val (account, version, bestRuntime, javaVersion, javaHome, steps) = phaseSteps
 
-                val maxMemory = resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory())
+                // 版本级设置（FCL VersionSetting 语义）：未启用独立设置时全部读全局
+                val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
+                val verIndependent = !verSettings.usesGlobal
+
+                // 内存：版本级手动分配时用版本设定值，否则走全局 + FCL 自动分配算法
+                val maxMemory = if (verIndependent && !verSettings.autoMemory && verSettings.maxMemory > 0) {
+                    verSettings.maxMemory
+                } else {
+                    resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory())
+                }
+                val minMemory = if (verIndependent && !verSettings.autoMemory && verSettings.minMemory > 0) {
+                    verSettings.minMemory
+                } else {
+                    settingsRepo.getMinMemory()
+                }
                 val gcType = settingsRepo.getGcType()
-                val renderer = resolveRendererForVersion(resolveMinecraftVersionForJudgement(version.id), settingsRepo.getRenderer())
+                val renderer = resolveRendererForVersion(
+                    resolveMinecraftVersionForJudgement(version.id),
+                    if (verIndependent && verSettings.renderer.isNotBlank()) verSettings.renderer
+                    else settingsRepo.getRenderer()
+                )
+                val customJvmArgs = if (verIndependent) verSettings.javaArgs else settingsRepo.getCustomJvmArgs()
                 val launchMethod = settingsRepo.getLaunchMethod()
-                VerseLogger.info("Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer", "LaunchController")
+                VerseLogger.info(
+                    "Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer " +
+                        "VerSetting:${if (verIndependent) "independent" else "global"}",
+                    "LaunchController"
+                )
 
                 steps[steps.lastIndex] = LaunchStep("构建参数", "完成", "check")
                 val finalSteps = steps + LaunchStep("启动游戏", "准备中...", "play")
@@ -89,9 +113,9 @@ class GameLaunchController(private val context: Context) {
                     putExtra("librariesDir", GameConfig.getLibrariesDir(gameDir).absolutePath)
                     putExtra("nativesDir", GameConfig.getNativesDir(gameDir).absolutePath)
                     putExtra("maxMemory", maxMemory)
-                    putExtra("minMemory", settingsRepo.getMinMemory())
+                    putExtra("minMemory", minMemory)
                     putExtra("gcType", gcType)
-                    putExtra("customJvmArgs", settingsRepo.getCustomJvmArgs())
+                    putExtra("customJvmArgs", customJvmArgs)
                     putExtra("width", settingsRepo.getGameWidth())
                     putExtra("height", settingsRepo.getGameHeight())
                     putExtra("renderer", renderer)
@@ -259,7 +283,23 @@ class GameLaunchController(private val context: Context) {
             VerseLogger.info("需要 Java: ${recommendedJava.displayName}", "Launch")
 
             val installedRuntimes = JavaRuntimeManager.getInstalledRuntimes(context)
-            var bestRuntime = selectBestRuntime(installedRuntimes, recommendedJava.majorVersion)
+            // 版本级定向 Java（FCL VersionSetting.java）：指定了具体运行时则优先使用，
+            // 找不到时回退自动选择并告警
+            val verSettingsForJava = versionId?.let {
+                VersionSettingsRepository(context).getVersionSettings(it)
+            }
+            var bestRuntime: com.verse.explorer.core.java.JavaRuntime? = null
+            if (verSettingsForJava != null && !verSettingsForJava.usesGlobal &&
+                verSettingsForJava.java != VersionSettingsRepository.JAVA_AUTO
+            ) {
+                bestRuntime = installedRuntimes.find { it.name == verSettingsForJava.java }
+                if (bestRuntime == null) {
+                    VerseLogger.warn("定向 Java ${verSettingsForJava.java} 未安装，回退自动选择", "Launch")
+                }
+            }
+            if (bestRuntime == null) {
+                bestRuntime = selectBestRuntime(installedRuntimes, recommendedJava.majorVersion)
+            }
 
             if (bestRuntime == null) {
                 VerseLogger.warn("JRE ${recommendedJava.displayName} 未安装，尝试自动安装...", "Launch")
@@ -302,7 +342,14 @@ class GameLaunchController(private val context: Context) {
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在验证游戏文件...")
         delay(200)
 
-        if (cachedVersion == null) {
+        // FCL isNotCheckGame：跳过游戏文件完整性检查以加快启动（版本级设置优先）
+        val notCheckGame = versionId?.let {
+            val vs = VersionSettingsRepository(context).getVersionSettings(it)
+            if (!vs.usesGlobal) vs.notCheckGame else null
+        } ?: settingsRepo.getNotCheckGame()
+        if (notCheckGame) {
+            steps[stepIdx] = LaunchStep("文件检查", "跳过 (未检查)", "skip")
+        } else if (cachedVersion == null) {
             steps[stepIdx] = LaunchStep("文件检查", "跳过 (版本缺失)", "skip")
         } else {
             val versionDir = File(gameDir, "versions/${cachedVersion.id}")

@@ -21,6 +21,11 @@ object FclCoreHost {
     fun init(context: Context) {
         com.tungsten.fcl.FCLApp.attach(context)
 
+        // fclcore 静态初始化（如 CurseForgeRemoteModRepository.<clinit> 读 apiKey）和
+        // FCLBridge 剪贴板等直接取 FCLPath.CONTEXT；setPaths 不写 CONTEXT，需在此补齐，
+        // 否则整合包下载/游戏内剪贴板路径会拿到 null Context 崩溃。
+        com.tungsten.fclauncher.utils.FCLPath.CONTEXT = context
+
         val filesDir = context.filesDir.absolutePath
         com.tungsten.fclauncher.utils.FCLPath.setPaths(
             context.cacheDir.absolutePath,

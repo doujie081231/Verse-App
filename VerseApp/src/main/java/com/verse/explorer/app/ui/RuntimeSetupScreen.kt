@@ -128,50 +128,53 @@ fun RuntimeSetupScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(VerseColors.PcBgPrimary)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp)
+                .padding(horizontal = 12.dp)
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // 头部标题
-            Text(
-                text = "首次启动 · 安装前置环境",
-                style = MaterialTheme.typography.headlineSmall,
-                color = VerseColors.PcTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 22.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
+            // 头部：单行标题 + 同行统计，压缩头部占比让组件列表占主要空间
+            val readyCount = componentStates.count { it.value.isReady }
+            val totalCount = RuntimeComponent.entries.size
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "安装前置环境",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                if (!isChecking) {
+                    Text(
+                        text = "已就绪 $readyCount/$totalCount",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (readyCount == totalCount) VerseColors.PcAccent else VerseColors.PcOrange,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = "正在为 Minecraft 准备必要的运行时组件",
                 style = MaterialTheme.typography.bodyMedium,
                 color = VerseColors.PcTextSecondary,
-                fontSize = 14.sp
+                fontSize = 12.sp
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 统计信息
-            if (!isChecking) {
-                val readyCount = componentStates.count { it.value.isReady }
-                val totalCount = RuntimeComponent.entries.size
-                Text(
-                    text = "已就绪 $readyCount/$totalCount",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (readyCount == totalCount) VerseColors.PcAccent else VerseColors.PcOrange,
-                    fontSize = 12.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // 组件列表
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 item {
                     RuntimeComponent.entries.forEach { component ->
@@ -181,12 +184,12 @@ fun RuntimeSetupScreen(
                             state = state,
                             isChecking = isChecking
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // 底部按钮
             if (!allCompleted) {
@@ -195,8 +198,8 @@ fun RuntimeSetupScreen(
                     enabled = !isChecking && !isInstallingAll,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(14.dp),
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = VerseColors.PcAccent,
                         contentColor = Color.White,
@@ -206,24 +209,24 @@ fun RuntimeSetupScreen(
                 ) {
                     if (isChecking) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                             color = VerseColors.PcTextMuted,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("正在检查运行环境...", fontSize = 15.sp)
+                        Text("正在检查运行环境...", fontSize = 13.sp)
                     } else if (isInstallingAll) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                             color = Color.White,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("正在安装中...", fontSize = 15.sp)
+                        Text("正在安装中...", fontSize = 13.sp)
                     } else {
-                        Icon(Icons.Filled.Download, null, Modifier.size(20.dp))
+                        Icon(Icons.Filled.Download, null, Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("安装所有运行时组件", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("安装所有运行时组件", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             } else {
@@ -231,8 +234,8 @@ fun RuntimeSetupScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(14.dp),
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = VerseColors.PcAccent.copy(alpha = 0.12f)
                 ) {
                     Row(
@@ -241,14 +244,14 @@ fun RuntimeSetupScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                             color = VerseColors.PcAccent,
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             "环境就绪，正在进入启动器...",
-                            fontSize = 15.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = VerseColors.PcAccent
                         )
@@ -256,7 +259,7 @@ fun RuntimeSetupScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
@@ -278,7 +281,7 @@ private fun RuntimeComponentRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // 状态图标
@@ -292,14 +295,14 @@ private fun RuntimeComponentRow(
 
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(bgColor),
                 contentAlignment = Alignment.Center
             ) {
                 if (state.isInstalling) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(16.dp),
                         color = VerseColors.PcAccent,
                         strokeWidth = 2.dp
                     )
@@ -308,12 +311,12 @@ private fun RuntimeComponentRow(
                         imageVector = icon,
                         contentDescription = null,
                         tint = iconTint,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(17.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
 
             // 组件信息
             Column(modifier = Modifier.weight(1f)) {
@@ -322,7 +325,7 @@ private fun RuntimeComponentRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 )
                 Text(
                     text = component.description,

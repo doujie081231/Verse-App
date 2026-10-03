@@ -1,10 +1,17 @@
 package com.verse.explorer.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +55,7 @@ import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.app.viewmodel.MicrosoftLoginState
 import com.verse.explorer.core.account.Account
 import com.verse.explorer.core.account.AccountType
+import com.verse.explorer.core.account.AsyncStatus
 import com.verse.explorer.core.account.AuthlibProfile
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -92,6 +100,7 @@ fun AccountsScreen(
     var addSheetInitialType by remember { mutableStateOf("microsoft") }
     var showMsaWeb by remember { mutableStateOf(false) }
     var msaWebUrl by remember { mutableStateOf("") }
+    var msaUserCode by remember { mutableStateOf("") }
     var showDeleteConfirm by remember { mutableStateOf<Account?>(null) }
     var profileSelectData by remember { mutableStateOf<List<AuthlibProfile>?>(null) }
     var pendingAuthlibUrl by remember { mutableStateOf("") }
@@ -204,12 +213,14 @@ fun AccountsScreen(
             viewModel = viewModel,
             initialType = addSheetInitialType,
             onDismiss = { showAddSheet = false },
-            onMicrosoftWeb = { url ->
-                VerseLogger.info("账号页：准备打开内置浏览器验证页 url=${url.ifBlank { "<空!>" }}（长度=${url.length}）", "MsaLogin")
+            onMicrosoftWeb = { url, userCode ->
+                VerseLogger.info("账号页：准备打开内置浏览器验证页 url=${url.ifBlank { "<空!>" }}（长度=${url.length}）, userCode=$userCode", "MsaLogin")
                 if (url.isBlank()) {
                     VerseLogger.warn("账号页：verification_uri 为空！内置浏览器页将无地址可打开，登录必然失败", "MsaLogin")
                 }
+                showAddSheet = false
                 msaWebUrl = url
+                msaUserCode = userCode
                 showMsaWeb = true
                 VerseLogger.info("账号页：showMsaWeb=true，开始渲染浏览器页（此日志之后若没有'浏览器页：创建 WebView'，说明 Compose 未渲染出浏览器页）", "MsaLogin")
             },
@@ -379,6 +390,8 @@ fun AccountsScreen(
             is MicrosoftLoginState.Failed -> {
                 VerseLogger.warn("账号页：登录失败 -> ${state.message}", "MsaLogin")
                 showMsaWeb = false
+                // 重新弹出添加账户弹窗，展示失败原因（AddAccountSheet 内部已重置到选择步骤并显示错误）
+                showAddSheet = true
             }
             is MicrosoftLoginState.Cancelled -> {
                 VerseLogger.warn("账号页：登录已取消", "MsaLogin")
@@ -387,7 +400,43 @@ fun AccountsScreen(
         }
     }
 
-    if (showMsaWeb) {
+    // 轮询状态卡片文案（与 AddAccountSheet 内进度文案保持一致）
+    val msaStatusText = when (val s = msaLoginState) {
+        is MicrosoftLoginState.Polling -> "等待在浏览器中完成授权..."
+        is MicrosoftLoginState.Authenticating -> when (s.status) {
+            AsyncStatus.GETTING_ACCESS_TOKEN -> "获取访问令牌"
+            AsyncStatus.GETTING_XBL_TOKEN -> "获取 XBL 令牌"
+            AsyncStatus.GETTING_XSTS_TOKEN -> "获取 XSTS 令牌"
+            AsyncStatus.AUTHENTICATE_MINECRAFT -> "验证 Minecraft 基本信息"
+            AsyncStatus.VERIFY_GAME_OWNERSHIP -> "验证是否拥有 Minecraft"
+            AsyncStatus.GETTING_PLAYER_PROFILE -> "获取玩家账户信息"
+        }
+        is MicrosoftLoginState.Failed -> "登录失败，请重试"
+        is MicrosoftLoginState.Cancelled -> "已取消登录"
+        else -> "正在连接..."
+    }
+
+    // 内置浏览器 + 一旁悬浮的轮询状态卡片：从右侧 1/3 屏幕滑入 + 轻微缩放 + 淡入（对齐项目 Shared X-Axis 页面过渡节奏）
+    AnimatedVisibility(
+        visible = showMsaWeb,
+        modifier = Modifier.fillMaxSize(),
+        enter = slideInHorizontally(
+            animationSpec = tween(340, easing = FastOutSlowInEasing)
+        ) { it / 3 } +
+            scaleIn(
+                animationSpec = tween(340, easing = FastOutSlowInEasing),
+                initialScale = 0.92f
+            ) +
+            fadeIn(tween(220)),
+        exit = slideOutHorizontally(
+            animationSpec = tween(340, easing = FastOutSlowInEasing)
+        ) { it / 3 } +
+            scaleOut(
+                animationSpec = tween(340, easing = FastOutSlowInEasing),
+                targetScale = 0.92f
+            ) +
+            fadeOut(tween(220))
+    ) {
         // 与 ZL2 一致：离开浏览器页（返回键）视为取消登录流程
         androidx.activity.compose.BackHandler {
             viewModel.cancelMicrosoftLogin()
@@ -395,6 +444,12 @@ fun AccountsScreen(
         }
         MicrosoftLoginScreen(
             webUrl = msaWebUrl,
+            userCode = msaUserCode,
+            statusText = msaStatusText,
+            onCancel = {
+                viewModel.cancelMicrosoftLogin()
+                showMsaWeb = false
+            },
             onBack = {
                 viewModel.cancelMicrosoftLogin()
                 showMsaWeb = false

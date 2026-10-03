@@ -3,6 +3,7 @@ package com.tungsten.fclauncher;
 import static android.content.Context.MODE_PRIVATE;
 import static com.tungsten.fclauncher.utils.Architecture.ARCH_X86;
 import static com.tungsten.fclauncher.utils.Architecture.is64BitsDevice;
+import com.tungsten.fclauncher.utils.Architecture;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -12,6 +13,7 @@ import android.os.Build;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.ArrayMap;
+import android.util.Log;
 
 import com.mio.data.Renderer;
 import com.oracle.dalvik.VMLauncher;
@@ -22,9 +24,12 @@ import com.tungsten.fclauncher.plugins.NativeLibPlugin;
 import com.tungsten.fclauncher.utils.Architecture;
 import com.tungsten.fclauncher.utils.FCLPath;
 
+import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -111,7 +116,7 @@ public class FCLauncher {
         return jvmLibDir;
     }
 
-    private static String getLibraryPath(Context context, String javaPath, String pluginLibPath) throws IOException {
+    private static String getLibraryPath(Context context, String javaPath, String pluginLibPath, String lwjglVersion) throws IOException {
         String nativeDir = context.getApplicationInfo().nativeLibraryDir;
         String libDirName = is64BitsDevice() ? "lib64" : "lib";
         String javaLibDir = getJavaLibDir(javaPath);
@@ -136,6 +141,10 @@ public class FCLauncher {
         }
 
         String nativeLibPaths = NativeLibPlugin.getPaths(split);
+
+        String lwjglNatives = lwjglVersion != null && !lwjglVersion.isEmpty()
+                ? FCLPath.LWJGL_DIR + "/" + lwjglVersion + "/natives/" + Architecture.archAsStringAndroid(Architecture.getDeviceArchitecture()) + split
+                : "";
 
         return javaPath +
                 javaLibDir +
@@ -176,14 +185,19 @@ public class FCLauncher {
                 FCLPath.MOD_RUNTIME_DIR +
                 split +
 
+                lwjglNatives +
+
                 nativeDir;
     }
 
-    private static String getLibraryPath(Context context, String pluginLibPath) {
+    private static String getLibraryPath(Context context, String pluginLibPath, String lwjglVersion) {
         String nativeDir = context.getApplicationInfo().nativeLibraryDir;
         String libDirName = is64BitsDevice() ? "lib64" : "lib";
         String split = ":";
         String nativeLibPaths = NativeLibPlugin.getPaths(split);
+        String lwjglNatives = lwjglVersion != null && !lwjglVersion.isEmpty()
+                ? FCLPath.LWJGL_DIR + "/" + lwjglVersion + "/natives/" + Architecture.archAsStringAndroid(Architecture.getDeviceArchitecture()) + split
+                : "";
         return "/system/" +
                 libDirName +
                 split +
@@ -211,6 +225,8 @@ public class FCLauncher {
                 FCLPath.MOD_RUNTIME_DIR +
                 split +
 
+                lwjglNatives +
+
                 nativeDir;
     }
 
@@ -220,7 +236,7 @@ public class FCLauncher {
         String[] args = new String[argList.size()];
         for (int i = 0; i < argList.size(); i++) {
             String a = argList.get(i);
-            String libraryPath = getLibraryPath(config.getContext(), config.getJavaPath(), config.getRenderer().getPath());
+            String libraryPath = getLibraryPath(config.getContext(), config.getJavaPath(), config.getRenderer().getPath(), config.getLwjglVersion());
             if (argList.get(i).contains("-Djava.library.path")) {
                 a = "-Djava.library.path=${natives_directory}";
             }
@@ -241,7 +257,7 @@ public class FCLauncher {
         envMap.put("DRIVER_PATH", DriverPlugin.getSelected().getPath());
         envMap.put("TMPDIR", config.getContext().getCacheDir().getAbsolutePath());
         envMap.put("PATH", config.getJavaPath() + "/bin:" + Os.getenv("PATH"));
-        envMap.put("LD_LIBRARY_PATH", getLibraryPath(config.getContext(), config.getRenderer().getPath()));
+        envMap.put("LD_LIBRARY_PATH", getLibraryPath(config.getContext(), config.getRenderer().getPath(), config.getLwjglVersion()));
         envMap.put("FORCE_VSYNC", "false");
 
         // Native mod env var
@@ -288,6 +304,101 @@ public class FCLauncher {
     }
 
     private static void addRendererEnv(FCLConfig config, HashMap<String, String> envMap) {
+        addRendererEnvInner(config, envMap);
+        // SDL 需要独立的 GL/EGL 库绝对路径（对齐 FCL 1.3.3.5 FCLauncher.addRendererEnv L274-300）：
+        // MC 26.x（RenderPearl）校验 SDL_GL_GetProcAddress("glGetError") 与 LWJGL provider 同源，
+        // SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。插件渲染器同样生效。
+        Renderer renderer = config.getRenderer();
+        String egl = envMap.get("POJAVEXEC_EGL");
+        // MobileGlues 的 EGL 对 SDL 的 window surface 创建不兼容（SDL 用它建 surface 失败 →
+        // MC Window "Invalid window"）；SDL 改回系统 EGL 建窗口，GL 函数仍经
+        // SDL_OPENGL_LIBRARY + versesdl 代理解析自渲染器库。Pojav 系同样不向 SDL 注入
+        // MobileGlues 作为 EGL 库。
+        boolean mobileGluesEgl = egl != null && egl.contains("mobileglues");
+        if (egl != null && !egl.startsWith("/") && !mobileGluesEgl) {
+            // 仅当 EGL 库真实打包在渲染器目录内才给 SDL 绝对路径（如 ANGLE）；
+            // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析（与 FCL 一致）
+            File candidate = new File(rendererLibPath(renderer), egl);
+            if (candidate.isFile()) {
+                egl = candidate.getAbsolutePath();
+            } else {
+                egl = null;
+            }
+        }
+        if (egl != null && !mobileGluesEgl) {
+            envMap.put("SDL_EGL_LIBRARY", egl);
+        }
+        String gl = renderer.getGlName();
+        if (!gl.isEmpty()) {
+            if (!gl.startsWith("/")) {
+                gl = rendererLibPath(renderer) + "/" + gl;
+            }
+            envMap.put("SDL_OPENGL_LIBRARY", gl);
+        }
+    }
+
+    /**
+     * 渲染器库所在目录：插件渲染器用其自身 lib 目录，内置渲染器用主 APK native 目录
+     */
+    private static String rendererLibPath(Renderer renderer) {
+        String pluginPath = renderer.getPath();
+        return pluginPath.isEmpty() ? FCLPath.NATIVE_LIB_DIR : pluginPath;
+    }
+
+    /**
+     * MobileGlues 官方要求：运行 MC 26.3-snapshot-3 及以后必须开启 "Ignore shader/program
+     * error"（config.json 键 enableNoError=3 → NoErrorConfig.Level2 → 驱动日志 ignoreError=2
+     * Full）。驱动启动时从 {MG_DIR_PATH}/config.json 读取（MG_DIR_PATH 默认 /sdcard/MG），
+     * 缺省 config.json 走内置默认（ignoreError=0，26.3 下 shader 编译报错即中断）。
+     * 优先写 /sdcard/MG/config.json（与官方插件共用配置，保留用户已有键）；写入失败时
+     * 降级到应用外部私有目录并设 MG_DIR_PATH 指向它。
+     */
+    private static void setupMobileGluesConfig(Context context, HashMap<String, String> envMap) {
+        if (writeMobileGluesConfig(new File("/sdcard/MG/config.json"))) {
+            return;
+        }
+        File baseDir = context.getExternalFilesDir(null);
+        if (baseDir == null) {
+            baseDir = context.getFilesDir();
+        }
+        File appMgDir = new File(baseDir, "MG");
+        if (writeMobileGluesConfig(new File(appMgDir, "config.json"))) {
+            envMap.put("MG_DIR_PATH", appMgDir.getAbsolutePath());
+        }
+    }
+
+    private static boolean writeMobileGluesConfig(File configFile) {
+        try {
+            JSONObject config = configFile.exists()
+                    ? new JSONObject(readFileString(configFile))
+                    : new JSONObject();
+            config.put("enableNoError", 3);
+            File parent = configFile.getParentFile();
+            if (parent != null) {
+                parent.mkdirs();
+            }
+            FileWriter writer = new FileWriter(configFile);
+            writer.write(config.toString(2));
+            writer.close();
+            return true;
+        } catch (Exception e) {
+            Log.e("FCLauncher", "Write MobileGlues config failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static String readFileString(File file) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        BufferedReader reader = new BufferedReader(new FileReader(file));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            sb.append(line).append('\n');
+        }
+        reader.close();
+        return sb.toString();
+    }
+
+    private static void addRendererEnvInner(FCLConfig config, HashMap<String, String> envMap) {
         Renderer renderer = config.getRenderer();
         if (!renderer.getPath().isEmpty()) {
             String eglName = renderer.getEglName();
@@ -333,22 +444,20 @@ public class FCLauncher {
             envMap.put("LIBGL_NORMALIZE", "1");
             envMap.put("LIBGL_NOINTOVLHACK", "1");
             envMap.put("LIBGL_NOERROR", "1");
-            // 对齐 FCL 1.3.3.5：Krypton/ng_gl4es 用 SDL_OPENGL_LIBRARY 决定 GL 库路径，
-            // 缺失会走默认 GL 加载路径导致水面贴图错乱（真机对照差异）
-            envMap.put("SDL_OPENGL_LIBRARY", config.getContext().getApplicationInfo().nativeLibraryDir + "/libng_gl4es.so");
             // TODO: set NGG_DIR_PATH to custom path
             envMap.put("POJAV_RENDERER", "opengles3");
             envMap.put("POJAVEXEC_EGL", "libEGL.so");
         } else if (renderer.isEqual(Renderer.ID_MOBILEGLUES)) {
             // 对齐 MobileGlues 官方插件 V2.0.0 的 FCL 插件元数据 pojavEnv（libmobileglues.so
-            // 同时充当 GL 与 EGL 驱动）；MG 配置目录默认 /sdcard/MG，缺省 config.json 走驱动
-            // 内置默认值。MG_ANGLE_DIR 不设置，按 soname 搜索进程内 ANGLE（本工程已打包）。
+            // 同时充当 GL 与 EGL 驱动）；MG 配置目录默认 /sdcard/MG。MG_ANGLE_DIR 不设置，
+            // 按 soname 搜索进程内 ANGLE（本工程已打包）。
             envMap.put("LIBGL_ES", "3");
             envMap.put("POJAV_RENDERER", "opengles3");
             envMap.put("POJAVEXEC_EGL", "libmobileglues.so");
             envMap.put("LIBGL_EGL", "libmobileglues.so");
             envMap.put("LIBGL_NAME", "libmobileglues.so");
             envMap.put("MG_COUNT_LAUNCH", "1");
+            setupMobileGluesConfig(config.getContext(), envMap);
         } else {
             envMap.put("MESA_GLSL_CACHE_DIR", config.getContext().getCacheDir().getAbsolutePath());
             envMap.put("MESA_GL_VERSION_OVERRIDE", renderer.isEqual(Renderer.ID_VIRGL) ? "4.3" : "4.6");
@@ -493,8 +602,9 @@ public class FCLauncher {
                 isToken = true;
             log(bridge, prefix + arg);
         }
-        bridge.setLdLibraryPath(getLibraryPath(config.getContext(), config.getJavaPath(), config.getRenderer().getPath()));
+        bridge.setLdLibraryPath(getLibraryPath(config.getContext(), config.getJavaPath(), config.getRenderer().getPath(), config.getLwjglVersion()));
         bridge.setupExitTrap(bridge);
+        FCLBridge.initializeHooks();
         log(bridge, "Hook success");
         int exitCode = VMLauncher.launchJVM(args);
         bridge.onExit(exitCode);

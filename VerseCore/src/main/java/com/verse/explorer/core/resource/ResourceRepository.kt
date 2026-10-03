@@ -241,15 +241,29 @@ class ResourceRepository(
             }
         }
 
-        smartClient.download(
-            originalUrl = primaryFile.url,
-            targetFile = destFile,
-            expectedSha1 = primaryFile.sha1.ifBlank { null },
-            knownSize = primaryFile.size,
-            onProgress = {
-                onProgress(it.downloaded, it.total, it.speed)
+        // 下载走 .part 临时文件，成功后改名到位：取消/失败不残留半截文件
+        // （残留坏 zip 会让下次重试 readModpack 识别失败，造成"无法正常下载"）
+        val partFile = File(destDir, "$safeName.part")
+        try {
+            partFile.delete()
+            smartClient.download(
+                originalUrl = primaryFile.url,
+                targetFile = partFile,
+                expectedSha1 = primaryFile.sha1.ifBlank { null },
+                knownSize = primaryFile.size,
+                onProgress = {
+                    onProgress(it.downloaded, it.total, it.speed)
+                }
+            )
+            if (destFile.exists()) destFile.delete()
+            if (!partFile.renameTo(destFile)) {
+                throw Exception("下载完成但写入失败: $safeName")
             }
-        )
+            Result.success(destFile)
+        } catch (e: Throwable) {
+            partFile.delete()
+            throw e
+        }
     }
 
     /** 获取游戏 mods 目录（供 UI 展示下载落点） */

@@ -59,3 +59,11 @@ VersePC/
 /javassist/
 /libs/
 /mc_filesassets*
+
+# --- local reference & artifacts (keep repo clean) ---
+/.fcl-repo/
+/.sdl-tmp/
+/crashlogs/
+/net/
+/*.idsig
+/HANDOFF-*.md

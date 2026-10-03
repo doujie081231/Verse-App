@@ -5,14 +5,23 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.util.DisplayMetrics;
 import android.view.Choreographer;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
+import android.view.WindowManager;
 
 import androidx.annotation.Nullable;
 
 import com.tungsten.fcl.FCLApplication;
+import com.tungsten.fcl.game.sdl.SdlBridge;
 import com.tungsten.fclauncher.bridge.FCLBridge;
+import com.tungsten.fclauncher.keycodes.EfficientAndroidLWJGLKeycode;
 import com.tungsten.fclauncher.keycodes.LwjglGlfwKeycode;
 import com.tungsten.fclauncher.keycodes.LwjglKeycodeMap;
+
+import org.libsdl.app.SDLActivity;
+import org.libsdl.app.SDLSurface;
 
 import java.util.function.Consumer;
 
@@ -41,9 +50,15 @@ public class CallbackBridge {
     public static final int CLIPBOARD_PASTE = 2001;
     public static final int CLIPBOARD_OPEN = 2002;
 
+    // SDL launcher integration（游戏 JVM 侧 org.lwjgl.sdl.SDLInit 通过 nativeNotifyLauncher 通知）
+    public static final int NOTIF_TYPE_SDL = 0;
+    public static final int ACTION_INIT_LAUNCHER_INTEGRATION = 0;
+    public static final int ACTION_SEND_TEXTBOX_RECT = 1;
+
     public static volatile int windowWidth, windowHeight;
     public static volatile int physicalWidth, physicalHeight;
-    public static float mouseX, mouseY;
+    public static float mouseX, mouseY, deltaX, deltaY;
+    private static int sMouseButtonState = 0;
     public volatile static boolean holdingAlt, holdingCapslock, holdingCtrl,
             holdingNumlock, holdingShift;
 
@@ -78,9 +93,20 @@ public class CallbackBridge {
     private static native void nativeSendVerseData(int type, int i1, int i2, int i3, int i4);
 
     public static void sendCursorPos(float x, float y) {
+        float dx = x - mouseX;
+        float dy = y - mouseY;
         mouseX = x;
         mouseY = y;
+        deltaX = dx;
+        deltaY = dy;
         nativeSendCursorPos(mouseX, mouseY);
+        if (!SdlBridge.getSdlEnabled()) return;
+        if (isGrabbing()) {
+            // 鼠标被游戏捕获（锁指针转视角）时下发相对增量
+            SDLActivity.onNativeMouse(0, MotionEvent.ACTION_MOVE, dx, dy, true);
+        } else {
+            SDLActivity.onNativeMouse(0, MotionEvent.ACTION_MOVE, x, y, false);
+        }
     }
 
     public static void sendKeycode(int keycode, char keychar, int scancode, int modifiers, boolean isDown) {
@@ -93,11 +119,26 @@ public class CallbackBridge {
             nativeSendCharMods(keychar, modifiers);
             nativeSendChar(keychar);
         }
+        // SDL 输入双路：基于 GLFW 键码换算 Android 键码
+        if (!SdlBridge.getSdlEnabled()) return;
+        int androidKeycode = EfficientAndroidLWJGLKeycode.getSdlAndroidKeycode(keycode);
+        if (androidKeycode == KeyEvent.KEYCODE_UNKNOWN) return;
+        try {
+            if (isDown) {
+                SDLActivity.onNativeKeyDown(androidKeycode);
+            } else {
+                SDLActivity.onNativeKeyUp(androidKeycode);
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     public static void sendChar(char keychar, int modifiers) {
         nativeSendCharMods(keychar, modifiers);
         nativeSendChar(keychar);
+        if (!SdlBridge.getSdlEnabled()) return;
+        SDLActivity.onNativeKeyDown(EfficientAndroidLWJGLKeycode.getAndroidKeycode(keychar));
+        SDLActivity.onNativeKeyUp(EfficientAndroidLWJGLKeycode.getAndroidKeycode(keychar));
     }
 
     public static void sendKeyPress(int keyCode, int modifiers, boolean status) {
@@ -128,6 +169,34 @@ public class CallbackBridge {
         } catch (Throwable t) {
             android.util.Log.e("VerseX", "[Bridge] nativeSendMouseButton failed: " + t);
         }
+        // SDL 输入双路（按键状态累积后一次性上报，SDL 需要 MotionEvent.getButtonState()）
+        if (!SdlBridge.getSdlEnabled()) return;
+        int aKey = -1;
+        switch (button) {
+            case LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_LEFT:
+                aKey = MotionEvent.BUTTON_PRIMARY;
+                break;
+            case LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_RIGHT:
+                aKey = MotionEvent.BUTTON_SECONDARY;
+                break;
+            case LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_MIDDLE:
+                aKey = MotionEvent.BUTTON_TERTIARY;
+                break;
+            case LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_5:
+                aKey = MotionEvent.BUTTON_BACK;
+                break;
+            case LwjglGlfwKeycode.GLFW_MOUSE_BUTTON_4:
+                aKey = MotionEvent.BUTTON_FORWARD;
+                break;
+        }
+        if (aKey != -1) {
+            if (isDown) {
+                sMouseButtonState |= aKey;
+            } else {
+                sMouseButtonState &= ~aKey;
+            }
+            SDLActivity.onNativeMouse(sMouseButtonState, isDown ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP, mouseX, mouseY, false);
+        }
     }
 
     public static void sendMouseKeycode(int keycode) {
@@ -137,9 +206,14 @@ public class CallbackBridge {
 
     public static void sendScroll(double xoffset, double yoffset) {
         nativeSendScroll(xoffset, yoffset);
+        // SDL 输入双路
+        if (!SdlBridge.getSdlEnabled()) return;
+        SDLActivity.onNativeMouse(0, MotionEvent.ACTION_SCROLL, (float) xoffset, (float) yoffset, false);
     }
 
     public static void sendUpdateWindowSize(int w, int h) {
+        windowWidth = w;
+        windowHeight = h;
         nativeSendScreenSize(w, h);
     }
 
@@ -295,19 +369,117 @@ public class CallbackBridge {
 
     public static native String nativeClipboard(int action, byte[] copy);
 
-    public static native boolean nativeNotifyLauncher(int type, int[] data);
-
     public static native long nativeCreateGamepadAxisBuffer();
 
     public static native long nativeCreateGamepadButtonBuffer();
 
     public static native boolean nativeEnableGamepadDirectInput();
 
-    // FCL 1.3.3.5 pojavexec JNI_OnLoad 会 GetStaticMethodID(CallbackBridge, "notifyLauncher", "(I[I)Z")；
-    // Verse 无 launcher 通知机制，仅需方法存在（空实现返回 false）避免 NoSuchMethodError。
+    /**
+     * 游戏 JVM 侧 org.lwjgl.sdl.SDLInit（LWJGL 3.4.1 SDL 绑定）调用的通知入口，
+     * 转发到 {@link #notifyLauncher}（dex 实现优先于 LWJGL 组件内的 native 声明）。
+     */
     @SuppressWarnings("unused")
-    public static boolean notifyLauncher(int type, int[] data) {
+    public static void nativeNotifyLauncher(int type, int... action) {
+        notifyLauncher(type, action);
+    }
+
+    /**
+     * 由 JRE 侧（org.lwjgl.sdl.SDLInit / pojavexec sdl_hook）调用的通知入口。
+     * @return 通知是否处理成功
+     */
+    @SuppressWarnings("unused")
+    public static boolean notifyLauncher(int type, int[] action) {
+        if (action == null || action.length == 0) {
+            android.util.Log.w("VerseX", "SDL notification has no action");
+            return false;
+        }
+        if (type != NOTIF_TYPE_SDL) {
+            return false;
+        }
+        if (action[0] == ACTION_INIT_LAUNCHER_INTEGRATION) {
+            if (!SdlBridge.markSdlInitialized()) {
+                return true;
+            }
+            try {
+                android.util.Log.i("VerseX", "FCL: loading SDL3");
+                System.loadLibrary("SDL3");
+                android.util.Log.i("VerseX", "FCL: loading SDL2");
+                System.loadLibrary("SDL2");
+                // 26.3 SDL 渲染路径：SDL 初始化发生在游戏首帧之前，而此时
+                // GameActivity.onSurfaceTextureSizeChanged 的 pushEventWindow 仍被
+                // graphicOutputShown 门控（首帧前不推送），导致 CallbackBridge.windowWidth
+                // 恒为 0 → SDLSurface "Window size: 0x0" → SDL 窗口/GL 上下文创建异常。
+                // 这里在 SDL JNI 绑定前补发真实窗口尺寸（对齐 FCL JVMActivity 在
+                // onSurfaceTextureAvailable 无条件设置 CallbackBridge.windowWidth）。
+                ensureSdlWindowSize();
+                // 26.3 RenderPearl glGetError mismatch：LWJGL 的 GL provider（libng_gl4es.so）
+                // 与 SDL_GL_GetProcAddress（SDL3 走系统 eglGetProcAddress）不是同一实现。
+                // versedl 在 dlsym 出口 + SDL_GL_GetProcAddress 符号处重定向 gl* 到 gl4es。
+                // 必须在 SDL3 已 dlopen 之后安装（bytehook_hook_single 针对已加载库补丁）。
+                try {
+                    org.libsdl.app.SDL.nativeInstallSdlHooks();
+                    android.util.Log.i("VerseX", "FCL: versedl SDL GL hooks installed");
+                } catch (Throwable t) {
+                    android.util.Log.w("VerseX", "FCL: versedl SDL GL hooks failed: " + t);
+                }
+                android.util.Log.i("VerseX", "FCL: setting up SDL JNI");
+                SdlBridge.setupJNI();
+                android.util.Log.i("VerseX", "FCL: binding SDL surface");
+                SdlBridge.setSdlEnabled(true);
+                SDLSurface surface = SDLActivity.getSDLSurface();
+                if (surface != null) {
+                    surface.surfaceChanged();
+                    if (windowWidth > 0 && windowHeight > 0) {
+                        surface.nativeResize(windowWidth, windowHeight);
+                    }
+                }
+                android.util.Log.i("VerseX", "FCL: SDL support enabled!");
+                return true;
+            } catch (Throwable e) {
+                SdlBridge.setSdlEnabled(false);
+                SdlBridge.clearSdlInitialized();
+                android.util.Log.e("VerseX", "FCL: SDL launcher integration is unavailable", e);
+            }
+        }
         return false;
+    }
+
+    /** 复位 SDL 桥接状态（SdlBridge.reset 时调用，防止旧 Surface/旧初始化状态残留） */
+    public static void clearSdlBridgeState() {
+        sMouseButtonState = 0;
+        deltaX = 0f;
+        deltaY = 0f;
+    }
+
+    /**
+     * SDL 渲染路径（MC 26.3+）：SDL_Init 发生在游戏首帧前，pushEventWindow 被
+     * graphicOutputShown 门控尚未推送，windowWidth/windowHeight 恒为 0。
+     * 从当前 Activity 的真实显示尺寸补发，使 SDLSurface "Window size" 非零。
+     */
+    private static void ensureSdlWindowSize() {
+        if (windowWidth > 0 && windowHeight > 0) {
+            return;
+        }
+        try {
+            Activity activity = SDLActivity.getContext();
+            if (activity != null) {
+                DisplayMetrics dm = new DisplayMetrics();
+                WindowManager wm = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
+                if (wm != null) {
+                    wm.getDefaultDisplay().getRealMetrics(dm);
+                    windowWidth = dm.widthPixels;
+                    windowHeight = dm.heightPixels;
+                    android.util.Log.i("VerseX", "FCL: ensureSdlWindowSize -> " + windowWidth + "x" + windowHeight);
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("VerseX", "FCL: ensureSdlWindowSize failed: " + t);
+        }
+        if (windowWidth <= 0 || windowHeight <= 0) {
+            windowWidth = 1280;
+            windowHeight = 720;
+        }
     }
 
     static {

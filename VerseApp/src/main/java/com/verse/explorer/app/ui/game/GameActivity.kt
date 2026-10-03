@@ -1,6 +1,7 @@
 package com.verse.explorer.app.ui.game
 
 import android.app.AlertDialog
+import android.content.DialogInterface
 import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
@@ -8,6 +9,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,19 +21,23 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.util.ArrayList
+import java.util.concurrent.CountDownLatch
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.toArgb
 import com.verse.explorer.app.R
+import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.version.VersionJsonResolver
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.game.GameLaunchOrchestrator
 import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
+import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.game.NativesDeployer
-import com.verse.explorer.app.redstone.RedStoneTunnelDialog
 import com.verse.explorer.app.redstone.RedStoneTunnelManager
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
@@ -39,6 +45,7 @@ import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.tungsten.fcl.control.view.LogWindow
+import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
@@ -65,7 +72,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private val inputHandler = GameInputHandler(
         { orchestrator.fclBridge },
         this,
-        { hitResultType }
+        { hitResultType },
+        captureViewProvider = { touchOverlay }
     )
     private lateinit var orchestrator: GameLaunchOrchestrator
     private lateinit var textureView: TextureView
@@ -133,6 +141,14 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         super.onCreate(savedInstanceState)
 
         try {
+            // FCL LauncherSettingPage：语音聊天模组需要麦克风，启动时按设置请求 RECORD_AUDIO
+            if (SettingsRepository.getRequestMicPermission() &&
+                checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1001)
+            }
+
             val versionId = intent.getStringExtra("versionId")
             val gameDirPath = intent.getStringExtra("gameDir")
             val javaHome = intent.getStringExtra("javaHome")
@@ -182,7 +198,17 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 surfaceTextureListener = this@GameActivity
                 setKeepScreenOn(true)
             }
-            setContentView(textureView)
+            // 刘海避让：关闭「忽略刘海（全屏）」时游戏容器让出 displayCutout 区
+            // （横屏左侧打孔，TextureView 由 FrameLayout 容器 padding 压缩，Surface 同步缩小）
+            val gameRoot = FrameLayout(this)
+            if (!SettingsRepository.getIgnoreNotch()) {
+                gameRoot.setPadding(DisplayNotch.cutoutLeft(this), 0, 0, 0)
+            }
+            gameRoot.addView(textureView, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            setContentView(gameRoot)
 
             val overlayView = statusOverlay.createOverlay()
             addContentView(overlayView, android.widget.FrameLayout.LayoutParams(
@@ -270,6 +296,88 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     }
 
     /**
+     * SDL 通过 JNI 调用此方法显示错误对话框（MC 26.3+ RenderPearl 初始化失败时
+     * 调 SDL_ShowSimpleMessageBox）。方法名/签名由 libSDL3.so 硬编码解析，
+     * 缺失会 NoSuchMethodError 崩溃；实现照搬 FCL org.libsdl.app.SDLActivity。
+     */
+    fun messageboxShowMessageBox(
+        flags: Int,
+        title: String?,
+        message: String?,
+        buttonFlags: IntArray?,
+        buttonIds: IntArray?,
+        buttonTexts: Array<String>?,
+        colors: IntArray?
+    ): Int {
+        val ids = buttonIds ?: intArrayOf(0)
+        val texts = buttonTexts ?: arrayOf("OK")
+        if (ids.isEmpty()) return -1
+        val selection = intArrayOf(-1)
+        val latch = CountDownLatch(1)
+        runOnUiThread {
+            try {
+                val builder = AlertDialog.Builder(this).setCancelable(false)
+                if (title != null) builder.setTitle(title)
+                val extraButtons = ArrayList<Button>()
+                if (ids.size > 3) {
+                    val customView = LinearLayout(this)
+                    customView.orientation = LinearLayout.VERTICAL
+                    if (message != null) {
+                        val messageScroll = ScrollView(this)
+                        val messageView = TextView(this)
+                        messageView.text = message
+                        messageScroll.addView(messageView)
+                        customView.addView(messageScroll)
+                    }
+                    for (i in 3 until ids.size) {
+                        val button = Button(this)
+                        button.text = texts[i]
+                        customView.addView(button)
+                        extraButtons.add(button)
+                    }
+                    builder.setView(customView)
+                } else if (message != null) {
+                    builder.setMessage(message)
+                }
+                val slotCount = minOf(ids.size, 3)
+                for (i in 0 until slotCount) {
+                    val id = ids[i]
+                    val listener = DialogInterface.OnClickListener { dialog, _ ->
+                        selection[0] = id
+                        dialog.dismiss()
+                    }
+                    if (i == slotCount - 1) {
+                        builder.setPositiveButton(texts[i], listener)
+                    } else if (i == 0 && slotCount == 3) {
+                        builder.setNeutralButton(texts[i], listener)
+                    } else {
+                        builder.setNegativeButton(texts[i], listener)
+                    }
+                }
+                val dialog = builder.create()
+                dialog.setOnDismissListener { latch.countDown() }
+                for (i in 3 until ids.size) {
+                    val id = ids[i]
+                    extraButtons[i - 3].setOnClickListener {
+                        selection[0] = id
+                        dialog.dismiss()
+                    }
+                }
+                dialog.show()
+            } catch (e: Throwable) {
+                Log.e("GameActivity", "Failed to show SDL message box", e)
+                latch.countDown()
+            }
+        }
+        try {
+            latch.await()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return selection[0]
+    }
+
+    /**
      * 游戏内联机入口：与 FCL 的 RightMenuAdapter 联机菜单项对应。
      * 陶瓦入口需在设置页启用多人联机；红石入口在设备带有 arm64 内核时显示。
      */
@@ -319,19 +427,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 dialog.show()
             })
         }
-        if (redstoneAvailable) {
-            val redstoneBtn = entryButton("红石", VerseColors.PcGreen) {
-                multiplayerDialogOpen = true
-                val dialog = RedStoneTunnelDialog(this@GameActivity)
-                dialog.onDismissed = { multiplayerDialogOpen = false }
-                dialog.show()
-            }
-            (redstoneBtn.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
-                params.topMargin = (8 * density).toInt()
-                redstoneBtn.layoutParams = params
-            }
-            container.addView(redstoneBtn)
-        }
+        // 【已按要求移除红石按钮】
 
         multiplayerEntryContainer = container
         addContentView(container, container.layoutParams as ViewGroup.LayoutParams)
@@ -340,6 +436,15 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     override fun onResume() {
         super.onResume()
         setupImmersiveMode()
+    }
+
+    /** FCL GameMenu.onPause：抓取态退后台时释放鼠标（发一对 ESC），避免键位卡死 */
+    override fun onPause() {
+        super.onPause()
+        if (inputReady && inputHandler.isGrabbing()) {
+            inputHandler.onKeyDown(KeyEvent.KEYCODE_ESCAPE, null)
+            inputHandler.onKeyUp(KeyEvent.KEYCODE_ESCAPE, null)
+        }
     }
 
     private fun stopGame() {
@@ -409,6 +514,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             if (inGameControl?.trackMultiTouch(ev, gestureSkipIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
                 inGameControl?.fireSwipe()
+                return true
+            }
+            // 编辑模式下完整交给 ControlLayout（Pojav 编辑器语义：编辑态由 ControlLayout 接管，
+            // 按钮拖动/对话框交互依赖 Android 原生触摸捕获——DOWN 命中的按钮持续接收
+            // MOVE/UP，手动坐标分流会因 MOVE 移出按钮区域而丢事件，导致拖动失效）。
+            if (controlLayout?.getModifiable() == true) {
+                touchOverlay?.dispatchTouchEvent(ev)
                 return true
             }
             val buttonIndexes = virtualControlPointerIndexes(ev)
@@ -535,6 +647,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         return super.onKeyUp(keyCode, event)
     }
 
+    /** 外接键鼠兜底：物理鼠标 hover/按钮/滚轮在 Activity 层统一接入，避免被视图拦截
+     * （对应 FCL JVMActivity.dispatchGenericMotionEvent 转 FCLInput） */
+    override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
+        if (inputHandler.handleGenericMotion(event)) return true
+        return super.dispatchGenericMotionEvent(event)
+    }
+
     override fun onCursorModeChange(mode: Int) {
         inputHandler.setCursorMode(mode)
         // FCL GameMenu.onCursorModeChange：GUI 态显示光标，抓取态隐藏
@@ -593,6 +712,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             },
             onCancelGameGesture = {
                 inputHandler.cancelGesture()
+            },
+            onPhysicalMouseChanged = {
+                inputHandler.syncCapturedPointer()
             }
         )
         val hint = overlay.createHintView()
@@ -602,42 +724,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         hint.visibility = View.GONE
         panel.visibility = View.GONE
         inGameControl = overlay
-        // 双指下滑手势已随 FCL 事件流迁移移除，演示遮罩一并去除（不再 showHint）
+        // 演示遮罩：游戏画面出现后自动弹出双指下滑提示（git 恢复）
+        overlay.showHint()
         // ===== FCL MenuView 悬浮入口对应 =====
-        // 双指下滑手势已随 FCL 事件流迁移移除（正常游戏态不再拦截触摸），
-        // 控制面板改由右侧竖胶囊悬浮入口唤出（记忆规范：竖着的整个胶囊容器内放圆形图标按钮）。
-        val density = resources.displayMetrics.density
-        val menuEntryCapsule = FrameLayout(this).apply {
-            val dot = TextView(this@GameActivity).apply {
-                text = "≡"
-                setTextColor(Color.WHITE)
-                textSize = 18f
-                gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(0x66F4F4F4.toInt())
-                    setStroke((1.5f * density).toInt(), 0xAAFFFFFF.toInt())
-                }
-                layoutParams = FrameLayout.LayoutParams(
-                    (44 * density).toInt(), (44 * density).toInt()
-                ).apply { gravity = Gravity.CENTER }
-            }
-            addView(dot)
-            setOnClickListener {
-                if (!MenuSetting.isLockMenuView) {
-                    inGameControl?.showPanel()
-                }
-            }
-            visibility = View.VISIBLE
-        }
-        addContentView(
-            menuEntryCapsule,
-            FrameLayout.LayoutParams(
-                (44 * density).toInt(), (44 * density).toInt(),
-                Gravity.RIGHT or Gravity.CENTER_VERTICAL
-            ).apply { rightMargin = (6 * density).toInt() }
-        )
-        VerseLogger.info("控制面板已挂载（悬浮入口 + 面板）", "Control")
+        // 控制面板可经右侧竖胶囊悬浮入口唤出（记忆规范：竖着的整个胶囊容器内放圆形图标按钮）。
+        // 【已按要求移除菜单按钮，控制面板仅通过双指下滑手势唤出】
+        VerseLogger.info("控制面板已挂载（双指下滑唤出）", "Control")
     }
 
     /**
@@ -683,7 +775,18 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                     }
                 }
             }
-            layout.loadLayout(jsonPath)
+            // 默认控制布局与 Pojav 一致：优先 PREF_DEFAULTCTRL_PATH（控制面板「设为默认」写入），
+            // 未设置时回退到部署的官方 Default.json；
+            // 版本级设置（FCL VersionSetting.controller）：该版本指定了控制布局时优先加载
+            val versionLayout = com.verse.explorer.app.data.VersionSettingsRepository(this)
+                .getVersionSettings(intent.getStringExtra("versionId") ?: "")
+                .takeIf { !it.usesGlobal && it.controller.isNotBlank() }
+                ?.let { java.io.File(Tools.CTRLMAP_PATH, it.controller + ".json") }
+                ?.takeIf { it.exists() }
+            val loadPath = versionLayout?.absolutePath
+                ?: LauncherPreferences.PREF_DEFAULTCTRL_PATH
+                ?: jsonPath
+            layout.loadLayout(loadPath)
 
             // ===== Pojav/FCL 触控架构 =====
             // Pojav Touchpad view：虚拟鼠标 + GrabListener（isGrabbing 状态同步）。
@@ -748,9 +851,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             this.addContentView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             touchOverlay = overlay
 
-            // FCL GameMenu.setOnGenericMotionListener + FCLInput.initExternalController 的移植：
-            // 实体鼠标（hover/按钮/滚轮）与指针捕获（相对移动）都接到 inputHandler
-            overlay.setOnGenericMotionListener { _, ev -> inputHandler.handleGenericMotion(ev) }
+            // 指针捕获（相对移动）接 inputHandler；hover/按钮/滚轮由 Activity 层
+            // dispatchGenericMotionEvent 统一分发，避免双份处理
             overlay.setOnCapturedPointerListener { _, ev -> inputHandler.handleCapturedPointer(ev) }
 
             // FCL CursorView 跟随：GUI 态下指针移动时更新可见光标位置（含偏移）
@@ -762,6 +864,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
 
             layout.setControlVisible(true)
+            // 挂载后按当前物理鼠标模式与抓取状态同步一次指针捕获（JVM 早于 UI 就绪的抓取态）
+            inputHandler.syncCapturedPointer()
             VerseLogger.info("触控覆盖层已挂载: layout=${layout.mLayoutFileName}, buttons=${layout.getButtonChildren().size}", "Touch")
         } catch (t: Throwable) {
             VerseLogger.error("触控覆盖层挂载失败: ${t.message}", "Touch")
@@ -776,6 +880,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             orchestrator.onSurfaceCreated(s, surfaceTexture)
             orchestrator.onSurfaceChanged(width, height)
         }
+        // MC 26.3+ 走 SDL 渲染路径：Surface 就绪即注册到 SdlBridge，
+        // 供游戏 JVM 内 notifyLauncher(ACTION_INIT_LAUNCHER_INTEGRATION) 完成 SDL3 绑定。
+        // layout 参数必须传 TextureView 的父容器（对齐 FCL JVMActivity 的
+        // (ViewGroup) textureView.getParent()）：SDLActivity.externalInitialize 把它
+        // 存为 mLayout，游戏内启用相对鼠标时 SDLControllerManager 对 mLayout 调
+        // requestPointerCapture()，传 null 会在进世界时 NPE → JVM abort
+        SdlBridge.prepareSurface(this, s, textureView.parent as ViewGroup)
     }
 
     override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
@@ -784,15 +895,15 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             orchestrator.onSurfaceChanged(width, height)
             // 照搬 FCL JVMActivity.onSurfaceTextureSizeChanged（L141-150）：
             // 尺寸变化时同步 setDefaultBufferSize + pushEventWindow，保证窗口缩放不产生错位黑块
+            val scaleFactor = MenuSetting.windowScale
+            var winWidth = ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
+            var winHeight = (height * scaleFactor).toInt()
+            if (FCLBridge.FORCE_RESOLUTION) {
+                winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+                winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+            }
             val bridge = orchestrator.fclBridge
             if (bridge != null) {
-                val scaleFactor = MenuSetting.windowScale
-                var winWidth = ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
-                var winHeight = (height * scaleFactor).toInt()
-                if (FCLBridge.FORCE_RESOLUTION) {
-                    winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
-                    winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
-                }
                 surfaceTexture.setDefaultBufferSize(winWidth, winHeight)
                 // pushEventWindow 依赖游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge；只在游戏已运行
                 // （execute 完成、类已成功初始化）后推送，execute 前调用会污染类状态导致启动失败。
@@ -800,6 +911,14 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                     runCatching {
                         bridge.pushEventWindow(winWidth, winHeight)
                     }
+                }
+            }
+            // SDL 渲染路径同步窗口尺寸（MC 26.3+）；surfaceChanged 内部按 SdlBridge 启用态自行跳过
+            val sdlSurface = org.libsdl.app.SDLActivity.getSDLSurface()
+            if (sdlSurface != null && SdlBridge.sdlEnabled) {
+                runCatching {
+                    sdlSurface.surfaceChanged()
+                    sdlSurface.nativeResize(winWidth, winHeight)
                 }
             }
         }
@@ -810,6 +929,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         if (::orchestrator.isInitialized) {
             orchestrator.onSurfaceDestroyed()
         }
+        SdlBridge.unregisterSurface(surface)
         surface?.release()
         surface = null
         return true

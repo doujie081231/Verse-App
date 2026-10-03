@@ -18,4 +18,8 @@ data class GameLaunchParams(
     val isMultiplayer: Boolean,
     val accessToken: String,
     val userType: String
-)
+) {
+    /** Minecraft 主版本号（如 "26.3" → 26，"1.21.1" → 1），用于 RenderPearl/Vulkan 等按版本门控 */
+    val mcVersionMajor: Int
+        get() = versionId.split('.').firstOrNull()?.toIntOrNull() ?: 0
+}

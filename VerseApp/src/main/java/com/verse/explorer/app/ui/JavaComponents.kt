@@ -29,9 +29,7 @@ fun JavaVersionRow(
     installProgress: String,
     isDefault: Boolean,
     runtimePath: String? = null,
-    onInstall: () -> Unit,
-    onSetDefault: () -> Unit,
-    onDelete: () -> Unit
+    onInstall: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -43,7 +41,7 @@ fun JavaVersionRow(
                 .clip(RoundedCornerShape(10.dp))
                 .background(
                     Brush.linearGradient(
-                        if (installed) listOf(VerseColors.PcGreen, VerseColors.PcGreen.copy(alpha = 0.6f))
+                        if (installed) listOf(VerseColors.PcAccent, VerseColors.PcAccent.copy(alpha = 0.6f))
                         else listOf(VerseColors.PcOrange, VerseColors.PcOrange.copy(alpha = 0.6f))
                     )
                 ),
@@ -57,7 +55,7 @@ fun JavaVersionRow(
                 )
             } else {
                 Icon(
-                    imageVector = if (installed) Icons.Filled.Check else Icons.Filled.Code,
+                    imageVector = Icons.Filled.Code,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(20.dp)
@@ -121,42 +119,17 @@ fun JavaVersionRow(
         }
 
         if (installed) {
-            if (!isDefault) {
-                TextButton(
-                    onClick = onSetDefault,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "设为默认",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcGreen,
-                        fontSize = 10.sp
-                    )
-                }
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = "删除",
-                        tint = VerseColors.PcTextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            } else {
-                Surface(
-                    shape = RoundedCornerShape(4.dp),
-                    color = VerseColors.PcGreen.copy(alpha = 0.1f)
-                ) {
-                    Text(
-                        text = "已安装",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcGreen,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = VerseColors.PcGreen.copy(alpha = 0.1f)
+            ) {
+                Text(
+                    text = "已安装",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VerseColors.PcGreen,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
             }
         } else {
             FilledTonalButton(

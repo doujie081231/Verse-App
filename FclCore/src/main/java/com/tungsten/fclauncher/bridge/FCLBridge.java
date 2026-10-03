@@ -108,6 +108,8 @@ public class FCLBridge implements Serializable {
 
     public native void setupExitTrap(FCLBridge bridge);
 
+    public static native void initializeHooks();
+
     public native void refreshHitResultType();
 
     public native void setFCLBridge(FCLBridge fclBridge);

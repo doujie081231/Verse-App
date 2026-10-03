@@ -21,6 +21,7 @@ import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
 import com.verse.explorer.launcher.fcl.util.FCLPath
 import com.verse.explorer.jvmlauncher.JvmLauncherAPI
+import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
@@ -231,6 +232,12 @@ class GameLaunchOrchestrator(
             VerseLogger.error("setFCLBridge failed: ${e.message}")
         }
         try {
+            // SDL 渲染路径（MC 26.3+）：复位桥接状态，防止旧 Surface/旧初始化残留
+            SdlBridge.reset()
+        } catch (e: Throwable) {
+            VerseLogger.error("SdlBridge.reset failed: ${e.message}")
+        }
+        try {
             VerseLogger.close()
         } catch (e: Throwable) {
             VerseLogger.error("VerseLogger.close failed: ${e.message}")
@@ -250,6 +257,23 @@ class GameLaunchOrchestrator(
         VerseLogger.info("Surface changed: ${width}x${height}")
         surfaceWidth = width
         surfaceHeight = height
+        // 窗口尺寸静态字段（对齐 FCL JVMActivity.onSurfaceTextureAvailable L155-156 /
+        // onSurfaceTextureSizeChanged L172-173）：SDLSurface 初始化（mWidth=CallbackBridge.windowWidth）
+        // 与 SdlBridge.prepareSurface 都依赖该字段，必须在本回调（先于 GameActivity
+        // onSurfaceTextureAvailable L869 的 prepareSurface）内设置，否则 SDL/Vulkan surface
+        // 尺寸恒 0 → 进世界渲染首个世界帧 abort（SIGABRT 退出码 6，OpenJDK exited with code : 6）。
+        runCatching {
+            val scaleFactor = MenuSetting.windowScale
+            org.lwjgl.glfw.CallbackBridge.windowWidth =
+                ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
+            org.lwjgl.glfw.CallbackBridge.windowHeight = (height * scaleFactor).toInt()
+            if (FCLBridge.FORCE_RESOLUTION) {
+                org.lwjgl.glfw.CallbackBridge.windowWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+                org.lwjgl.glfw.CallbackBridge.windowHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+            }
+        }.onFailure {
+            VerseLogger.warn("预置 CallbackBridge.windowWidth/Height 失败: ${it.message}", TAG)
+        }
     }
 
     private var surfaceWidth = 0
@@ -305,12 +329,19 @@ class GameLaunchOrchestrator(
         updateProgress("构建启动选项...", null)
         val authInfo = createAuthInfo(params)
         val javaVersion = VerseJavaVersion(params.javaVersion, resolvedJavaHome)
-        val launchOptions = buildLaunchOptions(params, javaVersion)
+        // 版本级设置：隔离关闭时运行目录回到游戏根目录（对齐 FCL getRunDirectory 的两种目录类型）
+        val verSettings = com.verse.explorer.app.data.VersionSettingsRepository(activity)
+            .getVersionSettings(params.versionId)
+        val launchOptions = buildLaunchOptions(params, javaVersion, verSettings)
         val repository = DefaultGameRepository(gameDir)
+        repository.setRunDirectoryIsolated(verSettings.usesGlobal || verSettings.isolateGameDir)
         repository.refreshVersions()
         injectOnboardingSkip(repository, params.versionId)
         injectGameLanguage(repository, fclVersion)
-        injectGraphicsBackend(repository, fclVersion)
+        injectGraphicsBackend(
+            repository, fclVersion, params.renderer,
+            if (!verSettings.usesGlobal) verSettings.graphicsBackend else null
+        )
         dumpRenderOptions(repository, fclVersion, params)
         VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
@@ -329,13 +360,36 @@ class GameLaunchOrchestrator(
         launcher.setNativesDirectory(nativesDir.absolutePath)
         // 诊断：JVM 的 stdout/stderr 在 Android 上默认丢弃（fd 指向 /dev/null），
         // 重定向到文件便于排查启动期错误（走外部存储，便于通过文件管理器/远程工具取回日志）。
-        runCatching {
+        // 逐调用 try-catch：任何失败都必须落到 launch.log，杜绝被吞掉后再猜
+        try {
             System.loadLibrary("versejvm")
+            VerseLogger.info("[8/9 JVM启动] loadLibrary(versejvm) ok", TAG)
+        } catch (t: Throwable) {
+            VerseLogger.error("[8/9 JVM启动] loadLibrary(versejvm) 失败: $t", TAG)
+        }
+        // 诊断日志目录：提前计算（与下方 initializeHooks 无关，供 native 日志使用）
+        val externalBase = activity.getExternalFilesDir(null)
+        val diagDir = if (externalBase != null) File(File(externalBase, "VerseExplorerX"), "logs") else null
+        if (diagDir != null) diagDir.mkdirs()
+        // 激活 FCL 3.x 的 SDL hooks（bytehook init 的唯一入口，须在 JVM 启动前调用）：
+        // pojavexec 内 Java_com_tungsten_fclauncher_bridge_FCLBridge_initializeHooks
+        // 执行 bytehook_init(BYTEHOOK_MODE_AUTOMATIC) → create_sdl_hooks（SDL_InitSubSystem
+        // launcher 集成/窗口复用/EGL 兼容/Vulkan loader 一致性）+ create_sdl_dlopen_hooks
+        // （dlsym 出口把 SDL 符号换成代理，LWJGL 经 dlopen+dlsym 解析的调用同样走代理）。
+        // 注：自研 versesdl（hook SDL_GL_GetProcAddress/dlsym）已移除 —— 其 bytehook_init
+        // 一次失败（MEMORY_ALLOCATION_FAILED）就把 bytehook 状态锁死，后续任何 init 均返回
+        // ALREADY_CALLED，FCL 的 sdl hooks 将永远装不上（2.1.75 实证）。
+        try {
+            System.loadLibrary("pojavexec")
+            FCLBridge.initializeHooks()
+            VerseLogger.info("[8/9 JVM启动] FCLBridge.initializeHooks() ok（FCL SDL hooks 已激活）", TAG)
+        } catch (t: Throwable) {
+            VerseLogger.error("[8/9 JVM启动] FCLBridge.initializeHooks() 失败: $t", TAG)
+        }
+        try {
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv("VERSE_NATIVES_DIR", nativesDir.absolutePath)
             // native FLOGI 日志：外部可访问路径，Android 10+ 的 /sdcard 根目录不可写，
             // 必须用应用专属外部目录（getExternalFilesDir）。
-            val externalBase = activity.getExternalFilesDir(null)
-            val diagDir = if (externalBase != null) File(File(externalBase, "VerseExplorerX"), "logs") else null
-            if (diagDir != null) diagDir.mkdirs()
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetLogPath(
                 File(diagDir ?: File(gameDir, "logs"), "verse_native.log").absolutePath
             )
@@ -347,7 +401,64 @@ class GameLaunchOrchestrator(
                 "VERSE_GLFW_LOG_PATH",
                 File(diagDir ?: File(gameDir, "logs"), "verse_glfw.log").absolutePath
             )
+            // MC 26.3 SDL 渲染路径：RenderPearl 校验 LWJGL 的 GL provider 与
+            // SDL_GL_GetProcAddress 返回的 glGetError 是否同一实现。LWJGL 侧经
+            // -Dorg.lwjgl.opengl.libname 加载 libng_gl4es.so，而 SDL3 Android 后端
+            // 的 SDL_GL_GetProcAddress 走系统 eglGetProcAddress（Mali 驱动实现），
+            // 两地址必然不一致 → glGetError mismatch。versesdl 在 dlsym 出口把
+            // SDL_GL_GetProcAddress 的 gl* 函数重定向到 libng_gl4es.so。
+            // 时序：bytehook 由 FCL 的 FCLBridge.initializeHooks() 先完成 init，
+            // versesdl 的 bytehook_init 返回 ALREADY_CALLED(4) 时继续装 hook（不锁死）。
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                "VERSE_SDL_LOG_PATH",
+                File(diagDir ?: File(gameDir, "logs"), "verse_sdl.log").absolutePath
+            )
+            com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                "VERSE_APP_LIB_DIR",
+                activity.applicationInfo.nativeLibraryDir
+            )
+            try {
+                System.loadLibrary("versesdl")
+                VerseLogger.info("[8/9 JVM启动] loadLibrary(versesdl) ok（SDL GL 对齐 hooks 已激活）", TAG)
+            } catch (t: Throwable) {
+                VerseLogger.error("[8/9 JVM启动] loadLibrary(versesdl) 失败: $t", TAG)
+            }
+            // RenderPearl 的 Vulkan 后端（26.2+）要求 VK_EXT_vertex_attribute_divisor：
+            // Mali 系驱动缺 EXT 但提供 KHR（Vulkan 1.3 核心等价），按 FCL vkshim 链路把
+            // LWJGL/SDL 的 Vulkan 加载统一包装到 libvkshim.so（VULKAN_PTR）合成该扩展。
+            // 仅 arm64-v8a 真机路径启用（模拟器 x86_64 / OpenGL 后端不受影响）。
+            if (params.mcVersionMajor >= 26 &&
+                android.os.Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
+                // Vulkan 驱动器设置（FCL VersionSetting.isVKDriverSystem → FCLauncher envMap）：
+                // "1"=系统驱动；"0"=Turnip，versesdl 加载链经 liblinkerhook 把 loader 的驱动
+                // 加载请求转向 DRIVER_PATH/libvulkan_freedreno.so（不适用设备探测失败自动回落）
+                val vkDriverSystem = if (!verSettings.usesGlobal) verSettings.vkDriverSystem
+                else SettingsRepository.getVkDriverSystem()
+                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                    "VULKAN_DRIVER_SYSTEM", if (vkDriverSystem) "1" else "0"
+                )
+                // Turnip 驱动所在目录，对齐 FCL DriverPlugin（内置驱动随 APK 打包在 nativeLibraryDir）
+                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                    "DRIVER_PATH", activity.applicationInfo.nativeLibraryDir
+                )
+                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv("VKSHIM_ENABLE", "1")
+                // VerseX 渲染器（设置页「VerseX 渲染器/Pipeline 缓存」）：M1 为 pipeline 对象级缓存，
+                // 经环境变量传给 vkshim（默认开，VERSERX_PIPELINE_CACHE=0 关闭）
+                val vsxPipelineCache = com.verse.explorer.app.data.SettingsRepository.getVersexPipelineCache()
+                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                    "VERSERX_PIPELINE_CACHE",
+                    if (vsxPipelineCache) "1" else "0"
+                )
+                try {
+                    org.libsdl.app.SDL.nativeEnableVulkanShim()
+                    VerseLogger.info("[8/9 JVM启动] vkshim Vulkan 包装层已启用（VULKAN_PTR 指向 libvkshim.so）", TAG)
+                } catch (t: Throwable) {
+                    VerseLogger.error("[8/9 JVM启动] nativeEnableVulkanShim 失败: $t", TAG)
+                }
+            }
             VerseLogger.info("[8/9 JVM启动] native 日志: ${(diagDir ?: File(gameDir, "logs")).absolutePath}", TAG)
+        } catch (t: Throwable) {
+            VerseLogger.error("[8/9 JVM启动] native 配置失败: $t", TAG)
         }
         VerseLogger.info("[8/9 JVM启动] 调用 DefaultLauncher.launch() ...", TAG)
         val bridge = withContext(Dispatchers.IO) {
@@ -365,10 +476,13 @@ class GameLaunchOrchestrator(
         val scaleFactor = MenuSetting.windowScale
         VerseLogger.info("[9/9 渲染接入] windowScale=$scaleFactor, 窗口=${(surfaceWidth * scaleFactor).toInt()}x${(surfaceHeight * scaleFactor).toInt()}", TAG)
         bridge.setScaleFactor(scaleFactor)
+        // 窗口缓冲尺寸：execute 后 pushEventWindow 需复用，提升到函数级
+        var winWidth = 0
+        var winHeight = 0
         val surfaceTexture = surfaceTextureRef
         if (surfaceTexture != null && surfaceWidth > 0 && surfaceHeight > 0) {
-            var winWidth = ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
-            var winHeight = (surfaceHeight * scaleFactor).toInt()
+            winWidth = ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
+            winHeight = (surfaceHeight * scaleFactor).toInt()
             if (FCLBridge.FORCE_RESOLUTION) {
                 winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
                 winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
@@ -383,8 +497,32 @@ class GameLaunchOrchestrator(
         }
         VerseLogger.info("[9/9 渲染接入] bridge.execute(surface=$surface, callback) ...", TAG)
         jvmStarted = true
+        // 窗口尺寸静态字段（对齐 FCL JVMActivity.onSurfaceTextureAvailable L155-156）：
+        // SDLSurface 初始化（mWidth=CallbackBridge.windowWidth）依赖该字段，缺失时窗口尺寸 0
+        // 导致 SDL/Vulkan surface 尺寸 0，进世界渲染 abort（SIGABRT 退出码 6）。
+        // 时序在 execute 前：FCL 同样在此处设置（预加载链已铺好，CallbackBridge 类已可安全访问）；
+        // 失败兜底忽略（execute 后 pushEventWindow 仍会经 sendUpdateWindowSize 更新）。
+        runCatching {
+            org.lwjgl.glfw.CallbackBridge.windowWidth = winWidth
+            org.lwjgl.glfw.CallbackBridge.windowHeight = winHeight
+        }.onFailure {
+            VerseLogger.warn("[9/9 渲染接入] 预置 CallbackBridge.windowWidth/Height 失败: ${it.message}", TAG)
+        }
         withContext(Dispatchers.Main) {
             bridge.execute(surface, bridgeCallback)
+        }
+        // 窗口尺寸事件推送（对齐 FCL JVMActivity.onSurfaceTextureAvailable L160）：
+        // 游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize 更新 windowWidth/Height
+        // 并触发 GLFW 窗口尺寸回调 → MC 按新尺寸重建渲染目标/swapchain。
+        // 时序：必须在 execute 之后（JVM 已启动、CallbackBridge 已初始化），execute 前调用
+        // 会触发该类过早静态初始化导致永久 failed（游戏无法启动）。
+        // 缺失该推送时游戏窗口尺寸停留在初始化默认值，渲染目标与 Surface 缓冲尺寸不一致，
+        // 进世界渲染首个世界帧（区块 command buffer 初始化）时驱动 abort（SIGABRT 退出码 6）。
+        runCatching {
+            bridge.pushEventWindow(winWidth, winHeight)
+            VerseLogger.info("[9/9 渲染接入] pushEventWindow($winWidth x $winHeight) 已推送", TAG)
+        }.onFailure {
+            VerseLogger.warn("[9/9 渲染接入] pushEventWindow 失败: ${it.message}", TAG)
         }
         VerseLogger.info("启动流程结束, 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
     }
@@ -481,13 +619,20 @@ class GameLaunchOrchestrator(
 
     /**
      * 对齐 FCL LauncherHelper L232-234 的 options.txt 处理：
-     * 每次启动无条件写 preferredGraphicsBackend="default"（MC 26.2 据此选择图形后端，
-     * 本机仅 GLES 后端所以实际落 OpenGL）。
+     * 每次启动写 preferredGraphicsBackend：GL 渲染器（MobileGlues 等）强制 "opengl"
+     * （MobileGlues 是 OpenGL 实现，Vulkan 后端下其窗口/EGL 初始化失败
+     * "Failed to query window size in pixels: Invalid window"）；
+     * 其余渲染器写 "default"（MC 26.2 据此自选后端）。
      * 注意：不整写旧版 options 模板——MC 26.2 的选项解析器对无引号旧格式行
      * （fov:0.0/clouds:true 等）报 "Skipping bad option"，可能引发启动期异常；
      * options.txt 首次由 MC 自行生成，这里只追加/更新 backend 键。
      */
-    private fun injectGraphicsBackend(repository: DefaultGameRepository, version: Version) {
+    private fun injectGraphicsBackend(
+        repository: DefaultGameRepository,
+        version: Version,
+        renderer: String,
+        backendOverride: String? = null
+    ) {
         runCatching {
             val runDir = repository.getRunDirectory(version.id)
             runDir.mkdirs()
@@ -498,8 +643,24 @@ class GameLaunchOrchestrator(
 
             var content = optionsFile.readText()
 
-            // 无条件写 preferredGraphicsBackend（对齐 LauncherHelper，MC 26.2 图形后端选择）
-            content = setOption(content, "preferredGraphicsBackend", "\\\"default\\\"")
+            // preferredGraphicsBackend：GL 渲染器强制 opengl（Vulkan 后端下 MobileGlues 的
+            // 窗口/EGL 初始化失败 "Invalid window"）；其余走 default（MC 自选）。
+            // 26.3 起选项类被模块化拆分，后端键名可能非 preferredGraphicsBackend，
+            // 对 mobileglues 额外写入一组候选键（MC 只读取它识别的那个）。
+            // 值一律小写（default/opengl/vulkan），大写变体 MC 不识别会回落默认后端。
+            if (renderer == "mobileglues") {
+                content = setOption(content, "preferredGraphicsBackend", "\"opengl\"")
+                content = setOption(content, "graphicsApi", "\"opengl\"")
+                content = setOption(content, "graphicsBackend", "\"opengl\"")
+                content = setOption(content, "apiPreference", "\"opengl\"")
+                content = setOption(content, "renderBackend", "\"opengl\"")
+            } else {
+                // 图形 API 设置（FCL VersionSetting.graphicsBackend → LauncherHelper 写 options.txt）：
+                // default 由 MC 自选（26.3 探测到 Vulkan 强制 Vulkan），opengl/vulkan 显式指定。
+                // 版本级独立设置优先，未启用独立设置时读全局。
+                val backend = backendOverride ?: SettingsRepository.getGraphicsBackend()
+                content = setOption(content, "preferredGraphicsBackend", "\"$backend\"")
+            }
 
             // 水体贴图错乱根因：FCL 手机 options.txt 显式 mipmapLevels:0（关闭 mipmap），
             // Verse 缺失该键走 MC 默认 mipmapLevels:4，Mali-G925 + ng_gl4es 转译层下
@@ -517,7 +678,7 @@ class GameLaunchOrchestrator(
             content = setOption(content, "renderDistance", "2")
 
             optionsFile.writeText(content)
-            VerseLogger.info("已注入 FCL 渲染兼容参数: preferredGraphicsBackend=default, mipmapLevels=0, fancyGraphics=false, ao=false, enableVsync=false, renderDistance=2", TAG)
+            VerseLogger.info("已注入 FCL 渲染兼容参数: preferredGraphicsBackend=${SettingsRepository.getGraphicsBackend()}, mipmapLevels=0, fancyGraphics=false, ao=false, enableVsync=false, renderDistance=2", TAG)
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }
@@ -597,23 +758,41 @@ class GameLaunchOrchestrator(
         )
     }
 
-    private fun buildLaunchOptions(params: GameLaunchParams, javaVersion: JavaVersion): LaunchOptions {
-        // 照搬 FCL FCLGameRepository.getLaunchOptions（L369-370）：
-        // setWidth((int)(screenWidth * scaleFactor)) / setHeight(...) —— 窗口尺寸按 windowScale 缩放。
-        // 缩放三同步的另外两处：execute 前 setScaleFactor + setDefaultBufferSize/pushEventWindow（见第 9 步）。
+    private fun buildLaunchOptions(
+        params: GameLaunchParams,
+        javaVersion: JavaVersion,
+        verSettings: com.verse.explorer.app.data.VersionSettingsRepository.VersionSettings
+    ): LaunchOptions {
+        // 强制分辨率（版本级设置）：直接用设定宽高，不按 windowScale 缩放。
+        // 其余情况照搬 FCL FCLGameRepository.getLaunchOptions（L369-370）：
+        // setWidth((int)(screenWidth * scaleFactor)) —— 缩放三同步的另外两处：
+        // execute 前 setScaleFactor + setDefaultBufferSize/pushEventWindow（见第 9 步）。
         val scaleFactor = MenuSetting.windowScale
-        val effectiveWidth = if (surfaceWidth > 0) {
+        val forceRes = !verSettings.usesGlobal && verSettings.forceResolution &&
+            verSettings.width > 0 && verSettings.height > 0
+        val effectiveWidth = if (forceRes) {
+            verSettings.width
+        } else if (surfaceWidth > 0) {
             ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
         } else {
             params.gameWidth
         }
-        val effectiveHeight = if (surfaceHeight > 0) {
+        val effectiveHeight = if (forceRes) {
+            verSettings.height
+        } else if (surfaceHeight > 0) {
             (surfaceHeight * scaleFactor).toInt()
         } else {
             params.gameHeight
         }
-        // ZL2 式版本隔离：-Duser.home 与运行目录指向版本文件夹（与 getRunDirectory 一致）
-        val runDir = File(File(File(params.gameDirPath), "versions"), params.versionId).apply { mkdirs() }
+        // 版本隔离：开启时运行目录指向版本文件夹（与 getRunDirectory 一致），
+        // 关闭时回到游戏根目录
+        val isolated = verSettings.usesGlobal || verSettings.isolateGameDir
+        val runDir = if (isolated) {
+            File(File(File(params.gameDirPath), "versions"), params.versionId).apply { mkdirs() }
+        } else {
+            File(params.gameDirPath).apply { mkdirs() }
+        }
+        val debugLog = if (!verSettings.usesGlobal) verSettings.debugLog else SettingsRepository.getDebugLog()
         return LaunchOptions.Builder()
             .setGameDir(runDir)
             .setJava(javaVersion)
@@ -624,6 +803,10 @@ class GameLaunchOrchestrator(
             .setRenderer(params.renderer)
             .setUUid(params.uuid)
             .setJavaArguments(params.customJvmArgs.split(" ").filter { it.isNotBlank() })
+            .setGameArguments(verSettings.minecraftArgs.split(" ").filter { it.isNotBlank() })
+            .setServerIp(verSettings.serverIp)
+            // FCL isDebugLog：log4j2 换用 -debug 配置，游戏内输出详细调试日志
+            .setDebugLog(debugLog)
             .create()
     }
 

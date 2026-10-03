@@ -40,7 +40,8 @@ class MicrosoftAuthenticator {
         private const val TAG = "MsaLogin"
 
         private const val AUTHORITY = "https://login.microsoftonline.com"
-        private const val CLIENT_ID = "00000000402b5328"
+        // 与 versepc2 auth/microsoft.rs MS_CLIENT_ID 保持一致
+        private const val CLIENT_ID = "b5b442d7-5978-4637-a81e-88faf9bfc8a6"
 
         /** 与 ZL2 一致的作用域列表（子集沿用 Verse 已验证可用的配置） */
         private val SCOPES = listOf("XboxLive.signin", "offline_access")
@@ -107,12 +108,15 @@ class MicrosoftAuthenticator {
                     val json = parseJson(raw)
                     val userCode = json.get("user_code")?.asString ?: ""
                     val verificationUri = json.get("verification_uri")?.asString ?: ""
+                    // 与 versepc2 一致：优先用预填验证码的完整链接，浏览器页直接打开可免手输 user_code
+                    val verificationUriComplete = json.get("verification_uri_complete")?.asString ?: ""
                     val deviceCode = json.get("device_code")?.asString ?: ""
                     val expiresIn = json.get("expires_in")?.asInt ?: 0
                     val interval = json.get("interval")?.asInt ?: 5
                     Log.i(
                         TAG,
                         "设备码返回: user_code=$userCode, verification_uri=${verificationUri.ifBlank { "<空!>" }}（长度=${verificationUri.length}）, " +
+                            "verification_uri_complete=${verificationUriComplete.ifBlank { "<空>" }}, " +
                             "expires_in=${expiresIn}s, interval=${interval}s, device_code 存在=${deviceCode.isNotEmpty()}"
                     )
                     if (verificationUri.isBlank()) {
@@ -122,6 +126,7 @@ class MicrosoftAuthenticator {
                         userCode = userCode,
                         deviceCode = deviceCode,
                         verificationUri = verificationUri,
+                        verificationUriComplete = verificationUriComplete,
                         expiresIn = expiresIn,
                         interval = interval
                     )
@@ -322,7 +327,8 @@ class MicrosoftAuthenticator {
         val xstsToken = authenticateXSTS(xblToken.first, xblToken.second)
         statusUpdate(AsyncStatus.AUTHENTICATE_MINECRAFT)
         Log.i(TAG, "认证链步骤: Minecraft 服务认证（AUTHENTICATE_MINECRAFT）")
-        return authenticateMinecraft(xstsToken.first, xstsToken.second)
+        // xstsToken = Pair(令牌, uhs)，而 authenticateMinecraft 参数顺序为 (uhs, xstsToken)
+        return authenticateMinecraft(xstsToken.second, xstsToken.first)
     }
 
     /** 与 ZL2 的 refreshAccessToken 一致：走 login.live.com 旧端点，invalid_grant 视为凭据过期 */
@@ -474,11 +480,19 @@ class MicrosoftAuthenticator {
                     429 -> throw MinecraftProfileException(MinecraftProfileException.ExceptionStatus.FREQUENT)
                     403 -> throw MinecraftProfileException(MinecraftProfileException.ExceptionStatus.BLOCKED_IP)
                 }
-                Log.w(TAG, "Minecraft 认证失败: HTTP=${response.code}, body=${responseBody?.take(200)}")
+                // 401/5xx：body 通常直接说明拒绝原因（如 "The user is not entitled to use Minecraft"），必须完整暴露用于定位
+                val errMsg = runCatching {
+                    gson.fromJson(responseBody, JsonObject::class.java)
+                        ?.get("errorMessage")?.takeIf { !it.isJsonNull }?.asString
+                }.getOrNull()
+                Log.e(TAG, "Minecraft 认证失败: HTTP=${response.code}, errorMessage=$errMsg, body=${responseBody?.take(300)}")
+                if (response.code == 401 && errMsg?.contains("entitled", ignoreCase = true) == true) {
+                    throw NotPurchasedMinecraftException()
+                }
                 throw AuthHttpException(
                     httpStatus = response.code,
                     errorCode = null,
-                    message = "Minecraft 认证失败 (HTTP ${response.code})"
+                    message = "Minecraft 认证失败 (HTTP ${response.code}): ${errMsg ?: ""}".trimEnd()
                 )
             }
             gson.fromJson(responseBody, JsonObject::class.java).get("access_token")?.asString ?: ""

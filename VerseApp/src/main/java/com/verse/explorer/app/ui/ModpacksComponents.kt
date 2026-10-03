@@ -359,7 +359,10 @@ internal fun ResourceDetailDialog(
             Button(
                 onClick = onDismiss,
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = VerseColors.PcAccent)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = VerseColors.PcAccent,
+                    contentColor = VerseColors.PcAccentText
+                )
             ) {
                 Text("关闭", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }

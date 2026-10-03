@@ -71,9 +71,58 @@ import java.util.stream.Collectors;
 public class DefaultLauncher extends Launcher {
     private String jnaVersion;
     private String nativesDirectory;
+    // LWJGL 栈版本（对齐 FCL DefaultLauncher）：默认 3.3.3，启动前按版本 JSON 解析覆盖；
+    // >=3.4.1 用 3.4.1 栈（SDL 链），<3.4.1 用 3.3.3 栈。对应 assets/app_runtime/lwjgl/<version>/
+    private String lwjglVersion = "3.3.3";
+    private boolean useLwjglX = false;
 
     public DefaultLauncher(Context context, GameRepository repository, Version version, AuthInfo authInfo, LaunchOptions options) {
         super(context, repository, version, authInfo, options);
+        resolveLwjglVersionFromLibraries();
+    }
+
+    /**
+     * 从版本 libraries 解析 LWJGL 版本（FCL LauncherHelper L241-260 语义）：
+     * org.lwjgl:lwjgl:* 或 org.lwjgl.lwjgl:lwjgl:* 取最高版本。
+     */
+    private void resolveLwjglVersionFromLibraries() {
+        String detected = null;
+        for (com.verse.explorer.launcher.fcl.game.Library library : version.getLibraries()) {
+            String name = library.getName();
+            if (name.startsWith("org.lwjgl:lwjgl:") || name.startsWith("org.lwjgl.lwjgl:lwjgl:")) {
+                String v = library.getVersion();
+                if (detected == null || GameVersionNumber.compare(v, detected) > 0) {
+                    detected = v;
+                }
+            }
+        }
+        if (detected != null) {
+            setLwjglVersion(detected);
+        }
+    }
+
+    public void setLwjglVersion(String lwjglVersion) {
+        try {
+            if (GameVersionNumber.compare(lwjglVersion, "3.3.3") < 0) {
+                this.useLwjglX = true;
+            }
+            if (GameVersionNumber.compare(lwjglVersion, "3.4.1") >= 0) {
+                this.lwjglVersion = "3.4.1";
+            } else {
+                this.lwjglVersion = "3.3.3";
+            }
+        } catch (Throwable t) {
+            this.lwjglVersion = "3.3.3";
+        }
+    }
+
+    private String getLwjglDir() {
+        return FCLPath.LWJGL_DIR + "/" + lwjglVersion;
+    }
+
+    private String getLwjglNativesDir() {
+        String arch = Architecture.archAsStringAndroid(Architecture.getDeviceArchitecture());
+        return getLwjglDir() + "/natives/" + arch;
     }
 
     private CommandBuilder generateCommandLine() throws IOException {
@@ -155,7 +204,10 @@ public class DefaultLauncher extends Launcher {
         // 替换为 renderer.getGLPath()）。缺少该参数时 LWJGL 默认找 libGL.so.1，Android 上不存在，导致
         // GL.create 抛 UnsatisfiedLinkError: Failed to locate library: libGL.so.1。
         res.addDefault("-Dorg.lwjgl.opengl.libname=", "${gl_lib_name}");
-        res.addDefault("-Dorg.lwjgl.freetype.libname=", context.getApplicationInfo().nativeLibraryDir + "/libfreetype.so");
+        File versionedFreetype = new File(getLwjglNativesDir(), "libfreetype.so");
+        res.addDefault("-Dorg.lwjgl.freetype.libname=", versionedFreetype.exists()
+                ? versionedFreetype.getAbsolutePath()
+                : context.getApplicationInfo().nativeLibraryDir + "/libfreetype.so");
         res.addDefault("-Dfml.earlyprogresswindow=", "false");
         res.addDefault("-Dglfwstub.windowWidth=", options.getWidth() + "");
         res.addDefault("-Dglfwstub.windowHeight=", options.getHeight() + "");
@@ -171,9 +223,15 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Djdk.lang.Process.launchMechanism=", "FORK");
         res.addDefault("-Dcpu.name=", FCLauncher.getSocName());
         NativeLibPlugin.getJVMEnv().forEach((k, v) -> res.addDefault(k + "=", v));
+        File lwjglNatives = new File(getLwjglNativesDir());
+        String lwjglMasterNatives = lwjglNatives.isDirectory()
+                ? lwjglNatives.getAbsolutePath() + File.pathSeparator + (nativesDirectory != null ? nativesDirectory : "")
+                : nativesDirectory;
         if (nativesDirectory != null && !nativesDirectory.isEmpty()) {
-            res.addDefault("-Djava.library.path=", nativesDirectory);
-            res.addDefault("-Dorg.lwjgl.librarypath=", nativesDirectory);
+            res.addDefault("-Djava.library.path=", lwjglMasterNatives);
+            res.addDefault("-Dorg.lwjgl.librarypath=", lwjglNatives.isDirectory()
+                    ? lwjglNatives.getAbsolutePath()
+                    : nativesDirectory);
         }
         // LWJGL 分两个模块加载：
         // 1) system 模块（org.lwjgl.libname=lwjgl）：加载 liblwjgl.so，提供 JNI.call* 等
@@ -453,7 +511,7 @@ public class DefaultLauncher extends Launcher {
      * SIGSEGV（App 进程静默退出，无任何 Java 异常日志）。
      */
     private void replaceLwjglWithLocal(Set<String> classpath) {
-        File lwjglDir = new File(FCLPath.LWJGL_DIR);
+        File lwjglDir = new File(getLwjglDir());
         if (!lwjglDir.isDirectory()) return;
         File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 0);
         if (localLwjglJars == null || localLwjglJars.length == 0) return;
@@ -588,6 +646,7 @@ public class DefaultLauncher extends Launcher {
         );
         config.setUseVKDriverSystem(options.isVKDriverSystem());
         config.setPojavBigCore(options.isPojavBigCore());
+        config.setLwjglVersion(lwjglVersion);
         config.setInstalledModLoaders(new FCLConfig.InstalledModLoaders(
                 false, false, false, false, false, false, false
         ));

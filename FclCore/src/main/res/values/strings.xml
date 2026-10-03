@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_version">VerseExplorerX</string>
-    <string name="curse_api_key">null</string>
+    <string name="curse_api_key">$2a$10$bL4bIL5pUWqfcO7KQtnMReakwtfHbNKh6v1uTpKlzhwoueEJQnPnm</string>
     <string name="installer_exit_code_invalid">安装器返回了异常的退出码</string>
     <string name="installer_process_failed_to_start">安装器进程启动失败</string>
     <string name="installer_process_no_exit_code">安装器进程未返回退出码</string>

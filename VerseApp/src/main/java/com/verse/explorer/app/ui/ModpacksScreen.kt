@@ -24,7 +24,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
-import com.verse.explorer.app.ui.components.PcCompactSelect
+import com.verse.explorer.app.ui.components.PcCompactSearchField
+import com.verse.explorer.app.ui.components.PcCompactFilterBar
+import com.verse.explorer.app.ui.components.PcFilterSelect
 import com.verse.explorer.app.ui.components.PcPagination
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.ResourceViewModel
@@ -51,61 +53,24 @@ fun ModpacksScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 0.dp)
+                .padding(top = 54.dp)
         ) {
-            PageHeader(title = "整合包管理", compact = true)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            PcCompactFilterBar(
+                selects = listOf(
+                    PcFilterSelect(uiState.selectedLoader, loaders.map { it to it }) { viewModel.setSelectedLoader(it) },
+                    PcFilterSelect(uiState.selectedVersion, versions.map { it to it }) { viewModel.setSelectedVersion(it) },
+                    PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
+                ),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                OutlinedTextField(
+                PcCompactSearchField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text("搜索整合包...", color = VerseColors.PcTextMuted, fontSize = 13.sp)
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.Search,
-                            contentDescription = null,
-                            tint = VerseColors.PcTextMuted,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = {
-                                searchQuery = ""
-                                viewModel.search("")
-                            }) {
-                                Icon(
-                                    Icons.Outlined.Clear,
-                                    contentDescription = null,
-                                    tint = VerseColors.PcTextMuted,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f).height(40.dp),
-                    textStyle = TextStyle(fontSize = 13.sp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VerseColors.PcAccent,
-                        unfocusedBorderColor = VerseColors.PcBorder,
-                        focusedContainerColor = VerseColors.PcBgTertiary,
-                        unfocusedContainerColor = VerseColors.PcBgTertiary,
-                        focusedTextColor = VerseColors.PcTextPrimary,
-                        unfocusedTextColor = VerseColors.PcTextPrimary,
-                        cursorColor = VerseColors.PcAccent
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = { viewModel.search(searchQuery) }
-                    )
+                    placeholder = "搜索整合包...",
+                    onSearch = { viewModel.search(searchQuery) },
+                    modifier = Modifier.weight(1.2f)
                 )
 
                 GlassCard(
@@ -123,33 +88,6 @@ fun ModpacksScreen(
                         )
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // 对齐 versepc2 mod-filter-bar：筛选改为紧凑下拉并排成一行，省纵向空间
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                PcCompactSelect(
-                    value = uiState.selectedLoader,
-                    options = loaders.map { it to it },
-                    onSelect = { viewModel.setSelectedLoader(it) },
-                    modifier = Modifier.weight(1f)
-                )
-                PcCompactSelect(
-                    value = uiState.selectedVersion,
-                    options = versions.map { it to it },
-                    onSelect = { viewModel.setSelectedVersion(it) },
-                    modifier = Modifier.weight(1f)
-                )
-                PcCompactSelect(
-                    value = uiState.selectedSource.ifEmpty { "全部" },
-                    options = listOf("全部" to "", "Modrinth" to "modrinth", "CurseForge" to "curseforge"),
-                    onSelect = { viewModel.setSelectedSource(it) },
-                    modifier = Modifier.weight(1f)
-                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))

@@ -1,5 +1,10 @@
 package com.verse.explorer.app.ui
 
+import android.widget.FrameLayout
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,17 +12,24 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.R
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -29,6 +41,11 @@ import com.verse.explorer.app.ui.components.PcTextInputRow
 import com.verse.explorer.app.ui.components.pcTextFieldColors
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.tungsten.fcl.setting.MenuSetting
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.kdt.pojavlaunch.Tools
+import net.kdt.pojavlaunch.colorselector.ColorSelector
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
@@ -51,6 +68,7 @@ fun SettingsScreen(navController: NavHostController) {
     var gameWidth by remember { mutableStateOf(settingsRepo.getGameWidth().toString()) }
     var gameHeight by remember { mutableStateOf(settingsRepo.getGameHeight().toString()) }
     var fullscreen by remember { mutableStateOf(settingsRepo.getFullscreen()) }
+    var ignoreNotch by remember { mutableStateOf(DisplayNotch.ignoreNotch) }
     var downloadSource by remember { mutableStateOf(settingsRepo.getDownloadSource()) }
     var javaVersion by remember { mutableStateOf(settingsRepo.getJavaVersion()) }
     var language by remember { mutableStateOf(settingsRepo.getLanguage()) }
@@ -62,8 +80,48 @@ fun SettingsScreen(navController: NavHostController) {
     var windowTitle by remember { mutableStateOf(settingsRepo.getWindowTitle()) }
     var launcherVisibility by remember { mutableStateOf(settingsRepo.getLauncherVisibility()) }
     var showSnapshots by remember { mutableStateOf(false) }
+    // VerseX 渲染器：pipeline 缓存（M1）+ 整体开关（后续异步提交等接入）
+    var versexRenderer by remember { mutableStateOf(settingsRepo.getVersexRenderer()) }
+    var versexPipelineCache by remember { mutableStateOf(settingsRepo.getVersexPipelineCache()) }
+    // 图形 API（default/opengl/vulkan，写 MC options.txt preferredGraphicsBackend）
+    var graphicsBackend by remember { mutableStateOf(settingsRepo.getGraphicsBackend()) }
+    // Vulkan 驱动器（true=系统驱动 / false=Turnip，UI 值转字符串驱动下拉）
+    var vkDriver by remember { mutableStateOf(if (settingsRepo.getVkDriverSystem()) "system" else "turnip") }
+    // 启动检查与日志（FCL 同名设置）
+    var notCheckGame by remember { mutableStateOf(settingsRepo.getNotCheckGame()) }
+    var debugLog by remember { mutableStateOf(settingsRepo.getDebugLog()) }
+    var requestMicPermission by remember { mutableStateOf(settingsRepo.getRequestMicPermission()) }
     var themeColor by remember { mutableStateOf(settingsRepo.getThemeColor()) }
-    var backgroundStyle by remember { mutableStateOf(settingsRepo.getBackgroundStyle()) }
+    // 个性化：自定义强调色取色器 + 背景透明度 + 导入回调
+    var showColorPicker by remember { mutableStateOf(false) }
+    var previousAccent by remember { mutableStateOf<Color?>(null) }
+    var bgOpacity by remember { mutableIntStateOf(VersePersonalization.backgroundOpacity) }
+    val scope = rememberCoroutineScope()
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val appContext = context.applicationContext
+            scope.launch(Dispatchers.IO) {
+                val ok = VersePersonalization.importImage(appContext, uri)
+                withContext(Dispatchers.Main) {
+                    if (ok) bgOpacity = VersePersonalization.backgroundOpacity
+                    Toast.makeText(appContext, if (ok) "背景图片已导入" else "背景图片导入失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val appContext = context.applicationContext
+            scope.launch(Dispatchers.IO) {
+                val ok = VersePersonalization.importVideo(appContext, uri)
+                withContext(Dispatchers.Main) {
+                    if (ok) bgOpacity = VersePersonalization.backgroundOpacity
+                    Toast.makeText(appContext, if (ok) "背景视频已导入" else "背景视频导入失败", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     fun saveAll() {
         settingsRepo.apply {
@@ -76,6 +134,7 @@ fun SettingsScreen(navController: NavHostController) {
             setGameWidth(gameWidth.toIntOrNull() ?: 854)
             setGameHeight(gameHeight.toIntOrNull() ?: 480)
             setFullscreen(fullscreen)
+            setIgnoreNotch(ignoreNotch)
             setDownloadSource(downloadSource)
             setJavaVersion(javaVersion)
             setLanguage(language)
@@ -97,14 +156,28 @@ fun SettingsScreen(navController: NavHostController) {
         maxMemory = 2048f; minMemory = 512f; gcType = "G1GC"
         customJvmArgs = ""; renderer = "nggl4es"; launchMethod = "pojav"
         gameWidth = "854"; gameHeight = "480"; fullscreen = false
+        ignoreNotch = false
+        DisplayNotch.updateIgnoreNotch(false)
         downloadSource = "bmclapi"; javaVersion = "17"
         language = "简体中文"; keepScreenOn = true; showFps = false
         autoSetChinese = true
         debugMode = false
         windowTitle = ""; launcherVisibility = "keep"
-        showSnapshots = false; themeColor = "white"; backgroundStyle = "none"
+        graphicsBackend = "default"
+        vkDriver = if (settingsRepo.getVkDriverSystem()) "system" else "turnip"
+        showSnapshots = false; themeColor = "white"
+        // 同步重置个性化内存态（背景文件 + 强调色 + 透明度）
+        VerseColors.customAccent = null
+        SettingsRepository.setThemeAccent("")
+        VersePersonalization.setStyle("none")
+        VersePersonalization.setOpacity(95)
+        VersePersonalization.clear(context, "image")
+        VersePersonalization.clear(context, "video")
+        bgOpacity = 95
     }
 
+    // 根容器：左侧栏 + 内容区；顶层承载取色器全屏宿主（SideDialogView 从右侧滑入）
+    Box(modifier = Modifier.fillMaxSize()) {
     Row(modifier = Modifier.fillMaxSize()) {
         // 左侧边栏：160dp 宽，PcBgSecondary 背景
         Column(
@@ -166,6 +239,49 @@ fun SettingsScreen(navController: NavHostController) {
                 0 -> {
                     item {
                         PcCard(title = "启动选项") {
+                            PcSwitchRow("VerseX 渲染器", "启用 VerseX 渲染优化层（pipeline 缓存 + 异步提交，显著提升帧率）", versexRenderer) { on ->
+                                versexRenderer = on
+                                settingsRepo.setVersexRenderer(on)
+                            }
+                            PcSwitchRow("VerseX Pipeline 缓存", "缓存已编译的渲染管线对象，消除世界加载/切场景编译卡顿", versexPipelineCache) { on ->
+                                versexPipelineCache = on
+                                settingsRepo.setVersexPipelineCache(on)
+                            }
+                            PcDropdownRow(
+                                "图形 API",
+                                graphicsBackend,
+                                listOf(
+                                    "default" to "自动（默认）",
+                                    "opengl" to "OpenGL",
+                                    "vulkan" to "Vulkan"
+                                )
+                            ) { graphicsBackend = it; settingsRepo.setGraphicsBackend(it) }
+                            PcDropdownRow(
+                                "Vulkan 驱动器",
+                                vkDriver,
+                                listOf(
+                                    "system" to "系统驱动",
+                                    "turnip" to "Turnip（Adreno 专用）"
+                                )
+                            ) {
+                                vkDriver = it
+                                settingsRepo.setVkDriverSystem(it == "system")
+                            }
+                            PcSwitchRow(
+                                "不检查游戏完整性",
+                                "跳过启动前的游戏文件完整性检查以加快启动",
+                                notCheckGame
+                            ) { notCheckGame = it; settingsRepo.setNotCheckGame(it) }
+                            PcSwitchRow(
+                                "输出调试日志",
+                                "游戏内输出详细调试日志，便于排查问题",
+                                debugLog
+                            ) { debugLog = it; settingsRepo.setDebugLog(it) }
+                            PcSwitchRow(
+                                "请求麦克风权限",
+                                "启动游戏时请求麦克风权限（用于语音聊天模组）",
+                                requestMicPermission
+                            ) { requestMicPermission = it; settingsRepo.setRequestMicPermission(it) }
                             PcSwitchRow("显示快照版本", "在版本列表中显示快照版本", showSnapshots) { showSnapshots = it }
                             PcDropdownRow(
                                 "启动器可见性",
@@ -182,6 +298,11 @@ fun SettingsScreen(navController: NavHostController) {
                             PcSwitchRow("显示 FPS", "运行时显示帧率信息", showFps) { showFps = it }
                             PcSwitchRow("自动设置为中文", "启动游戏时自动将游戏语言设置为简体中文", autoSetChinese) { autoSetChinese = it }
                             PcSwitchRow("全屏启动", "启动游戏时自动全屏", fullscreen) { fullscreen = it }
+                            PcSwitchRow("忽略刘海（全屏）", "忽略屏幕刘海区域全屏显示；关闭时游戏画面避让刘海缩小", ignoreNotch) { on ->
+                                ignoreNotch = on
+                                // 即时生效：内容容器让出/占回 displayCutout 区（MainActivity 响应式读取）
+                                DisplayNotch.updateIgnoreNotch(on)
+                            }
                         }
                     }
 
@@ -308,6 +429,35 @@ fun SettingsScreen(navController: NavHostController) {
 
                     item {
                         PcCard(title = "Java 设置") {
+                            // Java 运行时管理入口（原侧边栏 Java 页，收进设置；FCL 全局管理中的 Java 管理）
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { navController.navigate(Screen.Java.route) }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Java 运行时管理",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = VerseColors.PcTextPrimary,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    "安装 / 默认版本",
+                                    fontSize = 11.sp,
+                                    color = VerseColors.PcTextMuted
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = VerseColors.PcTextMuted
+                                )
+                            }
+                            androidx.compose.material3.HorizontalDivider(color = VerseColors.PcBorder, thickness = 1.dp)
+                            Spacer(Modifier.height(6.dp))
                             Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                                 Text(
                                     "内存分配",
@@ -448,6 +598,26 @@ fun SettingsScreen(navController: NavHostController) {
                                     themeColor = "white"
                                     VerseColors.applyTheme("white")
                                 }
+                                ThemeColorOption(
+                                    label = "自定义",
+                                    color = VerseColors.customAccent ?: VerseColors.PcAccent,
+                                    selected = VerseColors.customAccent != null
+                                ) {
+                                    previousAccent = VerseColors.customAccent
+                                    showColorPicker = true
+                                }
+                            }
+                            // 已设置自定义强调色时提供恢复入口
+                            if (VerseColors.customAccent != null) {
+                                Spacer(Modifier.height(10.dp))
+                                PcButton(
+                                    text = "恢复默认强调色",
+                                    onClick = {
+                                        VerseColors.customAccent = null
+                                        SettingsRepository.setThemeAccent("")
+                                    },
+                                    variant = PcButtonVariant.OUTLINE
+                                )
                             }
                         }
                     }
@@ -465,11 +635,102 @@ fun SettingsScreen(navController: NavHostController) {
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                BackgroundStyleOption("无背景", backgroundStyle == "none") {
-                                    backgroundStyle = "none"
-                                    settingsRepo.setBackgroundStyle("none")
+                                BackgroundStyleOption(
+                                    "无背景",
+                                    VersePersonalization.backgroundStyle == "none"
+                                ) {
+                                    VersePersonalization.setStyle("none")
+                                }
+                                BackgroundStyleOption(
+                                    "图片背景",
+                                    VersePersonalization.backgroundStyle == "image"
+                                ) {
+                                    if (VersePersonalization.backgroundImagePath == null) {
+                                        imagePicker.launch("image/*")
+                                    } else {
+                                        VersePersonalization.setStyle("image")
+                                    }
+                                }
+                                BackgroundStyleOption(
+                                    "视频背景",
+                                    VersePersonalization.backgroundStyle == "video"
+                                ) {
+                                    if (VersePersonalization.backgroundVideoPath == null) {
+                                        videoPicker.launch("video/*")
+                                    } else {
+                                        VersePersonalization.setStyle("video")
+                                    }
                                 }
                             }
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                PcButton(
+                                    text = "导入图片",
+                                    onClick = { imagePicker.launch("image/*") },
+                                    variant = PcButtonVariant.OUTLINE,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                PcButton(
+                                    text = "导入视频",
+                                    onClick = { videoPicker.launch("video/*") },
+                                    variant = PcButtonVariant.OUTLINE,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            // 背景透明度（0..100，实时生效并持久化）
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "背景透明度",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = VerseColors.PcTextSecondary
+                                    )
+                                    Text(
+                                        "${bgOpacity}%",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = VerseColors.PcAccent
+                                    )
+                                }
+                                Slider(
+                                    value = bgOpacity.toFloat(),
+                                    onValueChange = {
+                                        bgOpacity = it.toInt()
+                                        VersePersonalization.setOpacity(bgOpacity)
+                                    },
+                                    valueRange = 0f..100f,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = VerseColors.PcAccent,
+                                        activeTrackColor = VerseColors.PcAccent,
+                                        inactiveTrackColor = VerseColors.PcBgTertiary
+                                    )
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("0%", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                    Text("100%", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            PcButton(
+                                text = "移除背景",
+                                onClick = {
+                                    VersePersonalization.clear(context, "image")
+                                    VersePersonalization.clear(context, "video")
+                                    bgOpacity = VersePersonalization.backgroundOpacity
+                                },
+                                variant = PcButtonVariant.OUTLINE
+                            )
                         }
                     }
                 }
@@ -550,5 +811,78 @@ fun SettingsScreen(navController: NavHostController) {
 
             item { Spacer(Modifier.height(20.dp)) }
         }
+    }
+
+        // 顶层：Pojav HSV 取色器（打开时全屏 FrameLayout 宿主，从右滑入）
+        if (showColorPicker) {
+            ColorPickerOverlay(
+                initialArgb = (VerseColors.customAccent ?: Color.White).toArgb(),
+                onCancel = {
+                    VerseColors.customAccent = previousAccent
+                    showColorPicker = false
+                },
+                onConfirm = { argb ->
+                    SettingsRepository.setThemeAccent(String.format("%08X", argb))
+                    showColorPicker = false
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Pojav HSV 取色器集成层：全屏 AndroidView FrameLayout 作 SideDialogView 宿主，
+ * 拖动实时预览（VerseColors.customAccent），确定/取消/返回均先滑出再关闭。
+ */
+@Composable
+private fun ColorPickerOverlay(
+    initialArgb: Int,
+    onCancel: () -> Unit,
+    onConfirm: (Int) -> Unit
+) {
+    val context = LocalContext.current
+    var hostRef by remember { mutableStateOf<FrameLayout?>(null) }
+    var selectorRef by remember { mutableStateOf<ColorSelector?>(null) }
+    var latestArgb by remember { mutableIntStateOf(initialArgb) }
+
+    fun close(picker: ColorSelector?) {
+        picker?.disappear(true)
+    }
+
+    // 系统返回：等价取消（恢复原强调色）
+    BackHandler {
+        close(selectorRef)
+        onCancel()
+    }
+
+    AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = { ctx ->
+            FrameLayout(ctx).also { fl ->
+                // SideDialogView 滑入动画依赖 currentDisplayMetrics，MainActivity 场景需先初始化
+                Tools.init(ctx)
+                hostRef = fl
+            }
+        }
+    )
+
+    LaunchedEffect(Unit) {
+        val host = hostRef ?: return@LaunchedEffect
+        val selector = ColorSelector(context, host, null).also { selectorRef = it }
+        selector.setTitle(R.string.color_picker_title)
+        selector.setAlphaEnabled(false)
+        selector.setColorSelectionListener { argb ->
+            latestArgb = argb
+            VerseColors.customAccent = Color(argb)
+        }
+        selector.setStartButtonListener(R.string.color_picker_cancel) {
+            close(selector)
+            onCancel()
+        }
+        selector.setEndButtonListener(R.string.color_picker_confirm) {
+            close(selector)
+            onConfirm(latestArgb)
+        }
+        selector.show(true, initialArgb)
     }
 }

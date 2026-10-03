@@ -86,6 +86,64 @@ object JavaRuntimeManager {
         return File(context.filesDir, "jre")
     }
 
+    /**
+     * 导入本地 Java 运行时压缩包（zip）。
+     * 解压到 jre 目录下以 [displayName] 命名的子目录；若压缩包带有单一顶层目录
+     * 则内容上提一层，保证 bin/java 位于导入根（scanInstalledRuntimes 只扫一层）。
+     * 解压后立即扫描验证，识别失败（缺 bin/java 或读不到版本）则回滚删除并抛异常。
+     */
+    fun importJava(context: Context, input: java.io.InputStream, displayName: String): JavaRuntime {
+        val safeName = displayName.trim()
+            .removeSuffix(".zip").removeSuffix(".ZIP")
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            .ifBlank { "imported-java" }
+        val targetDir = File(getJreDir(context), safeName)
+        val cacheZip = File(context.cacheDir, "import_java_${System.currentTimeMillis()}.zip")
+
+        try {
+            cacheZip.outputStream().use { output -> input.copyTo(output) }
+            if (targetDir.exists()) targetDir.deleteRecursively()
+            targetDir.mkdirs()
+
+            java.util.zip.ZipFile(cacheZip).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    val out = File(targetDir, entry.name)
+                    // 防 zip slip：规范化后必须仍在目标目录内
+                    if (!out.canonicalPath.startsWith(targetDir.canonicalPath + File.separator) &&
+                        out.canonicalPath != targetDir.canonicalPath
+                    ) continue
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                    } else {
+                        out.parentFile?.mkdirs()
+                        zip.getInputStream(entry).use { src -> out.outputStream().use { dst -> src.copyTo(dst) } }
+                    }
+                }
+            }
+
+            // 单一顶层目录（bin 或 jre 在其下）则上提一层
+            val children = targetDir.listFiles()?.toList() ?: emptyList()
+            val dirs = children.filter { it.isDirectory }
+            if (dirs.size == 1 && children.size == 1) {
+                val inner = dirs.first()
+                val hasJava = File(inner, "bin/java").exists() || File(inner, "jre/bin/java").exists()
+                if (hasJava) {
+                    inner.listFiles()?.forEach { it.renameTo(File(targetDir, it.name)) }
+                    inner.delete()
+                }
+            }
+
+            val runtime = JavaManager(targetDir).scanInstalledRuntimes()
+                .firstOrNull { it.path.absolutePath.startsWith(targetDir.absolutePath) }
+                ?: throw Exception("无法识别导入的 Java 运行时（缺少 bin/java 或 release 文件）")
+            return runtime
+        } finally {
+            cacheZip.delete()
+        }
+    }
+
     fun getInstalledRuntimes(context: Context): List<JavaRuntime> {
         val jreDir = getJreDir(context)
         val manager = JavaManager(jreDir)

@@ -1,5 +1,8 @@
 package com.verse.explorer.app.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
@@ -29,10 +33,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
+import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionType
+import java.io.File
 
 /**
  * 已安装版本管理列表（对齐 versepc2 `page-installed-versions` + `renderInstalledVersionsInto`）。
@@ -56,9 +63,17 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
+    // 本地导入整合包：SAF 打开内部存储挑选 .zip/.mrpack 文件
+    var importUri by remember { mutableStateOf<Uri?>(null) }
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) importUri = uri
+    }
+
     // PC 端 split：模组版本优先显示，基础版本(原版)分组在下方
-    val moddedVersions = localVersions.filter { isModdedVersion(it.id) }
-    val vanillaVersions = localVersions.filterNot { isModdedVersion(it.id) }
+    val moddedVersions = localVersions.filter { isModdedVersion(it) }
+    val vanillaVersions = localVersions.filterNot { isModdedVersion(it) }
 
     Box(
         modifier = Modifier
@@ -91,6 +106,27 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                     color = VerseColors.PcTextPrimary,
                     modifier = Modifier.weight(1f)
                 )
+                // 导入整合包：打开内部存储挑选文件（zip/mrpack 等），走 FCL 原版安装链路
+                IconButton(
+                    onClick = {
+                        importPicker.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/octet-stream",
+                                "*/*"
+                            )
+                        )
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.FileOpen,
+                        contentDescription = "导入整合包",
+                        tint = VerseColors.PcTextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
                 IconButton(
                     onClick = { viewModel.loadLocalVersions() },
                     modifier = Modifier.size(32.dp)
@@ -179,6 +215,13 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         }
     }
 
+    // 本地导入整合包（SAF 选文件 → 命名 → FCL 安装链路 → 完成刷新列表）
+    ModpackImportFlow(
+        importSource = importUri,
+        onHandled = { importUri = null },
+        onImported = { viewModel.loadLocalVersions() }
+    )
+
     if (showDeleteConfirm != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
@@ -222,20 +265,54 @@ private fun InstalledVersionItem(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    val iconAssetPath = when (version.type) {
+    // 整合包作者图标优先（安装整合包时写入 versions/<id>/modpack_icon.png）
+    val packIconBitmap = remember(version.id) {
+        try {
+            val packIcon = File(
+                GameConfig.getVersionsDir(GameConfig.getGameDir(context)),
+                version.id
+            ).resolve("modpack_icon.png")
+            if (packIcon.exists() && packIcon.length() > 0) {
+                android.graphics.BitmapFactory.decodeFile(packIcon.absolutePath)?.asImageBitmap()
+            } else null
+        } catch (e: Exception) { null }
+    }
+    // 加载器图标（对齐 PC get_version_icon：有加载器显示加载器图标，否则版本类型图标）。
+    // 加载器同时按版本 json 内容识别（loaderHint），覆盖整合包等名称不含加载器关键词的版本。
+    val lower = version.id.lowercase()
+    val hint = version.loaderHint?.lowercase()
+    val loaderIconPath = hint?.let { h ->
+        when (h) {
+            "fabric" -> "icons/loader_icon_fabric.png"
+            "quilt" -> "icons/loader_icon_quilt.png"
+            "neoforge" -> "icons/loader_icon_neoforge.png"
+            "forge" -> "icons/loader_icon_forge.png"
+            "optifine" -> "icons/loader_icon_optifine.png"
+            else -> null
+        }
+    } ?: when {
+        lower.contains("fabric") -> "icons/loader_icon_fabric.png"
+        lower.contains("quilt") -> "icons/loader_icon_quilt.png"
+        lower.contains("neoforge") -> "icons/loader_icon_neoforge.png"
+        lower.contains("forge") -> "icons/loader_icon_forge.png"
+        lower.contains("optifine") -> "icons/loader_icon_optifine.png"
+        else -> null
+    }
+    val iconAssetPath = loaderIconPath ?: when (version.type) {
         VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
         VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
         else -> "icons/version_icon_grass.png"
     }
-    val iconBitmap = remember(iconAssetPath) {
+    val assetBitmap = remember(iconAssetPath) {
         try {
             context.assets.open(iconAssetPath).use { stream ->
                 android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
             }
         } catch (e: Exception) { null }
     }
+    val iconBitmap = packIconBitmap ?: assetBitmap
 
-    val (badge, badgeColor) = loaderBadge(version.id)
+    val (badge, badgeColor) = loaderBadge(version)
 
     Box {
         if (selected) {
@@ -350,9 +427,21 @@ private fun InstalledVersionItem(
     }
 }
 
-/** 加载器 badge（对齐 PC renderInstalledVersionsInto badge 判定 + HomeScreen LoaderBadge） */
-private fun loaderBadge(versionId: String): Pair<String, Color> {
-    val lower = versionId.lowercase()
+/** 加载器 badge（对齐 PC renderInstalledVersionsInto badge 判定 + HomeScreen LoaderBadge）。
+ *  优先取版本 json 识别的加载器（loaderHint），再退化为名称关键词判定。 */
+private fun loaderBadge(version: MinecraftVersion): Pair<String, Color> {
+    val hint = version.loaderHint?.lowercase()
+    if (!hint.isNullOrBlank()) {
+        return when (hint) {
+            "fabric" -> "Fabric" to VerseColors.ForgeColor
+            "quilt" -> "Quilt" to VerseColors.PcAccent
+            "neoforge" -> "NeoForge" to VerseColors.PcOrange
+            "forge" -> "Forge" to VerseColors.PcOrange
+            "optifine" -> "OptiFine" to VerseColors.PcYellow
+            else -> "原版" to VerseColors.PcTextSecondary
+        }
+    }
+    val lower = version.id.lowercase()
     return when {
         lower.contains("modpack") || lower.contains("整合") -> "整合包" to VerseColors.PcGreen
         lower.contains("fabric") -> "Fabric" to VerseColors.ForgeColor
@@ -363,9 +452,10 @@ private fun loaderBadge(versionId: String): Pair<String, Color> {
     }
 }
 
-/** 是否为模组版本（PC `.isFabric/isForge/isNeoForge/isOptiFine/isLiteLoader/isModpack` 的 id 近似判定） */
-private fun isModdedVersion(versionId: String): Boolean {
-    val lower = versionId.lowercase()
+/** 是否为模组版本：版本 json 识别出加载器，或 id 命中加载器/整合包关键词 */
+private fun isModdedVersion(version: MinecraftVersion): Boolean {
+    if (!version.loaderHint.isNullOrBlank()) return true
+    val lower = version.id.lowercase()
     return lower.contains("fabric") || lower.contains("forge") || lower.contains("neoforge") ||
         lower.contains("optifine") || lower.contains("liteloader") || lower.contains("modpack") || lower.contains("整合")
 }

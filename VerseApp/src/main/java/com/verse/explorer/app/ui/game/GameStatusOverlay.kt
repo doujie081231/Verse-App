@@ -15,8 +15,15 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.verse.explorer.app.game.GameLogManager
+import com.verse.explorer.app.ui.components.RoseCurveLoader
 import com.verse.explorer.app.ui.theme.VerseColors
 
 @SuppressLint("SetTextIsChecked")
@@ -25,39 +32,88 @@ class GameStatusOverlay(
     private val logManager: GameLogManager
 ) {
 
-    private var overlay: LinearLayout? = null
+    private var overlay: FrameLayout? = null
+    private var contentRoot: LinearLayout? = null
     private var titleView: TextView? = null
     private var messageView: TextView? = null
     private var progressBar: ProgressBar? = null
-    private var logView: TextView? = null
-    private var scrollView: ScrollView? = null
     private var errorSection: LinearLayout? = null
     private var repairSection: LinearLayout? = null
 
     fun createOverlay(): View {
-        overlay = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(VerseColors.PcBgPrimary.toArgb())
-            setPadding(48, 48, 48, 48)
-            gravity = Gravity.CENTER_HORIZONTAL
+        // 遮罩根容器（轻微暗化，ZL2 ProgressDialog 样式；不加滤镜避免画面过暗）
+        val root = FrameLayout(activity).apply {
+            setBackgroundColor(0x40000000.toInt())
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
+        // 居中圆角卡片
+        val card = FrameLayout(activity).apply {
+            val radiusPx = 24 * activity.resources.displayMetrics.density
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = radiusPx
+                setColor(VerseColors.PcBgSecondary.toArgb())
+            }
+            elevation = 24f
+            layoutParams = FrameLayout.LayoutParams(
+                (300 * activity.resources.displayMetrics.density).toInt(),
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = Gravity.CENTER }
+        }
+        overlay = card
+
+        // 卡片内部垂直内容
+        val inner = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            clipChildren = false
+            setPadding(48, 40, 48, 40)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        contentRoot = inner
+        card.addView(inner)
+
+        // rose 加载动画（versepc2 玫瑰曲线）——容器留足边距避免粒子被裁剪
+        inner.addView(FrameLayout(activity).apply {
+            clipChildren = false
+            val sizePx = (120 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(sizePx, sizePx)
+        }.also { holder ->
+            holder.addView(ComposeView(activity).apply {
+                clipChildren = false
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            }.also { cv ->
+                cv.setContent {
+                    RoseCurveLoader(
+                        modifier = Modifier.fillMaxSize(),
+                        color = VerseColors.PcAccent
+                    )
+                }
+            })
+        })
+
         titleView = TextView(activity).apply {
             text = "正在准备启动..."
             setTextColor(VerseColors.PcTextPrimary.toArgb())
-            textSize = 20f
+            textSize = 18f
             paint.isFakeBoldText = true
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            )
+            ).apply { topMargin = (16 * resources.displayMetrics.density).toInt() }
         }
-        overlay?.addView(titleView)
+        inner.addView(titleView)
 
         messageView = TextView(activity).apply {
             text = ""
@@ -69,7 +125,7 @@ class GameStatusOverlay(
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = 12 }
         }
-        overlay?.addView(messageView)
+        inner.addView(messageView)
 
         progressBar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
             val barHeightPx = (3 * activity.resources.displayMetrics.density).toInt()
@@ -102,35 +158,14 @@ class GameStatusOverlay(
             layerDrawable.setId(1, android.R.id.progress)
             progressDrawable = layerDrawable
         }
-        overlay?.addView(progressBar)
 
-        scrollView = ScrollView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-            ).apply { topMargin = 20 }
-        }
+        // 进度条不再显示（保留字段以支持 setProgress/setIndeterminate 调用，仅不添加视图）
 
-        logView = TextView(activity).apply {
-            text = ""
-            setTextColor(VerseColors.PcTextSecondary.toArgb())
-            textSize = 11f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setLineSpacing(0f, 1.15f)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-        scrollView?.addView(logView)
-        overlay?.addView(scrollView)
+        root.addView(card)
 
-        overlay?.visibility = View.VISIBLE
+        root.visibility = View.VISIBLE
 
-        logManager.attachLogViews(logView!!, scrollView!!)
-
-        return overlay!!
+        return root
     }
 
     fun createExportLogButton(): Button {
@@ -180,7 +215,7 @@ class GameStatusOverlay(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = 32 }
             }
-            overlay?.addView(errorSection)
+            contentRoot?.addView(errorSection)
         }
         errorSection?.removeAllViews()
         errorSection?.addView(TextView(activity).apply {
@@ -225,7 +260,7 @@ class GameStatusOverlay(
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = 32 }
             }
-            overlay?.addView(repairSection)
+            contentRoot?.addView(repairSection)
         }
         repairSection?.removeAllViews()
         repairSection?.addView(TextView(activity).apply {

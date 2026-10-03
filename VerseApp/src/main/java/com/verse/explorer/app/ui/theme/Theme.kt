@@ -9,6 +9,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 
 /**
  * 全局色板（对齐 versepc2 themes.css 的 dark/light 两套 CSS 变量）。
@@ -53,6 +55,16 @@ object VerseColors {
         get() = isDarkState.value
         set(value) {
             isDarkState.value = value
+        }
+
+    // 自定义强调色（null=跟随黑白主题默认），设置页取色器/启动加载写入
+    private var customAccentState = mutableStateOf<Color?>(null)
+
+    /** 自定义强调色（null=使用当前黑白主题的默认强调色） */
+    var customAccent: Color?
+        get() = customAccentState.value
+        set(value) {
+            customAccentState.value = value
         }
 
     /** 应用个性化主题颜色（"black" / "white"），对齐 PC data-theme 切换即时生效 */
@@ -134,10 +146,15 @@ object VerseColors {
     val PcTextSecondary: Color get() = if (isDarkTheme) Dark.textSecondary else Light.textSecondary
     val PcTextMuted: Color get() = if (isDarkTheme) Dark.textMuted else Light.textMuted
 
-    val PcAccent: Color get() = if (isDarkTheme) Dark.accent else Light.accent
-    val PcAccentHover: Color get() = if (isDarkTheme) Dark.accentHover else Light.accentHover
-    val PcAccentText: Color get() = if (isDarkTheme) Dark.accentText else Light.accentText
-    val PcAccentGlow: Color get() = if (isDarkTheme) Dark.accentGlow else Light.accentGlow
+    val PcAccent: Color get() = customAccent ?: if (isDarkTheme) Dark.accent else Light.accent
+    val PcAccentHover: Color get() = customAccent?.let {
+        if (isDarkTheme) lerp(it, Color.White, 0.20f) else lerp(it, Color.Black, 0.20f)
+    } ?: if (isDarkTheme) Dark.accentHover else Light.accentHover
+    val PcAccentText: Color get() = customAccent?.let {
+        if (it.luminance() > 0.5f) Color(0xFF0A0A0A) else Color.White
+    } ?: if (isDarkTheme) Dark.accentText else Light.accentText
+    val PcAccentGlow: Color get() = customAccent?.copy(alpha = 0.15f)
+        ?: if (isDarkTheme) Dark.accentGlow else Light.accentGlow
 
     val PcBorder: Color get() = if (isDarkTheme) Dark.border else Light.border
     val PcBorderSubtle: Color get() = if (isDarkTheme) Dark.borderSubtle else Light.borderSubtle
@@ -154,9 +171,12 @@ object VerseColors {
     val PcGlassBg: Color get() = if (isDarkTheme) Dark.glassBg else Light.glassBg
     val PcGlassCardBg: Color get() = if (isDarkTheme) Dark.glassCardBg else Light.glassCardBg
 
-    // 启动按钮渐变（对齐 .btn-primary background: var(--accent)：dark 白渐变黑字 / light 深渐变白字）
-    val PcLaunchGradientStart: Color get() = if (isDarkTheme) Dark.launchGradientStart else Light.launchGradientStart
-    val PcLaunchGradientEnd: Color get() = if (isDarkTheme) Dark.launchGradientEnd else Light.launchGradientEnd
+    // 启动按钮渐变（对齐 .btn-primary background: var(--accent)：dark 白渐变黑字 / light 深渐变白字；
+    // 自定义强调色时按亮度决定渐变方向，保证与 PcAccentText 对比可读）
+    val PcLaunchGradientStart: Color get() = customAccent ?: if (isDarkTheme) Dark.launchGradientStart else Light.launchGradientStart
+    val PcLaunchGradientEnd: Color get() = customAccent?.let {
+        if (it.luminance() > 0.5f) lerp(it, Color.White, 0.20f) else lerp(it, Color.Black, 0.20f)
+    } ?: if (isDarkTheme) Dark.launchGradientEnd else Light.launchGradientEnd
 }
 
 val LightColorScheme = lightColorScheme(

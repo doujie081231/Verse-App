@@ -22,14 +22,14 @@ if (System.getProperty("arch") == null) {
 
 android {
     namespace = "com.verse.explorer.app"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 70
-        versionName = "2.1.54"
+        versionCode = 156
+        versionName = "2.4.20"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -60,6 +60,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // 诊断期临时开启：便于 run-as 读持久化 + kill -3/debuggerd 抓线程栈定位进世界卡死
+            isDebuggable = true
         }
         debug {
             isMinifyEnabled = false
@@ -71,12 +73,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
+    }
+
+    // backdrop 2.0.0 传递依赖升级 lifecycle lint 检测器，与 AGP 8.7.3 内置 lint 不兼容
+    // （IncompatibleClassChangeError: NonNullableMutableLiveDataDetector），发布构建关闭 lint
+    lint {
+        checkReleaseBuilds = false
     }
 
     packaging {
@@ -132,6 +136,12 @@ androidComponents {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 tasks.named("preBuild") {
     dependsOn(":VerseLauncher:copyBootstrapJarToAssets")
 }
@@ -150,15 +160,21 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation(platform("androidx.compose:compose-bom:2025.12.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    // Apple Liquid Glass（Kyant0/AndroidLiquidGlass Backdrop 2.0.0，Apache 2.0）：
+    // 侧边栏圆形按钮/展开胶囊容器的液态玻璃效果（折射+模糊+泛光+边缘高光）
+    implementation("io.github.kyant0:backdrop-android:2.0.0")
+    implementation("io.github.kyant0:shapes-android:1.2.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // SVG 验证码渲染（反馈页人机验证）
+    implementation("io.coil-kt:coil-svg:2.7.0")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
@@ -170,9 +186,9 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.github.Mathias-Boulay:virtual-joystick-android:1.14")
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:2.8.5")
+    implementation("androidx.room:room-ktx:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

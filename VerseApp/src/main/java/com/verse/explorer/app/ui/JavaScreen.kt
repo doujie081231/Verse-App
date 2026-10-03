@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -41,9 +43,36 @@ fun JavaScreen(
     var selectedJavaVersion by remember { mutableStateOf(settingsRepo.getJavaVersion()) }
     var selectedGcType by remember { mutableStateOf(settingsRepo.getGcType()) }
     var customJvmArgs by remember { mutableStateOf(settingsRepo.getCustomJvmArgs()) }
-    var showDeleteConfirm by remember { mutableStateOf<Int?>(null) }
     var installingVersion by remember { mutableStateOf<String?>(null) }
     var installProgress by remember { mutableStateOf("") }
+    var importingJava by remember { mutableStateOf(false) }
+
+    // 导入本地 Java（zip）：SAF 选文件 → 解压到 jre 目录 → 扫描识别
+    val importJavaLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(Dispatchers.IO) {
+                importingJava = true
+                installProgress = "正在导入 Java..."
+                try {
+                    val displayName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+                    } ?: uri.lastPathSegment ?: "imported-java"
+                    val runtime = context.contentResolver.openInputStream(uri)?.use { input ->
+                        JavaRuntimeManager.importJava(context, input, displayName)
+                    } ?: throw Exception("无法读取所选文件")
+                    installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
+                    installProgress = "导入完成：${runtime.name}（${runtime.arch}）"
+                } catch (e: Exception) {
+                    installProgress = "导入失败: ${e.message}"
+                } finally {
+                    importingJava = false
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
@@ -86,54 +115,83 @@ fun JavaScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                PageHeader(
-                    title = "Java 管理",
-                    actions = {
-                        PcButton(
-                            text = "刷新",
-                            onClick = { installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context) },
-                            variant = PcButtonVariant.GHOST,
-                            icon = Icons.Outlined.Refresh
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            tint = VerseColors.PcTextPrimary
                         )
-                        if (installedRuntimes.distinctBy { it.version }.size < 4) {
-                            PcButton(
-                                text = "一键安装所有",
-                                onClick = {
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            val allVersions = javaVersions.map { "java${it.first}" }
-                                            var installedCount2 = 0
-                                            for (versionKey in allVersions) {
-                                                val verNum = versionKey.removePrefix("java").toIntOrNull() ?: continue
-                                                val current = JavaRuntimeRepository.loadInstalledRuntimes(context)
-                                                if (current.any { it.version == verNum }) continue
-                                                installingVersion = verNum.toString()
-                                                installProgress = "正在安装 Java $verNum..."
-                                                val result = JavaRuntimeManager.installJre(
-                                                    context,
-                                                    versionKey
-                                                ) { progress ->
-                                                    installProgress = progress.message
-                                                }
-                                                if (result.isSuccess) {
-                                                    installedCount2++
-                                                    installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
-                                                }
-                                            }
-                                            installProgress = if (installedCount2 > 0) "全部安装完成 (新增 $installedCount2 个)" else "全部已安装"
-                                        } catch (e: Exception) {
-                                            installProgress = "安装异常: ${e.message}"
-                                        } finally {
-                                            installingVersion = null
-                                        }
-                                    }
-                                },
-                                variant = PcButtonVariant.PRIMARY,
-                                icon = Icons.Filled.Download
-                            )
-                        }
                     }
-                )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    PageHeader(
+                        title = "Java 管理",
+                        modifier = Modifier.weight(1f),
+                        actions = {
+                            PcButton(
+                                text = if (importingJava) "导入中..." else "导入",
+                                onClick = {
+                                    importJavaLauncher.launch(
+                                        arrayOf(
+                                            "application/zip",
+                                            "application/x-zip-compressed",
+                                            "application/octet-stream"
+                                        )
+                                    )
+                                },
+                                variant = PcButtonVariant.GHOST,
+                                icon = Icons.Outlined.UploadFile,
+                                enabled = !importingJava
+                            )
+                            PcButton(
+                                text = "刷新",
+                                onClick = { installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context) },
+                                variant = PcButtonVariant.GHOST,
+                                icon = Icons.Outlined.Refresh
+                            )
+                            if (installedRuntimes.distinctBy { it.version }.size < 4) {
+                                PcButton(
+                                    text = "一键安装所有",
+                                    onClick = {
+                                        scope.launch(Dispatchers.IO) {
+                                            try {
+                                                val allVersions = javaVersions.map { "java${it.first}" }
+                                                var installedCount2 = 0
+                                                for (versionKey in allVersions) {
+                                                    val verNum = versionKey.removePrefix("java").toIntOrNull() ?: continue
+                                                    val current = JavaRuntimeRepository.loadInstalledRuntimes(context)
+                                                    if (current.any { it.version == verNum }) continue
+                                                    installingVersion = verNum.toString()
+                                                    installProgress = "正在安装 Java $verNum..."
+                                                    val result = JavaRuntimeManager.installJre(
+                                                        context,
+                                                        versionKey
+                                                    ) { progress ->
+                                                        installProgress = progress.message
+                                                    }
+                                                    if (result.isSuccess) {
+                                                        installedCount2++
+                                                        installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
+                                                    }
+                                                }
+                                                installProgress = if (installedCount2 > 0) "全部安装完成 (新增 $installedCount2 个)" else "全部已安装"
+                                            } catch (e: Exception) {
+                                                installProgress = "安装异常: ${e.message}"
+                                            } finally {
+                                                installingVersion = null
+                                            }
+                                        }
+                                    },
+                                    variant = PcButtonVariant.PRIMARY,
+                                    icon = Icons.Filled.Download
+                                )
+                            }
+                        }
+                    )
+                }
             }
 
             item {
@@ -194,13 +252,6 @@ fun JavaScreen(
                                         installingVersion = null
                                     }
                                 }
-                            },
-                            onSetDefault = {
-                                settingsRepo.setJavaVersion(version)
-                                selectedJavaVersion = version
-                            },
-                            onDelete = {
-                                showDeleteConfirm = verNum
                             }
                         )
 
@@ -383,43 +434,5 @@ fun JavaScreen(
                 Spacer(modifier = Modifier.height(20.dp))
             }
         }
-    }
-
-    if (showDeleteConfirm != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = null },
-            containerColor = VerseColors.PcBgCard,
-            titleContentColor = VerseColors.PcTextPrimary,
-            textContentColor = VerseColors.PcTextSecondary,
-            shape = RoundedCornerShape(16.dp),
-            title = {
-                Text("删除 Java $showDeleteConfirm", fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Text("确定要删除 Java $showDeleteConfirm 运行时吗？所有需要此版本的 Minecraft 版本将无法启动。")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val v = showDeleteConfirm
-                        showDeleteConfirm = null
-                        if (v != null) {
-                            installedRuntimes.filter { it.version == v }.forEach { rt ->
-                                try { rt.path.deleteRecursively() } catch (_: Exception) {}
-                            }
-                        }
-                        installedRuntimes = JavaRuntimeRepository.loadInstalledRuntimes(context)
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcRed)
-                ) {
-                    Text("删除", fontWeight = FontWeight.SemiBold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = null }) {
-                    Text("取消", color = VerseColors.PcTextSecondary)
-                }
-            }
-        )
     }
 }

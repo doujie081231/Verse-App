@@ -26,7 +26,9 @@ data class MinecraftVersion(
     val minecraftArguments: String? = null,
     val logging: LoggingConfig? = null,
     val minimumLauncherVersion: Int = 0,
-    val complianceLevel: Int = 0
+    val complianceLevel: Int = 0,
+    /** 从版本 json 原文识别的加载器（fabric/quilt/forge/neoforge/optifine），Gson 解析后由 VersionManager 填充 */
+    val loaderHint: String? = null
 )
 
 data class AssetIndex(

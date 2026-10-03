@@ -58,6 +58,7 @@ data class DeviceCodeResponse(
     val userCode: String,
     val deviceCode: String,
     val verificationUri: String,
+    val verificationUriComplete: String = "",
     val expiresIn: Int,
     val interval: Int
 )

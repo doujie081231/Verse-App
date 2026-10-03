@@ -45,6 +45,7 @@ import com.verse.explorer.core.version.VersionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * 主页（对齐 versepc2 首页：顶部居中标题 + 大头像 + 账户信息 + 版本卡片 + 启动按钮 + 运行中卡片）
@@ -121,11 +122,10 @@ fun HomeScreen(
             onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
         )
 
-        // 全屏启动覆盖层
+        // 启动加载弹窗（ZL2 样式：遮罩 + 居中卡片，不可取消）
         if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
             PcLaunchOverlay(
-                launchState = launchState,
-                onDismiss = { launchController.stopGame() }
+                launchState = launchState
             )
         }
     }
@@ -349,7 +349,7 @@ private fun HomeCurrentVersionCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(1.dp))
-                LoaderBadge(versionId = selected.id)
+                LoaderBadge(version = selected)
             }
             Icon(Icons.Filled.ChevronRight, null, Modifier.size(14.dp), VerseColors.PcTextMuted)
         }
@@ -357,12 +357,44 @@ private fun HomeCurrentVersionCard(
 }
 
 /**
- * 版本图标：按类型渲染（grass/cobblestone/old）
+ * 版本图标：优先整合包作者图标（安装时存 versions/<id>/modpack_icon.png），
+ * 其次加载器图标（hint/名称），最后按版本类型渲染（grass/cobblestone/old）
  */
 @Composable
 private fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.unit.Dp) {
     val context = LocalContext.current
-    val iconAssetPath = when (version.type) {
+    // 整合包作者图标（安装整合包时写入 versions/<id>/modpack_icon.png）
+    val packIconBitmap = remember(version.id) {
+        try {
+            val packIcon = File(
+                GameConfig.getVersionsDir(GameConfig.getGameDir(context)),
+                version.id
+            ).resolve("modpack_icon.png")
+            if (packIcon.exists() && packIcon.length() > 0) {
+                android.graphics.BitmapFactory.decodeFile(packIcon.absolutePath)?.asImageBitmap()
+            } else null
+        } catch (e: Exception) { null }
+    }
+    val lower = version.id.lowercase()
+    val hint = version.loaderHint?.lowercase()
+    val loaderAsset = hint?.let { h ->
+        when (h) {
+            "fabric" -> "icons/loader_icon_fabric.png"
+            "quilt" -> "icons/loader_icon_quilt.png"
+            "neoforge" -> "icons/loader_icon_neoforge.png"
+            "forge" -> "icons/loader_icon_forge.png"
+            "optifine" -> "icons/loader_icon_optifine.png"
+            else -> null
+        }
+    } ?: when {
+        lower.contains("fabric") -> "icons/loader_icon_fabric.png"
+        lower.contains("quilt") -> "icons/loader_icon_quilt.png"
+        lower.contains("neoforge") -> "icons/loader_icon_neoforge.png"
+        lower.contains("forge") -> "icons/loader_icon_forge.png"
+        lower.contains("optifine") -> "icons/loader_icon_optifine.png"
+        else -> null
+    }
+    val iconAssetPath = loaderAsset ?: when (version.type) {
         com.verse.explorer.core.version.VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
         com.verse.explorer.core.version.VersionType.OLD_ALPHA,
         com.verse.explorer.core.version.VersionType.OLD_BETA -> "icons/version_icon_old.png"
@@ -374,13 +406,14 @@ private fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.uni
         com.verse.explorer.core.version.VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
         else -> VerseColors.PcGreen.copy(alpha = 0.15f)
     }
-    val iconBitmap = remember(iconAssetPath) {
+    val assetBitmap = remember(iconAssetPath) {
         try {
             context.assets.open(iconAssetPath).use { stream ->
                 android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
             }
         } catch (e: Exception) { null }
     }
+    val iconBitmap = packIconBitmap ?: assetBitmap
     Box(
         modifier = Modifier.size(size).clip(RoundedCornerShape(6.dp)).background(iconBg),
         contentAlignment = Alignment.Center
@@ -392,17 +425,30 @@ private fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.uni
 }
 
 /**
- * 加载器徽章（对齐 v-badge：原版/Forge/Fabric/NeoForge/整合包）
+ * 加载器徽章（对齐 v-badge：原版/Forge/Fabric/NeoForge/整合包）。
+ * 优先版本 json 识别的加载器（loaderHint），再退化名称关键词判定。
  */
 @Composable
-private fun LoaderBadge(versionId: String) {
-    val lower = versionId.lowercase()
-    val (badge, color) = when {
-        lower.contains("fabric") -> "Fabric" to VerseColors.ForgeColor
-        lower.contains("forge") -> "Forge" to VerseColors.PcOrange
-        lower.contains("neoforge") -> "NeoForge" to VerseColors.PcOrange
-        lower.contains("modpack") || lower.contains("整合") -> "整合包" to VerseColors.PcGreen
-        else -> "原版" to VerseColors.PcTextSecondary
+private fun LoaderBadge(version: MinecraftVersion) {
+    val hint = version.loaderHint?.lowercase()
+    val (badge, color) = if (!hint.isNullOrBlank()) {
+        when (hint) {
+            "fabric" -> "Fabric" to VerseColors.ForgeColor
+            "quilt" -> "Quilt" to VerseColors.PcAccent
+            "neoforge" -> "NeoForge" to VerseColors.PcOrange
+            "forge" -> "Forge" to VerseColors.PcOrange
+            "optifine" -> "OptiFine" to VerseColors.PcYellow
+            else -> "原版" to VerseColors.PcTextSecondary
+        }
+    } else {
+        val lower = version.id.lowercase()
+        when {
+            lower.contains("fabric") -> "Fabric" to VerseColors.ForgeColor
+            lower.contains("forge") -> "Forge" to VerseColors.PcOrange
+            lower.contains("neoforge") -> "NeoForge" to VerseColors.PcOrange
+            lower.contains("modpack") || lower.contains("整合") -> "整合包" to VerseColors.PcGreen
+            else -> "原版" to VerseColors.PcTextSecondary
+        }
     }
     Surface(shape = RoundedCornerShape(3.dp), color = color.copy(alpha = 0.15f)) {
         Text(

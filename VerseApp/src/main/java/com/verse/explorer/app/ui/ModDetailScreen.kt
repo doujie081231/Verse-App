@@ -70,6 +70,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,6 +121,8 @@ fun ModDetailScreen(
     val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
     var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
     var modpackJob by remember { mutableStateOf<Job?>(null) }
+    /** 本次已下载的整合包 zip（安装完成/失败/取消后删除，避免介质残留） */
+    var modpackZip by remember { mutableStateOf<File?>(null) }
 
     // 整合包安装前的版本命名弹窗（复刻 FCL RemoteModpackPage 命名逻辑）
     var showModpackNamingDialog by remember { mutableStateOf(false) }
@@ -224,6 +227,7 @@ fun ModDetailScreen(
         modpackState = ModpackInstallUiState(
             visible = true,
             title = project?.title ?: ver.versionNumber,
+            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
             phase = ModpackInstallPhase.DOWNLOAD_FILE
         )
         modpackJob = scope.launch {
@@ -241,6 +245,7 @@ fun ModDetailScreen(
                 }
             )
             fileResult.onSuccess { file ->
+                modpackZip = file
                 modpackState = modpackState.copy(phase = ModpackInstallPhase.INSTALLING)
                 val gameDir = GameConfig.getGameDir(context.applicationContext)
                 val result = ModpackInstaller.installModpack(
@@ -254,6 +259,8 @@ fun ModDetailScreen(
                 }
                 result.fold(
                     onSuccess = {
+                        modpackZip?.delete()
+                        modpackZip = null
                         downloading = false
                         downloadDone = true
                         downloadText = "整合包安装完成"
@@ -261,8 +268,12 @@ fun ModDetailScreen(
                     },
                     onFailure = { e ->
                         if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
+                            modpackZip?.delete()
+                            modpackZip = null
                             modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
                         } else {
+                            modpackZip?.delete()
+                            modpackZip = null
                             downloading = false
                             downloadError = e.message ?: "整合包安装失败"
                             downloadText = downloadError ?: "整合包安装失败"
@@ -295,6 +306,8 @@ fun ModDetailScreen(
         ModpackInstaller.cancel()
         modpackJob?.cancel()
         modpackJob = null
+        modpackZip?.delete()
+        modpackZip = null
         val ph = modpackState.phase
         if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
             modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
@@ -559,7 +572,9 @@ fun ModDetailScreen(
                     }
 
                     // ===== 操作栏（对齐 PC .md-action-bar：安装 / 收藏 / 打开源 / 复制名称）=====
+                    // 版本 tab 下隐藏：版本卡片自带下载按钮，操作栏属描述类操作，为版本列表让出纵向空间
                     var isFav by remember { mutableStateOf(FavoritesRepository.isFavorite(context, proj.id, source)) }
+                    if (detailTab != "versions") {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -607,12 +622,14 @@ fun ModDetailScreen(
                             icon = Icons.Filled.ContentCopy
                         )
                     }
+                    }
 
                     Spacer(Modifier.height(8.dp))
 
                     // ===== 前置依赖（对齐 PC .md-deps-section；与 versepc2 一致：仅 mod 类型展示，
                     // 整合包/材质包/光影等资源类型隐藏，不再渲染且不拉取依赖详情）=====
-                    if (projectType == "mod") {
+                    // 版本 tab 下隐藏：依赖属描述类信息，为版本列表让出纵向空间
+                    if (projectType == "mod" && detailTab != "versions") {
                     val deps = remember(versions) {
                         versions.flatMap { it.dependencies }
                             .distinctBy { it.projectId }
@@ -771,9 +788,15 @@ fun ModDetailScreen(
                     }
 
                     // ===== 主体：主区 + 侧栏（对齐 PC .md-layout）=====
+                    // 版本 tab 下隐藏右侧信息栏：版本列表占满全宽（右侧兼容性/分类/链接/
+                    // 详情/许可证属描述类元信息，在浏览版本时是次要内容）
                     Row(modifier = Modifier.fillMaxSize()) {
                         // —— 主区 ——
-                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        Column(
+                            modifier = Modifier
+                                .then(if (detailTab == "versions") Modifier.fillMaxWidth() else Modifier.weight(1f))
+                                .fillMaxHeight()
+                        ) {
                             // 主区 tabs（对齐 PC .md-tabs）
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -908,10 +931,12 @@ fun ModDetailScreen(
                             }
                         }
 
-                        // —— 侧栏（对齐 PC .md-layout-sidebar，宽度 240dp）——
+                        // —— 侧栏（对齐 PC .md-layout-sidebar）——
+                        // 仅描述/画廊 tab 显示；压缩到 200dp 让主区（描述正文/画廊）占主要宽度
+                        if (detailTab != "versions") {
                         Column(
                             modifier = Modifier
-                                .width(240.dp)
+                                .width(200.dp)
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState())
                                 .padding(start = 4.dp, end = 12.dp)
@@ -950,6 +975,7 @@ fun ModDetailScreen(
                             }
                             Spacer(Modifier.height(12.dp))
                         }
+                        }
                     }
                 }
             }
@@ -957,8 +983,17 @@ fun ModDetailScreen(
 
         // ===== 版本选择卡片（与 ZL2 的 DownloadDialog 对应）=====
         if (showVersionPicker) {
+            // 模组依赖加载器：只能安装到 fabric/forge/neoforge/quilt 版本，原版不可选；
+            // 材质包/光影不依赖加载器，全部版本可选
+            val installableVersions = if (projectType == "mod") {
+                installedVersions.filter {
+                    it.loaderHint in listOf("fabric", "forge", "neoforge", "quilt")
+                }
+            } else {
+                installedVersions
+            }
             VersionPickerDialog(
-                versions = installedVersions.map {
+                versions = installableVersions.map {
                     VerseVersionItem(
                         id = it.id,
                         typeLabel = when (it.type) {
@@ -968,11 +1003,14 @@ fun ModDetailScreen(
                             VersionType.OLD_BETA -> "旧版 Beta"
                             else -> "特殊版本"
                         },
-                        iconAsset = when (it.type) {
-                            VersionType.SPECIAL, VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
-                            VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
-                            else -> "icons/version_icon_grass.png"
-                        },
+                        // 带加载器的版本显示加载器图标（fabric/forge/neoforge/quilt/optifine），
+                        // 原版显示版本类型图标（正式版草方块 / 快照与特殊圆石 / 旧版 legacy）
+                        iconAsset = it.loaderHint?.let { l -> "icons/loader_icon_$l.png" }
+                            ?: when (it.type) {
+                                VersionType.SPECIAL, VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
+                                VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
+                                else -> "icons/version_icon_grass.png"
+                            },
                         iconBg = when (it.type) {
                             VersionType.SPECIAL, VersionType.SNAPSHOT -> VerseColors.PcOrange.copy(alpha = 0.15f)
                             VersionType.OLD_ALPHA, VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
@@ -1028,6 +1066,7 @@ fun ModDetailScreen(
             gameVersion = project?.title?.trim()?.takeIf { it.isNotBlank() }
                 ?: selectedVersion?.versionNumber ?: "",
             selectedLoaderId = null,
+            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
             conflictsWith = { VersionManager(GameConfig.getGameDir(context)).versionIdConflicts(it) },
             onDismiss = { showModpackNamingDialog = false },
             onConfirm = { name ->
@@ -1316,7 +1355,10 @@ private fun VersionsDetailCard(
                             onClick = onDownload,
                             enabled = version.primaryFile?.url?.isNotBlank() != false,
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = VerseColors.PcAccent),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VerseColors.PcAccent,
+                                contentColor = VerseColors.PcAccentText
+                            ),
                             modifier = Modifier.fillMaxWidth().height(40.dp)
                         ) {
                             Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
@@ -1366,6 +1408,9 @@ private fun MarkdownBody(
         },
         update = { tv ->
             tv.setTextColor(textColor.toArgb())
+            // 链接色跟随主题强调色（TextView 默认链接色为蓝色，与主题不符）
+            tv.setLinkTextColor(VerseColors.PcAccent.toArgb())
+            tv.highlightColor = VerseColors.PcAccent.copy(alpha = 0.25f).toArgb()
             tv.setTextSize(13f) // sp
             tv.setLineSpacing(0f, 1.4f)
             tv.text = spanned

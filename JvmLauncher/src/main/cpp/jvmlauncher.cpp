@@ -159,11 +159,15 @@ static void installExitHook() {
         bytehook_hook_all_t bytehook_hook_all_fn = (bytehook_hook_all_t)dlsym(libbytehook, "bytehook_hook_all");
         
         if (bytehook_init_fn && bytehook_hook_all_fn) {
-            int initResult = bytehook_init_fn(0, false);
-            if (initResult == 0) {
+            // BYTEHOOK_MODE_AUTOMATIC=2（与 FCL fcl_loader.c init(AUTOMATIC, false) 一致），
+            // 传 0 是无效 mode，init 返回 INTERNAL_ERROR 导致 fallback，且占用 init 状态
+            // INIT_ALREADY_CALLED(4)：GameLaunchOrchestrator 已先经 FCLBridge.initializeHooks()
+            // 完成 bytehook_init（FCL 3.x 唯一 init 入口），此处复用已初始化的 bytehook 装 exit hooks。
+            int initResult = bytehook_init_fn(2, false);
+            if (initResult == 0 || initResult == 4) {
                 bytehook_hook_all_fn(nullptr, "exit", (void *)hooked_exit, nullptr, nullptr);
                 bytehook_hook_all_fn(nullptr, "_exit", (void *)hooked__exit, nullptr, nullptr);
-                FLOGI("ByteHook exit() + _exit() hooks installed successfully");
+                FLOGI("ByteHook exit() + _exit() hooks installed successfully (initResult=%d)", initResult);
             } else {
                 FLOGW("ByteHook init failed: %d, using atexit fallback", initResult);
                 atexit([]() {

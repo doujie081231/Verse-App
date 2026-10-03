@@ -26,7 +26,9 @@ import com.tungsten.fclauncher.bridge.FCLBridge
 class GameInputHandler(
     private val bridgeProvider: () -> FCLBridge?,
     private val context: Context? = null,
-    private val hitResultTypeProvider: () -> Int = { FCLBridge.HIT_RESULT_TYPE_UNKNOWN }
+    private val hitResultTypeProvider: () -> Int = { FCLBridge.HIT_RESULT_TYPE_UNKNOWN },
+    /** 指针捕获/焦点目标视图（对应 FCLInput.initExternalController 的 focusableView） */
+    private val captureViewProvider: () -> android.view.View? = { null }
 ) {
 
     // ===== FCLInput 常量（MOUSE_MAP 与 FCLInput.java 一致） =====
@@ -110,6 +112,25 @@ class GameInputHandler(
 
     fun setCursorMode(mode: Int) {
         isGrabbing = mode == FCLBridge.CursorDisabled
+        syncCapturedPointer()
+    }
+
+    /** FCL GameMenu.onCursorModeChange 的捕获同步：物理鼠标模式下抓取态用相对鼠标
+     * （需指针捕获），GUI 态用屏幕绝对坐标（释放捕获）；非物理鼠标模式不捕获，
+     * 由 GameActivity.onWindowFocusChanged 在挂载时按需请求。 */
+    fun syncCapturedPointer() {
+        val view = captureViewProvider()
+        if (MenuSetting.isPhysicalMouseMode) {
+            if (isGrabbing) {
+                view?.requestFocus()
+                view?.requestPointerCapture()
+            } else {
+                view?.releasePointerCapture()
+                view?.clearFocus()
+            }
+        } else {
+            view?.releasePointerCapture()
+        }
     }
 
     /** FCL TouchPad.getGestureMode()：BE 手势禁用时用设置值，否则按命中结果自动切换 BUILD/FIGHT */
@@ -422,9 +443,18 @@ class GameInputHandler(
 
     fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val bridge = bridgeProvider() ?: return false
+        // FCL handleKeyEvent：鼠标源设备上 BACK 键映射为鼠标右键
+        if (isMouseSource(event)) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                sendKeyEvent(MOUSE_RIGHT, true)
+                return true
+            }
+        }
         val glfwKey = androidKeyToGlfw(keyCode)
         if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
-            bridge.pushEventKey(glfwKey, event?.unicodeChar ?: 0, true)
+            // FCL handleKeyEvent：仅 GUI 态（光标可见）随按键携带 unicode 字符
+            val keyChar = if (!isGrabbing) (event?.unicodeChar ?: 0) else 0
+            bridge.pushEventKey(glfwKey, keyChar, true)
             return true
         }
         return false
@@ -432,12 +462,25 @@ class GameInputHandler(
 
     fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
         val bridge = bridgeProvider() ?: return false
+        if (isMouseSource(event)) {
+            if (keyCode == KeyEvent.KEYCODE_BACK) {
+                sendKeyEvent(MOUSE_RIGHT, false)
+                return true
+            }
+        }
         val glfwKey = androidKeyToGlfw(keyCode)
         if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
-            bridge.pushEventKey(glfwKey, event?.unicodeChar ?: 0, false)
+            bridge.pushEventKey(glfwKey, 0, false)
             return true
         }
         return false
+    }
+
+    private fun isMouseSource(event: KeyEvent?): Boolean {
+        if (event?.device == null) return false
+        val source = event.source
+        return (source and InputDevice.SOURCE_MOUSE_RELATIVE == InputDevice.SOURCE_MOUSE_RELATIVE) ||
+            (source and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE)
     }
 
     /**

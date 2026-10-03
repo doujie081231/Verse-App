@@ -368,22 +368,30 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
 
-            // 2. lwjgl 栈对齐 FCL 1.3.3.5 官方自洽套装：assets/app_runtime/lwjgl/3.4.1/
-            // 多 jar（GLFW 在 merged-modules，含 Preedit 回调与 glfwGetMonitorName，
-            // internalWindowSizeChanged(J)V，配 libpojavexec 80096 + liblwjgl*.so 3.4.1）。
-            // 每次启动清空旧 jar 后从 APK 全量重建，避免历史 jar 掺入 classpath
-            val lwjglDir = File(FCLPath.LWJGL_DIR)
-            lwjglDir.mkdirs()
-            lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") }?.forEach { it.delete() }
-            val lwjglAssetNames: Array<String> = context.assets.list("app_runtime/lwjgl") ?: emptyArray()
-            for (name in lwjglAssetNames.filter { it.endsWith(".jar") }.sorted()) {
-                deployed += copyAssetIfMissing("app_runtime/lwjgl/$name", File(lwjglDir, name))
+            // 2. lwjgl 双版本栈对齐 FCL 官方（SplashActivity initState）：assets/app_runtime/lwjgl/
+            // 按版本子目录部署 3.3.3（旧 MC ≤26.1 用）与 3.4.1（26.2+ SDL 链用）各一套，
+            // 每套含 jar + natives/<arch>/。DefaultLauncher 按版本 JSON 解析出的 LWJGL 版本选择目录。
+            // 两个版本互不覆盖；更新版本时以 assets 为准整体重建该版本目录。
+            val lwjglAssetDirs: Array<String>? = try {
+                context.assets.list("app_runtime/lwjgl")
+                    ?.filter { Regex("""\d+\.\d+\.\d+""").matches(it) }
+                    ?.sorted()?.toTypedArray()
+            } catch (e: Exception) {
+                null
             }
-            // 防呆：FCL 官方 3.4.1 多 jar 套装必须存在（GLFW/Preedit 在 merged-modules）；
-            // 缺失会导致 26.2 启动失败（KeyboardHandler NoClassDefFoundError / pojavexec JNI_OnLoad 失败）
-            val lwjglMainJar = File(lwjglDir, "lwjgl.jar")
-            if (!lwjglMainJar.exists() || lwjglMainJar.length() < 100_000) {
-                log("警告: FCL 3.4.1 lwjgl 套装缺失（lwjgl.jar=${if (lwjglMainJar.exists()) lwjglMainJar.length() else 0} bytes），26.2 将无法启动！\n")
+            val lwjglVersions = lwjglAssetDirs ?: emptyArray<String>()
+            for (verDirName in lwjglVersions) {
+                deployed += deployLwjglVersionFromAssets(verDirName)
+                // FCL 资产只打包 arm64-v8a natives；x86_64/armeabi-v7a/x86 设备从 APK lib/<abi> 补齐配对原生库
+                deployed += ensureLwjglNativesForDevice(verDirName)
+            }
+            // 防呆：FCL 官方 3.3.3 与 3.4.1 双栈都必须存在（GLFW/Preedit 在 merged-modules）；
+            // 缺失会导致旧版/26.2 启动失败（KeyboardHandler NoClassDefFoundError / pojavexec JNI_OnLoad 失败）
+            for (verDirName in lwjglVersions) {
+                val lwjglMainJar = File(File(FCLPath.LWJGL_DIR, verDirName), "lwjgl.jar")
+                if (!lwjglMainJar.exists() || lwjglMainJar.length() < 100_000) {
+                    log("警告: FCL $verDirName lwjgl 套装缺失（lwjgl.jar=${if (lwjglMainJar.exists()) lwjglMainJar.length() else 0} bytes）！\n")
+                }
             }
 
             // 3. caciocavallo 17
@@ -441,6 +449,119 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             log("部署 FCL 资源失败 $assetPath: ${e.message}\n")
             return 0
         }
+    }
+
+    /**
+     * 部署单个 LWJGL 版本的完整目录（jar + natives/<abi>/）到 FCLPath.LWJGL_DIR/<version>/。
+     * 递归遍历 assets/app_runtime/lwjgl/<version>/，逐文件复制；已存在且大小一致则跳过。
+     */
+    private fun deployLwjglVersionFromAssets(versionDir: String): Int {
+        var deployed = 0
+        val baseAsset = "app_runtime/lwjgl/$versionDir"
+        val destBase = File(File(FCLPath.LWJGL_DIR), versionDir)
+        try {
+            fun walk(relPath: String) {
+                val assetPath = if (relPath.isEmpty()) baseAsset else "$baseAsset/$relPath"
+                val children: Array<String>? = try {
+                    context.assets.list(assetPath)
+                } catch (e: Exception) {
+                    null
+                }
+                if (children == null || children.isEmpty()) {
+                    // 叶子文件
+                    val dest = File(destBase, relPath)
+                    // lwjgl.jar 必须与 assets 保持一致：历史版本曾用无 Pojav 定制字段
+                    // （org.lwjgl.opengl.GL.mainContext，GL.fixPojavGLContext 反射依赖）的
+                    // 旧裁剪版，旧版一旦落盘"存在即跳过"永不更新 → NoSuchFieldException 崩溃。
+                    // 主 jar 每次启动强制用 assets 覆盖，其余文件仍"存在即跳过"。
+                    if (dest.exists() && dest.length() > 0 && dest.name != "lwjgl.jar") return
+                    dest.parentFile?.mkdirs()
+                    context.assets.open(assetPath).use { input ->
+                        dest.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (dest.name.endsWith(".so")) {
+                        dest.setExecutable(true, false)
+                    }
+                    dest.setReadable(true, false)
+                    log("部署 FCL 资源: $assetPath -> $versionDir/${relPath.replace('\\', '/')} (${dest.length()} bytes)\n")
+                    deployed++
+                } else {
+                    for (child in children) {
+                        walk(if (relPath.isEmpty()) child else "$relPath/$child")
+                    }
+                }
+            }
+            walk("")
+            // assets 为准清理残留：旧版本目录曾部署过官方 lwjgl-glfw/opengl/sdl 原版模块 jar
+            // （原版 GLFW 类对 pojavexec dlsym glfwInit 必然 NPE），重构后 assets 仅含
+            // merged-modules 合并包；若存量设备不删除这些残留 jar，会和合并包一起进
+            // classpath 造成类重复。删除 assets 中已不存在的顶层 .jar。
+            try {
+                val assetTop = context.assets.list(baseAsset)?.toSet() ?: emptySet()
+                destBase.listFiles()?.forEach { file ->
+                    if (file.isFile && file.name.endsWith(".jar") && file.name !in assetTop) {
+                        if (file.delete()) {
+                            log("清理残留 LWJGL jar: $versionDir/${file.name}\n")
+                            deployed++
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                log("清理残留 LWJGL jar 失败 $versionDir: ${e.message}\n")
+            }
+        } catch (e: Exception) {
+            log("部署 FCL 资源失败 $baseAsset: ${e.message}\n")
+        }
+        return deployed
+    }
+
+    companion object {
+        /** LWJGL 运行时需要的配对原生库（Pojav patched，APK lib/<abi> 内） */
+        private val LWJGL_NATIVE_LIBS = listOf(
+            "liblwjgl.so", "liblwjgl_nanovg.so", "liblwjgl_opengl.so",
+            "liblwjgl_spng.so", "liblwjgl_stb.so", "liblwjgl_tinyfd.so",
+            "liblwjgl_vma.so", "libfreetype.so", "libopenal.so", "libshaderc.so"
+        )
+    }
+
+    /**
+     * FCL 官方资产仅打包 arm64-v8a natives（FCL 只适配 ARM64）。真机 arm64 无需处理；
+     * 其余 ABI（x86_64 模拟器等）从 APK 的 lib/<abi>/ 补齐同名配对原生库到
+     * FCLPath.LWJGL_DIR/<version>/natives/<abi>/，保证 java.library.path 与
+     * -Dorg.lwjgl.librarypath 指向的原生库与打包 jar 配对且架构匹配。
+     */
+    private fun ensureLwjglNativesForDevice(versionDir: String): Int {
+        val packagedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+        val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull { it in packagedAbis } ?: "arm64-v8a"
+        if (targetAbi == "arm64-v8a") return 0 // FCL 资产已完整提供 arm64-v8a
+
+        val nativesDir = File(File(FCLPath.LWJGL_DIR, versionDir), "natives/$targetAbi")
+        if (File(nativesDir, "liblwjgl.so").exists() && File(nativesDir, "liblwjgl.so").length() > 0) return 0
+
+        var deployed = 0
+        try {
+            nativesDir.mkdirs()
+            val apkFile = File(context.applicationInfo.sourceDir)
+            if (!apkFile.exists()) return 0
+            val libPrefix = "lib/$targetAbi/"
+            java.util.zip.ZipFile(apkFile).use { zip ->
+                for (libName in LWJGL_NATIVE_LIBS) {
+                    val entry = zip.getEntry(libPrefix + libName) ?: continue
+                    val dst = File(nativesDir, libName)
+                    if (dst.exists() && dst.length() == entry.size) continue
+                    zip.getInputStream(entry).use { input ->
+                        dst.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    dst.setExecutable(true, false)
+                    dst.setReadable(true, false)
+                    deployed++
+                }
+            }
+            log("补齐 LWJGL natives($targetAbi) -> $nativesDir: $deployed 个文件\n")
+        } catch (e: Exception) {
+            log("补齐 LWJGL natives $targetAbi 失败: ${e.message}\n")
+        }
+        return deployed
     }
 
     fun deployLwjglToExternalStorage(gameDir: File) {

@@ -10,10 +10,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,10 +28,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.install.modpack.ModpackTaskKind
@@ -59,6 +61,8 @@ data class ModpackStageRow(
 data class ModpackInstallUiState(
     val visible: Boolean = false,
     val title: String = "",
+    /** 整合包作者提供的图标 URL（详情页 project.iconUrl），下载/安装时展示 */
+    val iconUrl: String? = null,
     val phase: ModpackInstallPhase = ModpackInstallPhase.DOWNLOAD_FILE,
     val fileProgress: Float = 0f,
     val fileText: String = "",
@@ -141,37 +145,66 @@ fun ModpackInstallDialog(
 
     Surface(
         shape = RoundedCornerShape(16.dp),
-        color = VerseColors.PcBgCard
+        color = VerseColors.PcBgCard,
+        modifier = Modifier.heightIn(max = 480.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // 标题
-            Text(
-                when {
-                    cancelled -> "已取消"
-                    failed -> "安装失败"
-                    done -> "安装完成"
-                    state.phase == ModpackInstallPhase.DOWNLOAD_FILE -> "正在下载整合包"
-                    else -> "正在安装整合包"
-                },
-                fontSize = 13.sp,
-                color = when {
-                    failed || cancelled -> VerseColors.PcRed
-                    done -> VerseColors.PcGreen
-                    else -> VerseColors.PcTextMuted
-                },
-                fontWeight = FontWeight.SemiBold
-            )
-            if (state.title.isNotBlank() && running) {
-                Text(
-                    state.title,
-                    fontSize = 12.sp,
-                    color = VerseColors.PcTextSecondary,
-                    maxLines = 1
-                )
+            // 标题 + 整合包作者图标（无图标或加载失败时显示首字母占位，不空白）
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(VerseColors.PcBgActive),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!state.iconUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = state.iconUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            state.title.trim().firstOrNull()?.uppercase() ?: "?",
+                            color = VerseColors.PcAccent,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        when {
+                            cancelled -> "已取消"
+                            failed -> "安装失败"
+                            done -> "安装完成"
+                            state.phase == ModpackInstallPhase.DOWNLOAD_FILE -> "正在下载整合包"
+                            else -> "正在安装整合包"
+                        },
+                        fontSize = 13.sp,
+                        color = when {
+                            failed || cancelled -> VerseColors.PcRed
+                            done -> VerseColors.PcGreen
+                            else -> VerseColors.PcTextMuted
+                        },
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (state.title.isNotBlank() && running) {
+                        Text(
+                            state.title,
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(14.dp))
 
@@ -185,12 +218,13 @@ fun ModpackInstallDialog(
                     lastRow = true
                 )
             } else if (running || done || failed) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    userScrollEnabled = state.rows.size > 6,
-                    modifier = Modifier.heightIn(max = 260.dp)
+                // 阶段行：内容超高时区域内滚动，保证底部总进度与操作按钮不被顶出
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    items(state.rows) { row ->
+                    state.rows.forEach { row ->
                         ModpackStageRowView(
                             label = row.label,
                             status = row.status,
@@ -199,6 +233,7 @@ fun ModpackInstallDialog(
                             error = row.status == ModpackRowStatus.FAILED,
                             lastRow = row == state.rows.last()
                         )
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
             }

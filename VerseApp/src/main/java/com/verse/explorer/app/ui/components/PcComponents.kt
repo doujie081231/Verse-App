@@ -9,11 +9,13 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -30,19 +32,33 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -379,7 +395,10 @@ fun PcTextInputRow(
 }
 
 /**
- * PC 端对齐的下拉选择行：顶部标签 + 下方下拉框
+ * PC 端对齐的下拉选择行：顶部标签 + 下方下拉框。
+ * 选项列表内联展开（AnimatedVisibility 插在触发框正下方）：浮层 Popup 在
+ * LazyColumn 滚动容器中相对父锚的定位会漂移（展开项与触发框错位），内联
+ * 展开天然与触发框左对齐、同宽，且随页面滚动保持对位。
  */
 @Composable
 fun PcDropdownRow(
@@ -399,54 +418,150 @@ fun PcDropdownRow(
             color = VerseColors.PcTextSecondary
         )
         Spacer(Modifier.height(6.dp))
-        Box {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = VerseColors.PcBgTertiary,
+            border = BorderStroke(1.dp, VerseColors.PcBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+        ) {
+            Row(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    displayText,
+                    fontSize = 13.sp,
+                    color = VerseColors.PcTextPrimary,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    Icons.Filled.ArrowDropDown,
+                    null,
+                    Modifier.size(18.dp),
+                    tint = VerseColors.PcTextMuted
+                )
+            }
+        }
+        AnimatedVisibility(visible = expanded) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = VerseColors.PcBgTertiary,
+                color = VerseColors.PcBgCard,
                 border = BorderStroke(1.dp, VerseColors.PcBorder),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = true }
+                    .padding(top = 4.dp)
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        displayText,
-                        fontSize = 13.sp,
-                        color = VerseColors.PcTextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(
-                        Icons.Filled.ArrowDropDown,
-                        null,
-                        Modifier.size(18.dp),
-                        tint = VerseColors.PcTextMuted
-                    )
+                Column {
+                    options.forEach { (key, lbl) ->
+                        Text(
+                            lbl,
+                            fontSize = 13.sp,
+                            color = if (key == value) VerseColors.PcAccent else VerseColors.PcTextPrimary,
+                            fontWeight = if (key == value) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onSelect(key); expanded = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
                 }
             }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
+        }
+    }
+}
+
+/** 筛选下拉条目：value 为当前选中键，options 为 (键, 显示文本) 列表 */
+data class PcFilterSelect(
+    val value: String,
+    val options: List<Pair<String, String>>,
+    val onSelect: (String) -> Unit
+)
+
+/**
+ * PC 端对齐的紧凑筛选下拉组（对齐 versepc2 `.custom-select-sm`：6×10dp padding、12sp 值文本）。
+ * 触发框与 leading（搜索框等）并排一行；点击触发框时选项列表内联展开在整行下方，
+ * 把底部内容顶下去（不使用浮层，规避 Popup 在滚动容器中的锚定漂移与无限约束崩溃）。
+ */
+@Composable
+fun PcCompactFilterBar(
+    selects: List<PcFilterSelect>,
+    modifier: Modifier = Modifier,
+    leading: (@Composable RowScope.() -> Unit)? = null
+) {
+    var expandedIndex by remember { mutableStateOf(-1) }
+    Column(modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            leading?.let { it() }
+            selects.forEachIndexed { index, sel ->
+                val displayText = sel.options.find { it.first == sel.value }?.second ?: sel.value
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = VerseColors.PcBgTertiary,
+                    border = BorderStroke(1.dp, VerseColors.PcBorder),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { expandedIndex = if (expandedIndex == index) -1 else index }
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            displayText,
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            Icons.Filled.ArrowDropDown,
+                            null,
+                            Modifier.size(16.dp),
+                            tint = VerseColors.PcTextMuted
+                        )
+                    }
+                }
+            }
+        }
+        AnimatedVisibility(visible = expandedIndex >= 0) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = VerseColors.PcBgCard,
+                border = BorderStroke(1.dp, VerseColors.PcBorder),
                 modifier = Modifier
-                    .background(VerseColors.PcBgCard, RoundedCornerShape(8.dp))
-                    .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(8.dp))
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+                    .heightIn(max = 280.dp)
+                    .verticalScroll(rememberScrollState())
             ) {
-                options.forEach { (key, lbl) ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                lbl,
-                                fontSize = 13.sp,
-                                color = if (key == value) VerseColors.PcAccent else VerseColors.PcTextPrimary,
-                                fontWeight = if (key == value) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        onClick = {
-                            onSelect(key); expanded = false
-                        }
-                    )
+                Column {
+                    val sel = selects[expandedIndex.coerceIn(0, selects.lastIndex)]
+                    sel.options.forEach { (key, lbl) ->
+                        Text(
+                            lbl,
+                            fontSize = 12.sp,
+                            color = if (key == sel.value) VerseColors.PcAccent else VerseColors.PcTextPrimary,
+                            fontWeight = if (key == sel.value) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    sel.onSelect(key); expandedIndex = -1
+                                }
+                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                        )
+                    }
                 }
             }
         }
@@ -454,73 +569,74 @@ fun PcDropdownRow(
 }
 
 /**
- * PC 端对齐的紧凑下拉选择（对齐 versepc2 `.custom-select-sm`：6×10dp padding、12sp 值文本）。
- * 用于资源/下载页筛选，多个可并排成一行，替代占空间的筛选 chip 行。
+ * PC 端对齐的紧凑搜索框（40dp，对齐资源页布局）：
+ * BasicTextField 自绘装饰，图标与文本严格垂直居中，避免 Material3 OutlinedTextField
+ * 高度压到 40dp 时文本被 48dp 图标按钮顶到下方的问题。
  */
 @Composable
-fun PcCompactSelect(
+fun PcCompactSearchField(
     value: String,
-    options: List<Pair<String, String>>,
-    onSelect: (String) -> Unit,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    onSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val displayText = options.find { it.first == value }?.second ?: value
-
-    Box(modifier = modifier) {
-        Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = VerseColors.PcBgTertiary,
-            border = BorderStroke(1.dp, VerseColors.PcBorder),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = true }
-        ) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(40.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(VerseColors.PcBgTertiary)
+            .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp),
+        singleLine = true,
+        textStyle = TextStyle(fontSize = 13.sp, color = VerseColors.PcTextPrimary),
+        cursorBrush = SolidColor(VerseColors.PcAccent),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
+        decorationBox = { inner ->
             Row(
-                Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    displayText,
-                    fontSize = 12.sp,
-                    color = VerseColors.PcTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(Modifier.width(4.dp))
                 Icon(
-                    Icons.Filled.ArrowDropDown,
-                    null,
-                    Modifier.size(16.dp),
-                    tint = VerseColors.PcTextMuted
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    tint = VerseColors.PcTextMuted,
+                    modifier = Modifier.size(14.dp)
                 )
-            }
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .background(VerseColors.PcBgCard, RoundedCornerShape(8.dp))
-                .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(8.dp))
-        ) {
-            options.forEach { (key, lbl) ->
-                DropdownMenuItem(
-                    text = {
+                Spacer(Modifier.width(6.dp))
+                Box(modifier = Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
                         Text(
-                            lbl,
-                            fontSize = 12.sp,
-                            color = if (key == value) VerseColors.PcAccent else VerseColors.PcTextPrimary,
-                            fontWeight = if (key == value) FontWeight.SemiBold else FontWeight.Normal
+                            placeholder,
+                            fontSize = 13.sp,
+                            color = VerseColors.PcTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                    },
-                    onClick = {
-                        onSelect(key); expanded = false
                     }
-                )
+                    inner()
+                }
+                if (value.isNotEmpty()) {
+                    Spacer(Modifier.width(2.dp))
+                    Icon(
+                        Icons.Outlined.Clear,
+                        contentDescription = null,
+                        tint = VerseColors.PcTextMuted,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                onValueChange("")
+                                onSearch?.invoke()
+                            }
+                    )
+                }
             }
         }
-    }
+    )
 }
 
 private val ErrorBg = Color(0xFFFEF2F2)
@@ -536,7 +652,6 @@ private val ProgressGradient = listOf(
 @Composable
 fun PcLaunchOverlay(
     launchState: LaunchState,
-    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val alphaAnim = remember { Animatable(0f) }
@@ -567,49 +682,30 @@ fun PcLaunchOverlay(
     val showRepair = isFailed
     val showLog = launchState.phase == LaunchPhase.LAUNCHING
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(VerseColors.PcBgPrimary)
-            .alpha(alphaAnim.value)
+    // ZL2 样式加载窗口：Dialog 遮罩 + 居中圆角卡片（对齐 ZalithLauncher2 ProgressDialog：
+    // onDismissRequest={} 不可取消、Surface 圆角卡片 + 阴影、加载动画用 versepc2 玫瑰曲线）。
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss
-                )
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        Surface(
+            modifier = modifier
+                .widthIn(max = 360.dp)
+                .alpha(alphaAnim.value),
+            shape = RoundedCornerShape(24.dp),
+            color = VerseColors.PcBgSecondary,
+            contentColor = VerseColors.PcTextPrimary,
+            shadowElevation = 6.dp
         ) {
-            Icon(
-                imageVector = Icons.Default.ArrowBack,
-                contentDescription = null,
-                tint = VerseColors.PcTextSecondary,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = "返回",
-                fontSize = 13.sp,
-                color = VerseColors.PcTextSecondary
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 启动图标：玫瑰曲线加载动画（等价迁移自 versepc2 rose-loader.js）
-            Box(modifier = Modifier.size(96.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 启动图标：玫瑰曲线加载动画（等价迁移自 versepc2 rose-loader.js）
+                Box(modifier = Modifier.size(96.dp)) {
                 RoseCurveLoader(
                     modifier = Modifier.fillMaxSize(),
                     color = VerseColors.PcAccent
@@ -766,6 +862,7 @@ fun PcLaunchOverlay(
                     )
                 }
             }
+        }
         }
     }
 }

@@ -26,12 +26,30 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
                 context.cacheDir.absolutePath,
                 File(context.cacheDir, ".virgl_test").absolutePath
             )
+            // SDL 需要独立的 GL/EGL 库绝对路径（对齐 FCL FCLauncher.addRendererEnv L274-300）：
+            // MC 26.x RenderPearl 校验 SDL_GL_GetProcAddress("glGetError") 与 LWJGL provider
+            // 同源，SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。
+            val rendererLibPath = context.applicationInfo.nativeLibraryDir
+            val egl = envMap["POJAVEXEC_EGL"]
+            if (egl != null && !egl.startsWith("/")) {
+                // 仅当 EGL 库真实打包在 native 目录内才给 SDL 绝对路径（如 ANGLE/Mesa）；
+                // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析（与 FCL 一致）
+                val candidate = File(rendererLibPath, egl)
+                if (candidate.isFile()) {
+                    envMap["SDL_EGL_LIBRARY"] = candidate.absolutePath
+                }
+            }
+            val gl = rendererConfig.glName
+            if (gl.isNotEmpty()) {
+                envMap["SDL_OPENGL_LIBRARY"] =
+                    if (gl.startsWith("/")) gl else File(rendererLibPath, gl).absolutePath
+            }
             envMap.forEach { (key, value) ->
                 if (!value.isNullOrEmpty()) {
                     JvmLauncherAPI.nativeSetenv(key, value)
                 }
             }
-            Log.d(TAG, "Renderer environment configured for ${rendererConfig.id}")
+            Log.d(TAG, "Renderer environment configured for ${rendererConfig.id}: SDL_OPENGL_LIBRARY=${envMap["SDL_OPENGL_LIBRARY"]}, SDL_EGL_LIBRARY=${envMap["SDL_EGL_LIBRARY"]}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "setupRendererEnvironment failed: ${e.message}\n${e.stackTraceToString()}")

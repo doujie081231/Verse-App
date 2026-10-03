@@ -66,6 +66,9 @@ object SettingsRepository {
         private const val KEY_COMMUNITY_RESOURCES = "community_resources"
         private const val KEY_THEME_COLOR = "theme_color"
         private const val KEY_BACKGROUND_STYLE = "background_style"
+        private const val KEY_THEME_ACCENT = "theme_accent"
+        private const val KEY_BACKGROUND_IMAGE = "background_image_path"
+        private const val KEY_BACKGROUND_VIDEO = "background_video_path"
         private const val KEY_WINDOW_TITLE = "window_title"
         private const val KEY_CUSTOM_INFO = "custom_info"
         private const val KEY_LAUNCHER_VISIBILITY = "launcher_visibility"
@@ -75,6 +78,7 @@ object SettingsRepository {
         private const val KEY_GAME_WIDTH = "game_width"
         private const val KEY_GAME_HEIGHT = "game_height"
         private const val KEY_FULLSCREEN = "fullscreen"
+        private const val KEY_IGNORE_NOTCH = "ignore_notch"
 
         private const val DEFAULT_GAME_DIR = "/storage/emulated/0/VerseExplorerX"
         private const val DEFAULT_MAX_MEMORY = 2048
@@ -131,6 +135,72 @@ object SettingsRepository {
         private const val DEFAULT_GAME_WIDTH = 854
         private const val DEFAULT_GAME_HEIGHT = 480
         private const val DEFAULT_FULLSCREEN = false
+        // FCL ThemePreference.fullscreen 默认 false：默认避让屏幕刘海区域（缩小）
+        private const val DEFAULT_IGNORE_NOTCH = false
+        // VerseX 渲染器（vkshim 兼容层之上的性能优化层）：pipeline 对象级缓存（M1）
+        private const val KEY_VERSERX_RENDERER = "versex_renderer"
+        private const val KEY_VERSERX_PIPELINE_CACHE = "versex_pipeline_cache"
+        private const val DEFAULT_VERSERX_RENDERER = true
+        private const val DEFAULT_VERSERX_PIPELINE_CACHE = true
+
+    fun getVersexRenderer(): Boolean = prefs().getBoolean(KEY_VERSERX_RENDERER, DEFAULT_VERSERX_RENDERER)
+
+    fun setVersexRenderer(on: Boolean) {
+        prefs().edit().putBoolean(KEY_VERSERX_RENDERER, on).apply()
+    }
+
+    fun getVersexPipelineCache(): Boolean = prefs().getBoolean(KEY_VERSERX_PIPELINE_CACHE, DEFAULT_VERSERX_PIPELINE_CACHE)
+
+    fun setVersexPipelineCache(on: Boolean) {
+        prefs().edit().putBoolean(KEY_VERSERX_PIPELINE_CACHE, on).apply()
+    }
+
+    // 图形 API（FCL VersionSetting.graphicsBackend：default/opengl/vulkan，
+    // 启动时写 MC options.txt 的 preferredGraphicsBackend）
+    private const val KEY_GRAPHICS_BACKEND = "graphics_backend"
+    private const val DEFAULT_GRAPHICS_BACKEND = "default"
+
+    fun getGraphicsBackend(): String =
+        prefs().getString(KEY_GRAPHICS_BACKEND, DEFAULT_GRAPHICS_BACKEND) ?: DEFAULT_GRAPHICS_BACKEND
+
+    fun setGraphicsBackend(value: String) {
+        prefs().edit().putString(KEY_GRAPHICS_BACKEND, value).apply()
+    }
+
+    // FCL LauncherHelper isNotCheckGame：跳过启动前游戏文件完整性检查以加快启动
+    private const val KEY_NOT_CHECK_GAME = "not_check_game"
+    private const val DEFAULT_NOT_CHECK_GAME = false
+
+    fun getNotCheckGame(): Boolean = prefs().getBoolean(KEY_NOT_CHECK_GAME, DEFAULT_NOT_CHECK_GAME)
+
+    fun setNotCheckGame(on: Boolean) {
+        prefs().edit().putBoolean(KEY_NOT_CHECK_GAME, on).apply()
+    }
+
+    // FCL LaunchOptions.debugLog：游戏内 log4j2 输出详细调试日志（log4j2-1.12-debug.xml）
+    private const val KEY_DEBUG_LOG = "debug_log"
+    private const val DEFAULT_DEBUG_LOG = false
+
+    fun getDebugLog(): Boolean = prefs().getBoolean(KEY_DEBUG_LOG, DEFAULT_DEBUG_LOG)
+
+    fun setDebugLog(on: Boolean) {
+        prefs().edit().putBoolean(KEY_DEBUG_LOG, on).apply()
+    }
+
+    // FCL LauncherSettingPage：启动游戏前请求 RECORD_AUDIO（语音聊天模组用）
+    private const val KEY_REQUEST_MIC_PERMISSION = "request_mic_permission"
+    private const val DEFAULT_REQUEST_MIC_PERMISSION = false
+
+    fun getRequestMicPermission(): Boolean =
+        prefs().getBoolean(KEY_REQUEST_MIC_PERMISSION, DEFAULT_REQUEST_MIC_PERMISSION)
+
+    fun setRequestMicPermission(on: Boolean) {
+        prefs().edit().putBoolean(KEY_REQUEST_MIC_PERMISSION, on).apply()
+    }
+
+    // Vulkan 驱动器（FCL VersionSetting.isVKDriverSystem）：true=系统驱动，
+    // false=Turnip（内置 libvulkan_freedreno.so，仅 Adreno 6xx-8xx 有效，其余设备自动回落）
+    // setter 见 setVkDriverSystem(enabled)
 
     fun getGameDir(): String = prefs().getString(KEY_GAME_DIR, DEFAULT_GAME_DIR) ?: DEFAULT_GAME_DIR
 
@@ -397,6 +467,25 @@ object SettingsRepository {
         prefs().edit().putString(KEY_BACKGROUND_STYLE, style).apply()
     }
 
+    /** 自定义强调色（8位ARGB hex，空=跟随黑白主题默认） */
+    fun getThemeAccent(): String = prefs().getString(KEY_THEME_ACCENT, "") ?: ""
+
+    fun setThemeAccent(hex: String) {
+        prefs().edit().putString(KEY_THEME_ACCENT, hex).apply()
+    }
+
+    fun getBackgroundImagePath(): String = prefs().getString(KEY_BACKGROUND_IMAGE, "") ?: ""
+
+    fun setBackgroundImagePath(path: String) {
+        prefs().edit().putString(KEY_BACKGROUND_IMAGE, path).apply()
+    }
+
+    fun getBackgroundVideoPath(): String = prefs().getString(KEY_BACKGROUND_VIDEO, "") ?: ""
+
+    fun setBackgroundVideoPath(path: String) {
+        prefs().edit().putString(KEY_BACKGROUND_VIDEO, path).apply()
+    }
+
     fun getWindowTitle(): String = prefs().getString(KEY_WINDOW_TITLE, DEFAULT_WINDOW_TITLE) ?: DEFAULT_WINDOW_TITLE
 
     fun setWindowTitle(title: String) {
@@ -449,6 +538,13 @@ object SettingsRepository {
 
     fun setFullscreen(fullscreen: Boolean) {
         prefs().edit().putBoolean(KEY_FULLSCREEN, fullscreen).apply()
+    }
+
+    /** 忽略屏幕刘海区域全屏显示（false=避让刘海，窗口在刘海侧缩小） */
+    fun getIgnoreNotch(): Boolean = prefs().getBoolean(KEY_IGNORE_NOTCH, DEFAULT_IGNORE_NOTCH)
+
+    fun setIgnoreNotch(ignoreNotch: Boolean) {
+        prefs().edit().putBoolean(KEY_IGNORE_NOTCH, ignoreNotch).apply()
     }
 
     fun resetToDefaults() {

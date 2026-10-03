@@ -60,7 +60,9 @@ class InGameControlOverlay(
     private val onEsc: () -> Unit,
     private val onScreenshot: () -> Unit,
     private val onExitGame: () -> Unit,
-    private val onCancelGameGesture: () -> Unit
+    private val onCancelGameGesture: () -> Unit,
+    /** 实体鼠标控制开关切换后的指针捕获同步（FCL PHYSICAL_MOUSE 开关的接线） */
+    private val onPhysicalMouseChanged: (Boolean) -> Unit = {}
 ) {
 
     // ===== FCL 配色（colors.xml：ui_bg_color / primary_text / default_theme_color） =====
@@ -151,17 +153,6 @@ class InGameControlOverlay(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8f) }
-        })
-
-        card.addView(TextView(activity).apply {
-            text = "（演示遮罩 · 样式参考 FCL 控制面板）"
-            setTextColor(Color.argb(140, 150, 150, 165))
-            textSize = 11f
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(10f) }
         })
 
         card.addView(Button(activity).apply {
@@ -334,6 +325,14 @@ class InGameControlOverlay(
             }.onFailure {
                 Toast.makeText(activity, "加载布局失败: ${it.message}", Toast.LENGTH_SHORT).show()
             }
+        })
+        // 保存布局（Pojav 游戏内编辑器菜单"保存"：openSaveDialog，输入名称保存到 CTRLMAP，编辑后按键修改持久化）
+        content.addView(buttonRow("保存布局", "保存") {
+            activity.controlLayout?.openSaveDialog(null)
+        })
+        // 设为默认（Pojav 游戏内编辑器菜单"设为默认"：openSetDefaultDialog，写入 defaultCtrl 偏好，下次启动按 Pojav 语义优先加载该布局）
+        content.addView(buttonRow("设为默认", "设默认") {
+            activity.controlLayout?.openSetDefaultDialog()
         })
 
         // 编辑模式（FCL edit_mode → ViewManager 编辑；Pojav 等价 = ControlLayout.setModifiable）
@@ -546,15 +545,12 @@ class InGameControlOverlay(
             MenuSetting.mouseOffsetY = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_OFFSET_Y)
         })
-        // 实体鼠标控制（FCL switch_physical_mouse_mode → GameMenu.setOnGenericMotionListener）
+        // 实体鼠标控制（FCL switch_physical_mouse_mode → GameMenu 的 PHYSICAL_MOUSE 接线）
         content.addView(switchRow("实体鼠标控制", MenuSetting.isPhysicalMouseMode) { on ->
             MenuSetting.isPhysicalMouseMode = on
             MenuSetting.notifyChange(MenuSetting.Key.PHYSICAL_MOUSE_MODE)
-            if (on) {
-                activity.touchOverlay?.releasePointerCapture()
-            } else {
-                activity.touchOverlay?.requestPointerCapture()
-            }
+            // 切换后立即按当前抓取状态同步指针捕获（抓取态捕获、GUI 态释放）
+            onPhysicalMouseChanged(on)
         })
 
         // ===== 手柄 =====
@@ -630,12 +626,16 @@ class InGameControlOverlay(
             updateLogWindowVisibility()
         })
         // 强制退出（FCL force_exit → 确认对话框后强退）
+        // 与 FCL GameMenu 一致：游戏 JVM 与启动器同进程且 main() 阻塞在 native 事件循环，
+        // 优雅拆解不可行，强制退出直接杀死整个进程（下次冷启动回到启动器主页）
         content.addView(buttonRow("强制退出", "退出") {
             AlertDialog.Builder(activity)
                 .setTitle("强制退出")
                 .setMessage("你确定要强制退出吗？")
                 .setCancelable(false)
-                .setPositiveButton("确定") { _, _ -> onExitGame() }
+                .setPositiveButton("确定") { _, _ ->
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                }
                 .setNegativeButton("取消", null)
                 .show()
         })

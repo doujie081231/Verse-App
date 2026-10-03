@@ -25,11 +25,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.verse.explorer.app.setup.RuntimeSetupManager
+import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.ui.MainScreen
 import com.verse.explorer.app.ui.RuntimeSetupScreen
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.VerseExplorerTheme
 import com.verse.explorer.core.config.GameConfig
@@ -42,6 +44,9 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     val jreReady = mutableStateOf(false)
+
+    /** 外部分享导入的整合包 Uri（微信等 ACTION_SEND → ModpackImportFlow） */
+    val shareImportUri = mutableStateOf<android.net.Uri?>(null)
 
     private val eulaAgreed = mutableStateOf(false)
     private val permissionGranted = mutableStateOf(false)
@@ -59,6 +64,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 冷启动（分享点开应用未运行）：处理 ACTION_SEND 整合包
+        handleShareIntent(intent)
 
         // 写入启动标记日志，确认 MainActivity.onCreate 被执行
         try {
@@ -95,13 +103,24 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            // 启动时应用已保存的个性化黑白主题（对齐 PC data-theme）
+            // 启动时应用已保存的个性化黑白主题 + 自定义强调色 + 自定义背景（对齐 PC data-theme）
             LaunchedEffect(Unit) {
+                DisplayNotch.load()
                 VerseColors.applyTheme(SettingsRepository.getThemeColor())
+                VersePersonalization.load(applicationContext)
+                VerseColors.customAccent = SettingsRepository.getThemeAccent()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { Color(android.graphics.Color.parseColor("#$it")) }
             }
             VerseExplorerTheme {
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            // 刘海避让：关闭「忽略刘海（全屏）」时内容让出 displayCutout 区（横屏左侧打孔）
+                            if (DisplayNotch.ignoreNotch) Modifier
+                            else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                        ),
                     color = Color.Transparent  // 背景交给 MainScreen（全景/玻璃），避免不透底遮住全景
                 ) {
                     val showEula = !eulaAgreed.value
@@ -170,9 +189,38 @@ class MainActivity : ComponentActivity() {
                         jreReady = jreReady.value,
                         onLaunchGame = { versionId ->
                             launchGame(versionId)
-                        }
+                        },
+                        shareImportUri = shareImportUri.value,
+                        onShareImportHandled = { shareImportUri.value = null }
                     )
                 }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // singleTask 热启动：分享/打开方式到达时更新待导入 Uri
+        handleShareIntent(intent)
+    }
+
+    /** 解析外部分享/打开进来的整合包 Uri：
+     *  ACTION_SEND（微信等长按文件「分享」→ EXTRA_STREAM）；
+     *  ACTION_VIEW（文件管理器点击 zip/mrpack「打开方式」→ data，走 ModpackImportAlias 入口） */
+    private fun handleShareIntent(intent: Intent?) {
+        when (intent?.action) {
+            Intent.ACTION_SEND -> {
+                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                } ?: return
+                shareImportUri.value = uri
+            }
+            Intent.ACTION_VIEW -> {
+                val uri = intent.data ?: return
+                shareImportUri.value = uri
             }
         }
     }

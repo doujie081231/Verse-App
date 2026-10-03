@@ -11,6 +11,7 @@ import com.tungsten.fclcore.task.AsyncTaskExecutor
 import com.tungsten.fclcore.task.Schedulers
 import com.tungsten.fclcore.task.Task
 import com.tungsten.fclcore.task.TaskListener
+import com.verse.explorer.core.config.GameConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.compress.archivers.zip.ZipFile
@@ -200,9 +201,42 @@ object ModpackInstaller {
             if (!repo.hasVersion(runName)) {
                 throw IOException("整合包安装结束但未生成版本 $runName")
             }
+            // 提取整合包作者图标（zip 根目录）到版本目录，供主页/已安装版本卡片展示
+            saveModpackIcon(zipFile, GameConfig.getVersionsDir(gameDir).resolve(runName))
             Log.i(TAG, "整合包安装完成: $runName")
             // 安装期间下载的整合包文件清理由调用方决定
             Unit
+        }
+    }
+
+    /**
+     * 从整合包 zip 根目录提取作者提供的图标（CurseForge 根目录 "modpack icon.png"、
+     * Modrinth 根目录 "icon.png" 等），写入 versions/<name>/modpack_icon.png。
+     */
+    private fun saveModpackIcon(zipFile: File, versionRoot: File) {
+        try {
+            ZipFile(zipFile).use { zip ->
+                val rootFiles = generateSequence {
+                    val e = zip.getEntries()
+                    if (e.hasMoreElements()) e.nextElement() else null
+                }
+                    .filter { !it.isDirectory && !it.name.contains('/') && !it.name.contains('\\') }
+                    .toList()
+                val entry = rootFiles.firstOrNull { e ->
+                    val n = e.name.lowercase()
+                    (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp")) &&
+                        (n.contains("icon") || n.contains("logo") || n.contains("pack"))
+                } ?: rootFiles.firstOrNull { e -> e.name.lowercase().endsWith(".png") }
+                if (entry != null) {
+                    versionRoot.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        File(versionRoot, "modpack_icon.png").outputStream().use { input.copyTo(it) }
+                    }
+                    Log.i(TAG, "已保存整合包图标: ${entry.name}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "保存整合包图标失败: ${e.message}")
         }
     }
 
