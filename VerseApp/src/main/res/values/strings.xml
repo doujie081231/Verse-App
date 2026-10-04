@@ -1,4 +1,4 @@
-<resources>
+﻿<resources>
     <string name="app_name">Verse</string>
     <string name="control_debug">Debug</string>
     <string name="control_chat">Chat</string>
@@ -11,9 +11,9 @@
     <string name="control_inventory">Inv</string>
     <string name="control_shift">◇</string>
     <string name="control_jump">⬛</string>
-    <string name="customctrl_selectdefault">Select default controlmap</string>
-    <string name="customctrl_editor_exit_title">Leaving?</string>
-    <string name="customctrl_editor_exit_msg">Are you sure you want to exit?</string>
+    <string name="customctrl_selectdefault">选择默认控制布局</string>
+    <string name="customctrl_editor_exit_title">您确定要离开？</string>
+    <string name="customctrl_editor_exit_msg">您确定要退出？</string>
     <string name="global_save">Save</string>
     <string name="global_load">Load</string>
     <string name="global_save_and_exit">Save and exit</string>
@@ -22,7 +22,7 @@
     <string name="global_error_field_empty">This field can\'t be empty</string>
     <string name="global_clone">Clone</string>
     <string name="global_delete">Delete</string>
-    <string name="customctrl_addsubbutton">Add sub-button</string>
+    <string name="customctrl_addsubbutton">添加子按键</string>
     <string name="millisecond_format">%d ms</string>
     <string name="percent_format">%d%%</string>
     <string name="quick_setting_title">Quick settings</string>
@@ -50,5 +50,6 @@
     <string name="color_picker_title">自定义强调色</string>
     <string name="color_picker_cancel">取消</string>
     <string name="color_picker_confirm">确定</string>
+
 
 </resources>

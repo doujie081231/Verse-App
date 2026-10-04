@@ -1,12 +1,16 @@
 package com.verse.explorer.app.ui
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -144,6 +148,50 @@ fun VersionSettingsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    // ── 模组管理入口（显眼大按钮，置于所有设置卡片之前） ──
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { navController.navigate(Screen.Mods.route) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = VerseColors.PcAccent.copy(alpha = 0.14f),
+                        border = BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.45f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.Extension,
+                                contentDescription = null,
+                                tint = VerseColors.PcAccent,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "模组管理",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = VerseColors.PcAccent
+                                )
+                                Text(
+                                    "查看、添加此版本的模组资源",
+                                    fontSize = 11.sp,
+                                    color = VerseColors.PcTextSecondary
+                                )
+                            }
+                            Icon(
+                                Icons.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = VerseColors.PcAccent,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
                     // ── 独立设置 ──
                     PcCard(title = "独立设置") {
                         PcSwitchRow(

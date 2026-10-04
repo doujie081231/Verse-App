@@ -10,6 +10,8 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -74,6 +76,11 @@ class RedStoneTunnelDialog(private val activity: Activity) : Dialog(activity) {
         val height = (activity.resources.displayMetrics.heightPixels * 0.9).toInt()
         window?.setLayout(width, height)
         window?.setBackgroundDrawableResource(android.R.color.transparent)
+        // 全屏游戏 Activity 上弹 Dialog，输入法需要显式声明 resize + 允许聚焦弹出
+        window?.setSoftInputMode(
+            WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
 
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -150,6 +157,23 @@ class RedStoneTunnelDialog(private val activity: Activity) : Dialog(activity) {
         renderChips(RedStoneTunnelManager.nodes.value)
     }
 
+    /** EditText 聚焦/点击时强制唤出输入法（全屏沉浸的 Activity window 不会自动弹键盘） */
+    private fun attachKeyboard(view: EditText) {
+        val show = {
+            view.post {
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                // SHOW_IMPLICIT 会被全屏游戏 window 拒绝，用 FORCED 强制弹出
+                @Suppress("DEPRECATION")
+                imm.showSoftInput(view, InputMethodManager.SHOW_FORCED)
+            }
+        }
+        view.setOnFocusChangeListener { v, hasFocus -> if (hasFocus) show() }
+        view.setOnClickListener { v ->
+            v.requestFocus()
+            show()
+        }
+    }
+
     /** 配置区：节点输入 + 快捷节点 + 端口 + 创建/关闭按钮（只在状态允许时显示） */
     private fun buildConfigUI() {
         configContainer.removeAllViews()
@@ -181,7 +205,7 @@ class RedStoneTunnelDialog(private val activity: Activity) : Dialog(activity) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = 8.dp(context) }
-            }.also { nodeEdit = it })
+            }.also { nodeEdit = it; attachKeyboard(it) })
 
             chipsRow = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -205,10 +229,10 @@ class RedStoneTunnelDialog(private val activity: Activity) : Dialog(activity) {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 ).apply { topMargin = 8.dp(context) }
-            }.also { portEdit = it })
+            }.also { portEdit = it; attachKeyboard(it) })
 
             configContainer.addView(TextView(context).apply {
-                text = "好友无需任何安装，在多人游戏中直接连接生成的地址。"
+                text = "好友无需任何安装，在 Java 版多人游戏中直接连接生成的地址。"
                 setTextColor(VerseColors.PcTextMuted.toArgb())
                 textSize = 11f
                 layoutParams = LinearLayout.LayoutParams(

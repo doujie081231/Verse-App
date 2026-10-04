@@ -1,4 +1,4 @@
-<resources>
+﻿<resources>
     <dimen name="_134sdp">134dp</dimen>
     <dimen name="_150sdp">150dp</dimen>
     <dimen name="_280sdp">280dp</dimen>
@@ -16,23 +16,23 @@
     <dimen name="padding_heavy">24dp</dimen>
     <dimen name="padding_moderate">12dp</dimen>
     <dimen name="padding_small">8dp</dimen>
-    <string name="customctrl_absolute_tracking">Absolute finger tracking</string>
-    <string name="customctrl_background_color">Background color</string>
-    <string name="customctrl_button_opacity">Button Opacity</string>
-    <string name="customctrl_corner_radius">Corner radius</string>
-    <string name="customctrl_forward_lock">Forward lock</string>
-    <string name="customctrl_mapping">Mapping</string>
-    <string name="customctrl_orientation">Orientation</string>
-    <string name="customctrl_passthru">Mouse pass-thru</string>
-    <string name="customctrl_size">Size</string>
-    <string name="customctrl_stroke_color">Stroke color</string>
-    <string name="customctrl_stroke_width">Stroke width</string>
-    <string name="customctrl_swipeable">Swipeable</string>
-    <string name="customctrl_toggle">Toggleable</string>
-    <string name="customctrl_visibility_in_menus">In menus</string>
-    <string name="customctrl_visibility_ingame">In-game</string>
-    <string name="customctrl_visibility_title">Visibility</string>
-    <string name="global_name">Name</string>
+    <string name="customctrl_absolute_tracking">绝对手指跟踪</string>
+    <string name="customctrl_background_color">背景颜色</string>
+    <string name="customctrl_button_opacity">按键不透明度</string>
+    <string name="customctrl_corner_radius">圆角半径</string>
+    <string name="customctrl_forward_lock">允许锁定前进</string>
+    <string name="customctrl_mapping">按键映射</string>
+    <string name="customctrl_orientation">方向</string>
+    <string name="customctrl_passthru">穿透点击</string>
+    <string name="customctrl_size">大小</string>
+    <string name="customctrl_stroke_color">边框颜色</string>
+    <string name="customctrl_stroke_width">边框宽度</string>
+    <string name="customctrl_swipeable">滑动点击</string>
+    <string name="customctrl_toggle">切换触发</string>
+    <string name="customctrl_visibility_in_menus">菜单内</string>
+    <string name="customctrl_visibility_ingame">游戏内</string>
+    <string name="customctrl_visibility_title">可见性</string>
+    <string name="global_name">名称</string>
     <string name="color_default_hex">FFFF0000</string>
     <string name="log_view_button_output_off">Output\nOFF</string>
     <string name="log_view_button_output_on">Output\nON</string>

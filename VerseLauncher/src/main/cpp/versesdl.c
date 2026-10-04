@@ -589,11 +589,14 @@ Java_org_libsdl_app_SDL_nativeInstallSdlHooks(JNIEnv *env, jclass clazz) {
  * 先 RTLD_GLOBAL 载 liblinkerhook.so 拦截 android_dlopen_ext，再加载系统加载器——加载器
  * 枚举驱动（vulkan.*）的请求被 hook 转向 DRIVER_PATH/libvulkan_freedreno.so。
  * 加载成功不代表驱动可用（freedreno 仅支持 Adreno，非 Adreno 设备设备枚举为空），
- * 建实例探测物理设备数，失败时回落 vkshim。 */
+ * 建实例探测物理设备数并校验 vendor（freedreno 报 Qualcomm 0x5143；非 Adreno 硬件上
+ * freedreno 可能仍枚举出不可用的虚拟设备，仅凭数量会误判），失败时回落 vkshim。 */
 static int vsdl_turnip_probe(void *loader) {
     PFN_vkCreateInstance create = (PFN_vkCreateInstance) dlsym(loader, "vkCreateInstance");
     PFN_vkEnumeratePhysicalDevices enumerate =
             (PFN_vkEnumeratePhysicalDevices) dlsym(loader, "vkEnumeratePhysicalDevices");
+    PFN_vkGetPhysicalDeviceProperties props_fn =
+            (PFN_vkGetPhysicalDeviceProperties) dlsym(loader, "vkGetPhysicalDeviceProperties");
     PFN_vkDestroyInstance destroy = (PFN_vkDestroyInstance) dlsym(loader, "vkDestroyInstance");
     if (create == NULL || enumerate == NULL) return 0;
 
@@ -605,9 +608,27 @@ static int vsdl_turnip_probe(void *loader) {
 
     uint32_t count = 0;
     VkResult result = enumerate(instance, &count, NULL);
+    int adreno = 0;
+    if (result == VK_SUCCESS && count > 0) {
+        VkPhysicalDevice devs[8];
+        uint32_t n = count > 8 ? 8 : count;
+        if (enumerate(instance, &n, devs) == VK_SUCCESS) {
+            for (uint32_t i = 0; i < n; ++i) {
+                if (props_fn == NULL) { adreno = 1; break; }
+                VkPhysicalDeviceProperties p;
+                memset(&p, 0, sizeof(p));
+                props_fn(devs[i], &p);
+                file_log("vulkan driver: turnip device vendorID=0x%04x deviceName=%s",
+                         p.vendorID, p.deviceName);
+                /* freedreno/Turnip 仅实现 Qualcomm Adreno（vendorID 0x5143） */
+                if (p.vendorID == 0x5143) { adreno = 1; break; }
+            }
+        }
+    }
     if (destroy != NULL) destroy(instance, NULL);
-    file_log("vulkan driver: turnip probe result=%d devices=%u", (int) result, count);
-    return result == VK_SUCCESS && count > 0;
+    file_log("vulkan driver: turnip probe result=%d devices=%u adreno=%d",
+             (int) result, count, adreno);
+    return adreno;
 }
 
 JNIEXPORT void JNICALL

@@ -115,7 +115,15 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
                 ? (GradientDrawable) getControlView().getBackground()
                 : new GradientDrawable();
         gd.setColor(getProperties().bgColor);
-        gd.setStroke((int) Tools.dpToPx(getProperties().strokeWidth * (getControlLayoutParent().getLayoutScale()/100f)), getProperties().strokeColor);
+        // 描边柔化：黑/深色硬边按 55% alpha 渲染（不影响布局文件存储的颜色值），
+        // 编辑面板的颜色选择器仍可自定义
+        int sc = getProperties().strokeColor;
+        int softened = android.graphics.Color.argb(
+                (int) (android.graphics.Color.alpha(sc) * 0.55f),
+                android.graphics.Color.red(sc),
+                android.graphics.Color.green(sc),
+                android.graphics.Color.blue(sc));
+        gd.setStroke((int) Tools.dpToPx(getProperties().strokeWidth * (getControlLayoutParent().getLayoutScale()/100f)), softened);
         gd.setCornerRadius(computeCornerRadius(getProperties().cornerRadius));
 
         getControlView().setBackground(gd);
@@ -202,7 +210,10 @@ public interface ControlInterface extends View.OnLongClickListener, GrabListener
      */
     default float computeCornerRadius(float radiusInPercent) {
         float minSize = Math.min(getProperties().getWidth(), getProperties().getHeight());
-        return (minSize / 2) * (radiusInPercent / 100);
+        float computed = (minSize / 2) * (radiusInPercent / 100);
+        // 视觉圆滑：至少 12% 最短边的圆角，存量直角/小圆角布局自动变圆滑
+        float minimum = minSize * 0.12f;
+        return Math.max(computed, minimum);
     }
 
     /**

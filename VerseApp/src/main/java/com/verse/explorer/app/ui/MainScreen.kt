@@ -33,10 +33,17 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.Shadow
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.theme.VerseColors
 import android.net.Uri
+import android.os.Build
 
 sealed class Screen(
     val route: String,
@@ -151,7 +158,14 @@ fun MainScreen(
     // 自定义背景激活时降低玻璃 scrim 透明度，保证背景可见（无背景时维持原有外观）
     val customBgActive = VersePersonalization.backgroundStyle != "none"
 
+    // 苹果液态玻璃采样源（Kyant0/AndroidLiquidGlass backdrop-android 2.0.0）：
+    // RuntimeShader 完整效果需 Android 13+，低版本走库内降级路径
+    val navGlassBackdrop = rememberLayerBackdrop()
+    val glassSupported = Build.VERSION.SDK_INT >= 33
+
     Box(modifier = Modifier.fillMaxSize()) {
+        // 采样源层：自定义背景 + 页面内容。悬浮导航的玻璃层从此处透镜采样
+        Box(modifier = Modifier.fillMaxSize().layerBackdrop(navGlassBackdrop)) {
         // 底层：用户自定义背景（图片/视频）
         AppBackground(Modifier.fillMaxSize())
         // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）
@@ -159,7 +173,6 @@ fun MainScreen(
             if (customBgActive) VerseColors.PcGlassBg.copy(alpha = 0.60f)
             else VerseColors.PcGlassBg
         )) {
-        // 【临时验证版】移除液态玻璃采样源标记
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
@@ -262,14 +275,17 @@ fun MainScreen(
                 ModDetailScreen(navController, projectId, "shader", source)
             }
         }
+        }
+        }
 
-        // 悬浮圆形导航（最上层图层，不占页面布局）
+        // 悬浮圆形导航（最上层图层，不占页面布局；液态玻璃采样上层内容）
         if (showSidebar) {
             FloatingNavOverlay(
                 navController = navController,
-                currentRoute = currentRoute
+                currentRoute = currentRoute,
+                backdrop = navGlassBackdrop,
+                glassEnabled = glassSupported
             )
-        }
         }
         // 外部分享导入整合包（微信等 ACTION_SEND → 命名 → FCL 安装链路），
         // 挂在导航外层：无论当前处于哪个页面，分享导入弹窗都能弹出
@@ -295,7 +311,9 @@ private fun navigateToTab(navController: NavHostController, route: String) {
 @Composable
 private fun FloatingNavOverlay(
     navController: NavHostController,
-    currentRoute: String?
+    currentRoute: String?,
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop,
+    glassEnabled: Boolean
 ) {
     var expanded by remember { mutableStateOf(false) }
     val openSubmenus = remember { mutableStateMapOf<String, Boolean>() }
@@ -310,7 +328,28 @@ private fun FloatingNavOverlay(
         }
     }
 
-    // 【临时验证版】移除液态玻璃 drawBackdrop，恢复普通半透明面板
+    // 苹果液态玻璃（AndroidLiquidGlass drawBackdrop：透镜折射 + 默认高光/投影），
+    // Android 13+ 生效，低版本保持原半透明面板
+    val circleGlass = if (glassEnabled) Modifier.drawBackdrop(
+        backdrop = backdrop,
+        shape = { CircleShape },
+        effects = {
+            lens(24.dp.toPx(), 16.dp.toPx())
+        },
+        highlight = { Highlight.Default },
+        shadow = { Shadow.Default }
+    ) else Modifier
+
+    val pillGlass = if (glassEnabled) Modifier.drawBackdrop(
+        backdrop = backdrop,
+        shape = { RoundedCornerShape(50) },
+        effects = {
+            lens(24.dp.toPx(), 16.dp.toPx())
+        },
+        highlight = { Highlight.Default },
+        shadow = { Shadow.Default }
+    ) else Modifier
+
     Box(modifier = Modifier.fillMaxSize()) {
         // 面板展开时：面板外的空白区域点击收起
         if (expanded) {
@@ -330,8 +369,11 @@ private fun FloatingNavOverlay(
                 .statusBarsPadding()
                 .padding(start = 12.dp, top = 8.dp)
                 .size(40.dp)
-                .clip(CircleShape)
-                .background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                .then(circleGlass)
+                .then(
+                    if (glassEnabled) Modifier
+                    else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -367,8 +409,11 @@ private fun FloatingNavOverlay(
                 modifier = Modifier
                     .width(56.dp)
                     .heightIn(max = 500.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                    .then(pillGlass)
+                    .then(
+                        if (glassEnabled) Modifier
+                        else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                    )
             ) {
                 Column(
                     modifier = Modifier

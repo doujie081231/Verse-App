@@ -7,6 +7,7 @@ import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -38,6 +39,7 @@ import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
 import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.game.NativesDeployer
+import com.verse.explorer.app.redstone.RedStoneTunnelDialog
 import com.verse.explorer.app.redstone.RedStoneTunnelManager
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
@@ -97,10 +99,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         TerracottaController.handleVpnPrepareResult(this, result.resultCode)
     }
 
-    /** 游戏内联机入口容器（陶瓦 + 红石按钮竖排，与 FCL 右菜单联机入口对应） */
-    private var multiplayerEntryContainer: LinearLayout? = null
-
-    /** 联机菜单打开期间吞掉触摸，避免透传给游戏输入 */
+    /** 联机对话框打开期间吞掉触摸，避免透传给游戏输入 */
     private var multiplayerDialogOpen = false
 
     // ===== Pojav 触控模块迁移：游戏内虚拟按键/摇杆/触摸板覆盖层 =====
@@ -116,18 +115,18 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     /** FCL 右栏「显示日志/自动显示日志」接入的日志窗口（FCL LogWindow 移植） */
     var logWindow: LogWindow? = null
 
-    /** FCL 右栏「鼠标尺寸/偏移」接入的可见光标（FCL CursorView 的简化移植） */
-    var cursorView: TextView? = null
+    /** FCL 右栏「鼠标尺寸/偏移」接入的可见光标（实体鼠标箭头，尖端=逻辑光标位置） */
+    var cursorView: android.widget.ImageView? = null
 
     /** 应用鼠标尺寸/偏移到可见光标（FCL initCursorView 的对应，由控制面板滑块调用） */
     fun applyCursorStyle() {
         val view = cursorView ?: return
-        val size = (MenuSetting.mouseSize * resources.displayMetrics.density).toInt()
+        // 箭头图形尖热点在 (0,0)，显示尺寸随 mouseSize 线性缩放
+        val size = (MenuSetting.mouseSize * 2 * resources.displayMetrics.density).toInt()
         view.layoutParams = FrameLayout.LayoutParams(
             if (size > 0) size else 1,
             if (size > 0) size else 1
         )
-        view.textSize = (MenuSetting.mouseSize * 0.75f).coerceAtLeast(8f)
     }
 
     /** 当前 FCLBridge（供控制面板的窗口缩放/光标偏移等使用） */
@@ -216,8 +215,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             ))
 
-            setupMultiplayerEntry()
-
             logManager.initGameLog(gameDirPath, versionId, javaVersion, launchMethod)
 
             orchestrator = GameLaunchOrchestrator(
@@ -266,7 +263,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 if (!graphicOutputShown && !isFinishing && !isDestroyed) {
                     VerseLogger.warn("画面就绪信号超时（6s），仅隐藏加载遮罩（输入/按钮待真实首帧信号）", "GameActivity")
                     statusOverlay.hide()
-                    multiplayerEntryContainer?.visibility = View.VISIBLE
                 }
             }, 6000)
         } catch (e: Throwable) {
@@ -377,62 +373,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         return selection[0]
     }
 
-    /**
-     * 游戏内联机入口：与 FCL 的 RightMenuAdapter 联机菜单项对应。
-     * 陶瓦入口需在设置页启用多人联机；红石入口在设备带有 arm64 内核时显示。
-     */
-    private fun setupMultiplayerEntry() {
-        val terracottaEnabled = getSharedPreferences("third_party", MODE_PRIVATE)
-            .getBoolean("terracotta", false)
-        val redstoneAvailable = RedStoneTunnelManager.isAvailable(this)
-        if (!terracottaEnabled && !redstoneAvailable) return
-
-        val density = resources.displayMetrics.density
-
-        fun entryButton(text: String, tint: androidx.compose.ui.graphics.Color, onClick: () -> Unit): Button =
-            Button(this).apply {
-                this.text = text
-                textSize = 12f
-                typeface = Typeface.DEFAULT_BOLD
-                setTextColor(VerseColors.PcAccentText.toArgb())
-                background = GradientDrawable().apply {
-                    shape = GradientDrawable.RECTANGLE
-                    cornerRadius = 10 * density
-                    setColor(VerseColors.PcBgSecondary.toArgb())
-                    setStroke((1 * density).toInt(), tint.toArgb())
-                }
-                setPadding((14 * density).toInt(), (8 * density).toInt(), (14 * density).toInt(), (8 * density).toInt())
-                alpha = 0.75f
-                setOnClickListener { onClick() }
-            }
-
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END
-            ).apply {
-                topMargin = (16 * density).toInt()
-                marginEnd = (16 * density).toInt()
-            }
-            visibility = View.GONE
-        }
-
-        if (terracottaEnabled) {
-            container.addView(entryButton("联机", VerseColors.PcBorder) {
-                multiplayerDialogOpen = true
-                val dialog = TerracottaMultiplayerDialog(this@GameActivity)
-                dialog.onDismissed = { multiplayerDialogOpen = false }
-                dialog.show()
-            })
-        }
-        // 【已按要求移除红石按钮】
-
-        multiplayerEntryContainer = container
-        addContentView(container, container.layoutParams as ViewGroup.LayoutParams)
-    }
-
     override fun onResume() {
         super.onResume()
         setupImmersiveMode()
@@ -455,6 +395,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onDestroy() {
         // 与 FCL 的 JVMActivity.onDestroy 对应：退出游戏时复位陶瓦联机状态并关闭 VPN
+        net.kdt.pojavlaunch.MainActivity.hostHandler = null
         try {
             TerracottaController.setWaiting(this, true)
         } catch (e: Throwable) {
@@ -480,8 +421,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) setupImmersiveMode()
-        // FCL FCLInput.initExternalController：非实体鼠标模式时请求指针捕获（相对移动）
-        if (hasFocus && !MenuSetting.isPhysicalMouseMode) {
+        // 指针捕获仅用于实体鼠标模式的相对移动。触屏模式下捕获会把触摸屏事件
+        // 以相对形式送进 OnCapturedPointerListener（Android 14+ 行为），与触摸的
+        // 绝对坐标流互相抢光标，导致可见箭头与实际点击位置错开（2.4.40 根因）
+        if (hasFocus && MenuSetting.isPhysicalMouseMode) {
             touchOverlay?.requestPointerCapture()
         }
     }
@@ -489,12 +432,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (graphicOutputShown) {
             if (multiplayerDialogOpen) {
-                // 联机菜单打开时不把触摸透传给游戏
+                // 联机对话框打开时不把触摸透传给游戏
                 return true
-            }
-            if (isTouchOnMultiplayerButton(ev)) {
-                // 让联机按钮正常接收点击
-                return super.dispatchTouchEvent(ev)
             }
             if (isTouchOnQuickInput(ev)) {
                 // 快捷输入框可见时让 EditText 正常接收焦点与键盘
@@ -583,16 +522,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         return hit
     }
 
-    private fun isTouchOnMultiplayerButton(ev: MotionEvent): Boolean {
-        val container = multiplayerEntryContainer ?: return false
-        if (container.visibility != View.VISIBLE) return false
-        val location = IntArray(2)
-        container.getLocationOnScreen(location)
-        return ev.rawX >= location[0] && ev.rawX <= location[0] + container.width &&
-            ev.rawY >= location[1] && ev.rawY <= location[1] + container.height
-    }
-
-    /** 快捷输入框可见时的命中判断：让 EditText 接收焦点（对应 FCL 的 input_scanner） */
     private fun isTouchOnQuickInput(ev: MotionEvent): Boolean {
         val input = touchCharInput ?: return false
         if (input.visibility != View.VISIBLE) return false
@@ -602,12 +531,28 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             ev.rawY >= location[1] && ev.rawY <= location[1] + input.height
     }
 
-    /** FCL 右栏「联机菜单」按钮：展示游戏内联机入口（陶瓦/红石） */
+    /** 控制面板「陶瓦联机」入口：直接唤出游戏内陶瓦联机对话框（未启用时提示去开启） */
     fun showMultiplayerEntry() {
-        multiplayerEntryContainer?.let {
-            it.visibility = View.VISIBLE
-            it.bringToFront()
+        if (!getSharedPreferences("third_party", MODE_PRIVATE).getBoolean("terracotta", false)) {
+            Toast.makeText(this, "请先在联机页的「陶瓦联机」中开启多人联机", Toast.LENGTH_LONG).show()
+            return
         }
+        multiplayerDialogOpen = true
+        val dialog = TerracottaMultiplayerDialog(this)
+        dialog.onDismissed = { multiplayerDialogOpen = false }
+        dialog.show()
+    }
+
+    /** 控制面板「红石联机」入口：唤出游戏内红石隧道对话框（红石内核缺失时提示） */
+    fun showRedstoneDialog() {
+        if (!RedStoneTunnelManager.isAvailable(this)) {
+            Toast.makeText(this, "当前设备没有红石内核（仅支持 arm64 设备）", Toast.LENGTH_LONG).show()
+            return
+        }
+        multiplayerDialogOpen = true
+        val dialog = RedStoneTunnelDialog(this)
+        dialog.onDismissed = { multiplayerDialogOpen = false }
+        dialog.show()
     }
 
     /** FCL 右栏「快捷输入」按钮：唤出 Pojav TouchCharInput 与软键盘 */
@@ -656,7 +601,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onCursorModeChange(mode: Int) {
         inputHandler.setCursorMode(mode)
-        // FCL GameMenu.onCursorModeChange：GUI 态显示光标，抓取态隐藏
+        // FCL GameMenu.onCursorModeChange：GUI 态显示光标，抓取态隐藏。
+        // 进入 GUI 态时把逻辑光标复位到屏幕中心（MC 默认鼠标在窗口中心），
+        // 避免可见圆点与游戏实际鼠标位置错开（SLIDE 相对移动模式会放大该错位）
+        if (mode == FCLBridge.CursorEnabled) {
+            inputHandler.centerCursor()
+        }
         cursorView?.visibility = if (mode == FCLBridge.CursorEnabled) View.VISIBLE else View.GONE
     }
 
@@ -668,13 +618,15 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     fun onGraphicOutput() {
         VerseLogger.debug("onGraphicOutput fired, surface=${textureView?.width}x${textureView?.height}", "Input")
         statusOverlay.hide()
-        multiplayerEntryContainer?.visibility = View.VISIBLE
         // 窗口尺寸由 FCL execute->handleWindow->setupBridgeWindow 从 ANativeWindow 取得（全屏尺寸），
         // 此处无需重复推送；isInputReady 打开后再推送会触发 GLFW WindowSize 回调，可能干扰渲染循环。
         // textureView?.let { CallbackBridge.sendUpdateWindowSize(it.width, it.height) }
         CallbackBridge.nativeSetInputReady(true)
         setupTouchControls()
         setupInGameControlOverlay()
+        // MC 启动必先进主菜单（GUI 态），但光标模式回调仅在变化时触发——
+        // 主动按 GUI 态初始化一次：显示箭头光标并归中（否则主菜单拖动无可见光标）
+        onCursorModeChange(FCLBridge.CursorEnabled)
         // FCL GameMenu.setup：logWindow 初始可见 = showLog || autoShowLog；图形输出后 autoShowLog 自动隐藏
         logWindow?.let {
             it.setVisibility(MenuSetting.isShowLog || MenuSetting.isAutoShowLog)
@@ -809,16 +761,23 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 visibility = View.GONE
             }
             touchCharInput = charInput
+            // Pojav 布局的「Keyboard」特殊按钮（SPECIALBTN_KEYBOARD）→ 切换软键盘；
+            //「Mouse」特殊按钮在 Verse 未实现虚拟鼠标模式，仅在 GUI 态显示光标，不重复接线
+            net.kdt.pojavlaunch.MainActivity.hostHandler = { action ->
+                runOnUiThread {
+                    if (action == "keyboard") showQuickInput()
+                }
+            }
 
             // FCL 右栏「显示日志/自动显示日志」：FCL LogWindow 移植
             val logWin = LogWindow(this)
             logWindow = logWin
 
-            // FCL 右栏「鼠标尺寸/偏移」：可见光标（FCL CursorView 简化移植：GUI 态显示圆点）
-            val cursor = TextView(this).apply {
-                text = "●"
-                setTextColor(Color.WHITE)
-                setShadowLayer(4f, 0f, 0f, Color.BLACK)
+            // FCL 右栏「鼠标尺寸/偏移」：可见光标（实体鼠标箭头，尖端=逻辑光标位置）
+            val cursor = android.widget.ImageView(this).apply {
+                setImageResource(R.drawable.ic_mouse_cursor)
+                // 图形必须填满视图：默认 FIT_CENTER 会四周留白，导致箭头尖端偏离视图 (0,0) 热点
+                scaleType = android.widget.ImageView.ScaleType.FIT_XY
                 visibility = View.GONE
                 layoutParams = FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -855,11 +814,29 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // dispatchGenericMotionEvent 统一分发，避免双份处理
             overlay.setOnCapturedPointerListener { _, ev -> inputHandler.handleCapturedPointer(ev) }
 
-            // FCL CursorView 跟随：GUI 态下指针移动时更新可见光标位置（含偏移）
+            // FCL CursorView 跟随：GUI 态下指针移动时更新可见光标位置（含偏移）。
+            // 箭头图形的热点（尖端）位于视图 (0,0)，view.x/y 直接等于逻辑光标位置即可对齐
             inputHandler.cursorMoveListener = { x, y ->
                 cursorView?.let {
                     it.x = x + MenuSetting.mouseOffsetX * density
                     it.y = y + MenuSetting.mouseOffsetY * density
+                }
+            }
+
+            // GUI 态触摸坐标 → MC 鼠标坐标的精确映射：
+            // 刘海避让给 gameRoot 加 padding 后 TextureView 整体右移，画面与窗口坐标错开。
+            // 实测（2.4.46 用户校准 X+15dp/Y+1dp）：SDL 路径的 MC 窗口 = Surface 显示尺寸
+            // （无 buffer 拉伸），因此光标坐标 = 相对 TextureView 左上角的窗口内显示坐标；
+            // 无 padding 时退化为窗口原坐标（= FCL 行为），Y 轴无 padding 故天然无偏
+            inputHandler.pointerMapper = { x, y ->
+                val tv = textureView
+                val st = tv?.surfaceTexture
+                if (tv == null || st == null || st.isReleased || tv.width <= 0 || tv.height <= 0) {
+                    null
+                } else {
+                    val loc = IntArray(2)
+                    tv.getLocationInWindow(loc)
+                    Pair((x - loc[0]).toInt().coerceAtLeast(0), (y - loc[1]).toInt().coerceAtLeast(0))
                 }
             }
 

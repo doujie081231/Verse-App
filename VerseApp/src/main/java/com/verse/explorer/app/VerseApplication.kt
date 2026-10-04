@@ -39,7 +39,8 @@ class VerseApplication : Application(), ImageLoaderFactory {
 
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
-        registerCrashHandler()
+        // 崩溃页独立进程不注册 handler：页面自身若再崩溃会无限递归
+        if (!isCrashProcess()) registerCrashHandler()
     }
 
     override fun newImageLoader(): ImageLoader {
@@ -63,6 +64,7 @@ class VerseApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        if (isCrashProcess()) return // 崩溃页进程：跳过数据库/JRE 等重初始化
         writeBootLog("Application.onCreate started")
         instance = this
         // 陶瓦联机：提供应用级 Context 供后台推送 VPN 通知状态
@@ -80,6 +82,19 @@ class VerseApplication : Application(), ImageLoaderFactory {
         initAllJreRuntimes()
     }
 
+    /** 崩溃分析页独立进程名（AndroidManifest :crash） */
+    private fun isCrashProcess(): Boolean =
+        try {
+            val pn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                Application.getProcessName()
+            } else {
+                java.io.File("/proc/self/cmdline").readText().trim('\u0000')
+            }
+            pn.endsWith(":crash")
+        } catch (_: Throwable) {
+            false
+        }
+
     private fun registerCrashHandler() {
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler(object : Thread.UncaughtExceptionHandler {
@@ -95,16 +110,17 @@ class VerseApplication : Application(), ImageLoaderFactory {
                         Log.e("VerseApp", "UncaughtException on thread=" + thread.name, throwable)
                     } catch (_: Throwable) {}
                 }
-                Handler(Looper.getMainLooper()).post {
-                    try {
-                        Toast.makeText(
-                            this@VerseApplication,
-                            "程序遇到问题：" + (throwable.message ?: throwable.javaClass.simpleName),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    } catch (_: Throwable) {}
-                }
-                previousHandler?.uncaughtException(thread, throwable)
+                // ZL2 模式：捕获后展示崩溃分析页（应用不直接闪退），
+                // 页面由系统在新进程中恢复（intent 已送达 system_server）
+                try {
+                    com.verse.explorer.app.ui.game.CrashReportActivity.showForApp(this@VerseApplication)
+                } catch (_: Throwable) {}
+                try {
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        android.os.Process.killProcess(android.os.Process.myPid())
+                    }, 300)
+                } catch (_: Throwable) {}
+                // 不转交 previousHandler：崩溃页已接管
             }
         })
     }

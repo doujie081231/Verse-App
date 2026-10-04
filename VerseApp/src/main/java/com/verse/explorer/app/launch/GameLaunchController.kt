@@ -7,6 +7,10 @@ import android.util.Log
 import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersionSettingsRepository
+import com.verse.explorer.app.device.VulkanCheckManager
+import com.verse.explorer.app.device.VulkanEnsureResult
+import com.verse.explorer.app.device.normalizeMcVersion
+import com.verse.explorer.app.device.supportFor
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.core.config.GameConfig
@@ -375,6 +379,62 @@ class GameLaunchController(private val context: Context) {
             }
         }
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
+
+        // ========== Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）==========
+        // 迁移自 FCL MainActivity.checkVulkanThenLaunch + VulkanCheckManager：
+        // 启动前判定设备 Vulkan 能力是否满足该版本依赖，缺失项警告后允许继续；
+        // 同时刷新 needsVulkanShim 门控（仅设备缺口可被 vkshim 补齐时才启用包装层）
+        if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(cachedVersion.id)) {
+            stepIdx++
+            steps.add(LaunchStep("Vulkan 检查", "进行中...", "code"))
+            emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在检测设备 Vulkan 能力...")
+
+            val verSettingsForVk = versionId?.let {
+                VersionSettingsRepository(context).getVersionSettings(it)
+            }
+            val vkDriverSystem = if (verSettingsForVk != null && !verSettingsForVk.usesGlobal) {
+                verSettingsForVk.vkDriverSystem
+            } else {
+                settingsRepo.getVkDriverSystem()
+            }
+            // FCL 语义：useTurnip = !isVKDriverSystem；检测经 liblinkerhook 加载 Turnip
+            val useTurnip = !vkDriverSystem
+            val driverPath = if (useTurnip) {
+                (context.applicationInfo.nativeLibraryDir)
+            } else null
+
+            var ensure = VulkanCheckManager.ensureSupported(context, cachedVersion.id, useTurnip, driverPath)
+            if (ensure != VulkanEnsureResult.SUPPORTED) {
+                // 无有效缓存或判定不支持：执行一次完整检测刷新结论与 shim 门控
+                val capabilities = VulkanCheckManager.check(context, useTurnip, driverPath)
+                ensure = if (capabilities != null &&
+                    capabilities.supportFor(com.verse.explorer.app.device.normalizeMcVersion(cachedVersion.id)).isSupported
+                ) VulkanEnsureResult.SUPPORTED else VulkanEnsureResult.UNSUPPORTED
+                val missing = capabilities
+                    ?.supportFor(com.verse.explorer.app.device.normalizeMcVersion(cachedVersion.id))
+                    ?.missingRequired
+                    ?.joinToString(", ") { it.dependency.name }
+                if (!missing.isNullOrEmpty()) {
+                    steps[stepIdx] = LaunchStep("Vulkan 检查", "警告", "warning")
+                    warnings.add("设备缺失本版本必需的 Vulkan 依赖: $missing（FCL 同款判定，可继续但渲染后端可能初始化失败）")
+                    VerseLogger.warn("Vulkan 检查: 设备缺失 $missing", "LaunchController")
+                    // FCL 同款用户告知：判定不支持时立即弹提示（不被启动界面吞掉）
+                    android.widget.Toast.makeText(
+                        context,
+                        "设备缺失本版本必需的 Vulkan 依赖：$missing，该版本可能无法启动",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                } else if (capabilities == null) {
+                    steps[stepIdx] = LaunchStep("Vulkan 检查", "跳过 (检测失败)", "skip")
+                    VerseLogger.warn("Vulkan 检测失败，按无信息继续", "LaunchController")
+                } else {
+                    steps[stepIdx] = LaunchStep("Vulkan 检查", "完成 (${capabilities.versionString})", "check")
+                }
+            } else {
+                steps[stepIdx] = LaunchStep("Vulkan 检查", "完成", "check")
+            }
+            emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
+        }
 
         // ========== 检查汇总 ==========
         if (criticalErrors.isNotEmpty()) {

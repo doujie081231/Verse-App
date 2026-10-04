@@ -161,12 +161,13 @@ class GameLaunchOrchestrator(
                     }
                 }
 
-                val crashResult = analyzeCrash()
                 val crashReport = currentGameDir?.let { CrashDetector.getLatestCrashReport(it) }
 
                 if (isActivityAlive()) {
                     withContext(Dispatchers.Main) {
-                        showCrashResultDialog(code, crashResult, crashReport)
+                        // ZL2 风格崩溃分析页（分析逻辑 = VersePC2 crash_analyzer 移植）
+                        showCrashReportPage(code)
+                        VerseLogger.info("崩溃分析页已展示（crashReport=${crashReport != null}）")
                     }
                 }
             } catch (e: CancellationException) {
@@ -441,7 +442,14 @@ class GameLaunchOrchestrator(
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                     "DRIVER_PATH", activity.applicationInfo.nativeLibraryDir
                 )
-                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv("VKSHIM_ENABLE", "1")
+                // VKSHIM_ENABLE 门控（对齐 FCLauncher：仅当检测判定设备缺口可被 vkshim
+                // 补齐——divisor 合成或 fillModeNonSolid 降级模拟——时才启用包装层；
+                // 无条件开启会让缺口不可补的设备（驱动 <1.2）在游戏内加载 Vulkan 句柄时崩溃）
+                val shimEnabled = com.verse.explorer.app.device.VulkanCheckManager.needsVulkanShim
+                com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
+                    "VKSHIM_ENABLE", if (shimEnabled) "1" else "0"
+                )
+                VerseLogger.info("[8/9 JVM启动] VKSHIM_ENABLE=${if (shimEnabled) "1" else "0"}（needsVulkanShim=$shimEnabled）", TAG)
                 // VerseX 渲染器（设置页「VerseX 渲染器/Pipeline 缓存」）：M1 为 pipeline 对象级缓存，
                 // 经环境变量传给 vkshim（默认开，VERSERX_PIPELINE_CACHE=0 关闭）
                 val vsxPipelineCache = com.verse.explorer.app.data.SettingsRepository.getVersexPipelineCache()
@@ -449,11 +457,15 @@ class GameLaunchOrchestrator(
                     "VERSERX_PIPELINE_CACHE",
                     if (vsxPipelineCache) "1" else "0"
                 )
-                try {
-                    org.libsdl.app.SDL.nativeEnableVulkanShim()
-                    VerseLogger.info("[8/9 JVM启动] vkshim Vulkan 包装层已启用（VULKAN_PTR 指向 libvkshim.so）", TAG)
-                } catch (t: Throwable) {
-                    VerseLogger.error("[8/9 JVM启动] nativeEnableVulkanShim 失败: $t", TAG)
+                if (shimEnabled) {
+                    try {
+                        org.libsdl.app.SDL.nativeEnableVulkanShim()
+                        VerseLogger.info("[8/9 JVM启动] vkshim Vulkan 包装层已启用（VULKAN_PTR 指向 libvkshim.so）", TAG)
+                    } catch (t: Throwable) {
+                        VerseLogger.error("[8/9 JVM启动] nativeEnableVulkanShim 失败: $t", TAG)
+                    }
+                } else {
+                    VerseLogger.info("[8/9 JVM启动] vkshim 包装层未启用（设备缺口不可补或无缺口）", TAG)
                 }
             }
             VerseLogger.info("[8/9 JVM启动] native 日志: ${(diagDir ?: File(gameDir, "logs")).absolutePath}", TAG)
@@ -657,8 +669,15 @@ class GameLaunchOrchestrator(
             } else {
                 // 图形 API 设置（FCL VersionSetting.graphicsBackend → LauncherHelper 写 options.txt）：
                 // default 由 MC 自选（26.3 探测到 Vulkan 强制 Vulkan），opengl/vulkan 显式指定。
-                // 版本级独立设置优先，未启用独立设置时读全局。
-                val backend = backendOverride ?: SettingsRepository.getGraphicsBackend()
+                // 版本级独立设置优先；26.2+ 版本在全局仍是 default 时按实测适配为 vulkan
+                // （G925 实测：default 时 MC 探测回落 GL 后端 glGetError mismatch 失败，
+                // 显式 vulkan 才走 Krypton/系统驱动正常），用户显式选择的值不受影响
+                val backend = backendOverride ?: run {
+                    val global = SettingsRepository.getGraphicsBackend()
+                    if (global == "default" &&
+                        com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(version.id)
+                    ) "vulkan" else global
+                }
                 content = setOption(content, "preferredGraphicsBackend", "\"$backend\"")
             }
 
@@ -939,6 +958,10 @@ class GameLaunchOrchestrator(
 
     private fun analyzeCrash(): CrashResult {
         return crashAnalyzer.analyzeCrash(currentGameDir)
+    }
+
+    private fun showCrashReportPage(code: Int) {
+        com.verse.explorer.app.ui.game.CrashReportActivity.show(activity, code, currentGameDir) { restartGame() }
     }
 
     private fun showCrashResultDialog(code: Int, result: CrashResult, crashReport: String?) {

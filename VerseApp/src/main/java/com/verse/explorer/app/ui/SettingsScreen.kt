@@ -53,9 +53,9 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsRepo = SettingsRepository
     // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
     MenuSetting.init(context.filesDir)
-    // 左侧子页索引：0=启动设置 1=个性化 2=其他
+    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=其他
     var selectedPage by remember { mutableIntStateOf(0) }
-    val pages = listOf("启动设置", "个性化", "其他")
+    val pages = listOf("启动设置", "个性化", "触控布局", "其他")
     // 渲染分辨率比例（FCL windowScale，100% = 屏幕物理分辨率；调低降低渲染压力缓解卡顿）
     var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
@@ -735,8 +735,13 @@ fun SettingsScreen(navController: NavHostController) {
                     }
                 }
 
-                // 其他子页
+                // 触控布局子页：本地布局管理 + 布局仓库下载（FCL ControllerManagePage/RepoPage 对应）
                 2 -> {
+                    item { ControlLayoutsContent() }
+                }
+
+                // 其他子页
+                3 -> {
                     item {
                         PcCard(title = "通用") {
                             PcDropdownRow(

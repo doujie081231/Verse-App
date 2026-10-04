@@ -62,6 +62,17 @@ public class TouchCharInput extends androidx.appcompat.widget.AppCompatEditText 
      * Toggle on and off the soft keyboard, depending of the state
      */
     public void switchKeyboardState(){
+        // MC 26.3+ SDL 渲染路径：游戏内文本输入由 SDL 输入法接管，GLFW 字符通道无效
+        // （分支结构照搬 FCL TouchCharInput.switchKeyboardState）
+        if (com.tungsten.fcl.game.sdl.SdlBridge.getSdlEnabled()
+                && com.tungsten.fcl.game.sdl.SdlBridge.isSdlRenderActive()) {
+            if (org.libsdl.app.SDLActivity.isSDLEditKeyboardShown()) {
+                org.libsdl.app.SDLActivity.disableSDLEditKeyboard();
+            } else {
+                org.libsdl.app.SDLActivity.enableSDLEditKeyboard();
+            }
+            return;
+        }
         InputMethodManager imm = (InputMethodManager) getContext().getSystemService(INPUT_METHOD_SERVICE);
         // Allow, regardless of whether or not a hardware keyboard is declared
         if(hasFocus()){

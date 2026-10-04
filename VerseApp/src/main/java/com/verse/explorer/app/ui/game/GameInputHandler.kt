@@ -110,6 +110,11 @@ class GameInputHandler(
 
     fun isGrabbing(): Boolean = isGrabbing
 
+    /** 进入 GUI 态时把逻辑光标复位到屏幕中心（MC 默认鼠标在窗口中心，逻辑位置需与其对齐） */
+    fun centerCursor() {
+        setPointer(screenWidth / 2f, screenHeight / 2f)
+    }
+
     fun setCursorMode(mode: Int) {
         isGrabbing = mode == FCLBridge.CursorDisabled
         syncCapturedPointer()
@@ -151,6 +156,10 @@ class GameInputHandler(
     }
 
     // ===== FCLInput.setPointer：推送指针时按 scaleFactor 缩放（与 FCLInput.java 一致） =====
+    // GUI 态屏幕坐标 → 渲染 buffer 坐标的精确映射（刘海避让/窗口比例/强制分辨率场景），
+    // 由 GameActivity 注入 pointerMapper；返回 null 时回退到 ×scaleFactor 的 FCL 原始行为
+    var pointerMapper: ((Float, Float) -> Pair<Int, Int>?)? = null
+
     private fun setPointer(x: Float, y: Float) {
         pointerX = x
         pointerY = y
@@ -162,8 +171,29 @@ class GameInputHandler(
         }
         val bridge = bridgeProvider() ?: return
         val scale = bridge.getScaleFactor().toFloat()
-        bridge.pushEventPointer((x * scale).toInt(), (y * scale).toInt())
+        val bx: Int
+        val by: Int
+        if (!isGrabbing && pointerMapper != null) {
+            val mapped = pointerMapper!!.invoke(x, y)
+            bx = mapped?.first ?: (x * scale).toInt()
+            by = mapped?.second ?: (y * scale).toInt()
+        } else {
+            bx = (x * scale).toInt()
+            by = (y * scale).toInt()
+        }
+        // 光标对齐诊断：屏幕坐标 / 发给游戏的 buffer 坐标（定位可见光标与实际鼠标偏移）
+        val now = System.currentTimeMillis()
+        if (now - lastCursorDiagTime > 300) {
+            lastCursorDiagTime = now
+            VerseLogger.debug(
+                "cursor screen=(${x.toInt()},${y.toInt()}) buffer=($bx,$by) grab=$isGrabbing",
+                "CursorDiag"
+            )
+        }
+        bridge.pushEventPointer(bx, by)
     }
+
+    private var lastCursorDiagTime = 0L
 
     /** FCLInput.sendKeyEvent：鼠标键走 pushEventMouseButton（含滚轮映射），其余走 pushEventKey */
     private fun sendKeyEvent(keycode: Int, press: Boolean) {
@@ -302,7 +332,8 @@ class GameInputHandler(
                 }
             }
         } else {
-            // MouseMoveMode.SLIDE
+            // MouseMoveMode.SLIDE（FCL TouchPad 原版语义）：DOWN 记基线（光标初始位置），
+            // MOVE 相对移动光标（initial + delta × GUI 灵敏度），UP 仅 tap（≤100ms 且 ≤10px）点击
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.getX(mainIndex)

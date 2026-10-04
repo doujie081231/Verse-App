@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Environment
 import android.os.Handler
@@ -65,11 +66,13 @@ class InGameControlOverlay(
     private val onPhysicalMouseChanged: (Boolean) -> Unit = {}
 ) {
 
-    // ===== FCL 配色（colors.xml：ui_bg_color / primary_text / default_theme_color） =====
-    private val fclBg = Color.argb(0x40, 0xF4, 0xF4, 0xF4)      // #40F4F4F4
-    private val fclText = Color.parseColor("#0E0E0E")           // primary_text
-    private val fclAccent = Color.parseColor("#7797CF")         // default_theme_color
-    private val fclDivider = Color.parseColor("#A9A9A9")        // darker_gray
+    // ===== Verse 暗色玻璃配色（对齐软件暗色主题：暗面板 + 亮文字 + 主题强调） =====
+    private val fclBg = Color.argb(0xD9, 0x14, 0x14, 0x14)      // 面板底：#D9141414 近实暗玻璃
+    private val verseRowBg = Color.argb(0x66, 0x2A, 0x2A, 0x2A) // 行卡片：半透明深灰
+    private val fclText = Color.parseColor("#F0F0F0")           // 主文字（暗主题 primary）
+    private val fclAccent = Color.parseColor("#E8D5D5")         // 强调（暖白，随软件玻璃调性）
+    private val fclSecondary = Color.parseColor("#9E9E9E")      // 次级文字
+    private val fclDivider = Color.argb(0x40, 0xFF, 0xFF, 0xFF) // 分隔线
 
     private val density = activity.resources.displayMetrics.density
     private fun dp(v: Float): Int = (v * density).toInt()
@@ -248,8 +251,9 @@ class InGameControlOverlay(
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(8f).toFloat()
+                cornerRadius = dp(16f).toFloat()
                 setColor(fclBg)
+                setStroke(dp(1f), fclDivider)
             }
             setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
             isClickable = true
@@ -338,6 +342,12 @@ class InGameControlOverlay(
         // 编辑模式（FCL edit_mode → ViewManager 编辑；Pojav 等价 = ControlLayout.setModifiable）
         content.addView(switchRow("编辑模式", activity.controlLayout?.getModifiable() == true) { on ->
             activity.controlLayout?.setModifiable(on)
+            Toast.makeText(
+                activity,
+                if (on) "编辑模式已开启：拖动控件调整位置，点按控件可编辑属性"
+                else "编辑模式已关闭",
+                Toast.LENGTH_SHORT
+            ).show()
             VerseLogger.info("控制面板：编辑模式=$on", "Control")
         })
         // 显示控件边缘（FCL show_boundary；Pojav 等价 = 编辑模式下的句柄/边界视图）
@@ -455,8 +465,16 @@ class InGameControlOverlay(
         })
         // 游戏菜单（ESC；Verse 补充入口，对应 FCL MenuView 的暂停菜单键）
         content.addView(buttonRow("游戏菜单", "打开") { onEsc() })
-        // 联机菜单（FCL open_multiplayer_menu）
-        content.addView(buttonRow("联机菜单", "打开") { activity.showMultiplayerEntry() })
+        // 陶瓦联机（Verse 补充入口：直接唤出陶瓦联机对话框，未启用时提示）
+        content.addView(buttonRow("陶瓦联机", "打开") {
+            hidePanel(false)
+            activity.showMultiplayerEntry()
+        })
+        // 红石联机（Verse 补充入口：游戏内直接拉起/管理红石中转隧道，无需退出游戏）
+        content.addView(buttonRow("红石联机", "打开") {
+            hidePanel(false)
+            activity.showRedstoneDialog()
+        })
         // 快捷输入（FCL open_quick_input → TouchCharInput）
         content.addView(buttonRow("快捷输入", "管理") { activity.showQuickInput() })
         // 发送键值（FCL open_send_key → SelectKeycodeDialog）
@@ -579,6 +597,10 @@ class InGameControlOverlay(
             MenuSetting.notifyChange(MenuSetting.Key.ENABLE_GYROSCOPE)
             activity.gyroControl?.let {
                 if (on) it.enable() else it.disable()
+            }
+            // Pojav GyroControl 语义：视角转动只在抓取态（点击画面锁定光标）生效
+            if (on) {
+                Toast.makeText(activity, "陀螺仪已开启，点击画面锁定光标后生效", Toast.LENGTH_LONG).show()
             }
         })
         // 反转陀螺仪（FCL switch_gyro_invert；Pojav GyroControl 支持 PREF_GYRO_INVERT_X/Y）
@@ -774,43 +796,48 @@ class InGameControlOverlay(
     // ===================== 通用行构建器 =====================
 
     /** 分区标题（FCL：11sp + 1dp 分隔线） */
+    /** 分区标题（Verse 卡片分组：3dp 主题色竖条 + 13sp 加粗标题，分组间留白） */
     private fun sectionHeader(header: String): View {
         return LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(5f) }
+            ).apply { topMargin = dp(10f); bottomMargin = dp(4f) }
+            addView(View(activity).apply {
+                setBackgroundColor(fclAccent)
+                layoutParams = LinearLayout.LayoutParams(dp(3f), dp(14f)).apply { marginEnd = dp(6f) }
+            })
             addView(TextView(activity).apply {
                 text = header
                 setTextColor(fclText)
-                textSize = 11f
+                textSize = 13f
+                setTypeface(typeface, Typeface.BOLD)
                 isSingleLine = true
-            })
-            addView(View(activity).apply {
-                setBackgroundColor(fclDivider)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    dp(1f)
-                )
             })
         }
     }
 
-    /** 对齐设置行（FCL：标签 weight=1 靠左 + 控件靠右，12sp） */
+    /** 对齐设置行（Verse 行卡片：圆角深灰底、标签 13sp 靠左 + 控件靠右） */
     private fun alignedRow(label: String, control: View): View {
         return LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(5f), dp(0f), dp(5f), dp(0f))
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(10f).toFloat()
+                setColor(verseRowBg)
+            }
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(5f); bottomMargin = dp(5f) }
+            ).apply { topMargin = dp(3f); bottomMargin = dp(3f) }
             addView(TextView(activity).apply {
                 text = label
                 setTextColor(fclText)
-                textSize = 12f
+                textSize = 13f
                 isSingleLine = true
                 layoutParams = LinearLayout.LayoutParams(
                     0,
@@ -822,11 +849,13 @@ class InGameControlOverlay(
         }
     }
 
-    /** 开关行（对应 FCLSwitch：文本 12sp + 开关） */
+    /** 开关行（对应 FCLSwitch：文本 13sp + Verse 强调色开关轨道） */
     private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): View {
         val sw = Switch(activity).apply {
             isChecked = checked
             textSize = 12f
+            trackTintList = android.content.res.ColorStateList.valueOf(fclAccent)
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
             setOnCheckedChangeListener { _, on -> onChange(on) }
         }
         return alignedRow(label, sw)
@@ -881,6 +910,8 @@ class InGameControlOverlay(
                 this.min = min
                 this.max = max
                 progress = initial.coerceIn(min, max)
+                progressTintList = android.content.res.ColorStateList.valueOf(fclAccent)
+                thumbTintList = android.content.res.ColorStateList.valueOf(fclAccent)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -898,19 +929,20 @@ class InGameControlOverlay(
         return container
     }
 
-    /** 按钮行（对照 FCL menu_right：标签左 + 小按钮右，按钮圆角 8dp + 1dp 描边 + 主题色文字 12sp） */
+    /** 按钮行（Verse 主按钮：标签左 + 主题色填充圆角按钮右） */
     private fun buttonRow(label: String, buttonText: String, onClick: () -> Unit): View {
         val btn = TextView(activity).apply {
             text = buttonText
-            setTextColor(fclAccent)
+            setTextColor(Color.parseColor("#141414"))
             textSize = 12f
+            setTypeface(typeface, Typeface.BOLD)
             isSingleLine = true
             gravity = Gravity.CENTER
-            setPadding(dp(16f), dp(6f), dp(16f), dp(6f))
+            setPadding(dp(16f), dp(7f), dp(16f), dp(7f))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(8f).toFloat()
-                setStroke(dp(1f), fclAccent)
+                setColor(fclAccent)
             }
             setOnClickListener { onClick() }
         }

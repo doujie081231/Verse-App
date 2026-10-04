@@ -94,6 +94,50 @@ target_compile_options(vkshim PRIVATE
     -O2
 )
 
+# ===== androidnsbypass — Android linker 命名空间绕过工具库（FCL vendor 616dc33，MIT）=====
+add_library(androidnsbypass SHARED
+    androidnsbypass/android_linker_ns.cpp
+    androidnsbypass/elf_soname_patcher.c
+    androidnsbypass/nsbypass.c
+    androidnsbypass/nsbypass_dlfcn.c
+    androidnsbypass/utils.c
+)
+
+set_target_properties(androidnsbypass PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
+
+target_include_directories(androidnsbypass PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/androidnsbypass/include
+)
+
+target_link_libraries(androidnsbypass
+    ${log-lib}
+    dl
+)
+
+# ===== vulkan_check — Vulkan 设备能力检测（从 FCL 最新 main 迁移）=====
+# dlopen 系统 libvulkan 或经 liblinkerhook 加载 Turnip 驱动后枚举物理设备，
+# 读取 apiVersion/扩展/特性供启动器在启动前评估 MC Vulkan 后端支持情况
+add_library(vulkan_check SHARED
+    vulkan_check/vulkan_checker.c
+)
+
+target_include_directories(vulkan_check PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/androidnsbypass/include
+)
+
+target_link_libraries(vulkan_check
+    androidnsbypass
+    ${log-lib}
+    dl
+)
+
+target_compile_options(vulkan_check PRIVATE
+    -O2
+)
+
 # ===== poemav exec（jniLibs 预编译 Pojav 官方版，与全 ABI 一致）=====
 # 迁移结论（2026-09-21）：x86_64/armeabi-v7a 一直使用 jniLibs 预编译官方版 poemav exec，
 # 模拟器整套可正常启动；仅 arm64-v8a 曾改用 fcl_orig 源码自编译版（本 CMake target），

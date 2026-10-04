@@ -543,7 +543,7 @@ private fun RedStoneContent() {
                                     }
                             )
                             Text(
-                                "点击复制。好友在多人游戏中直接连接该地址，无需任何安装；房主先在存档暂停菜单中「对局域网开放」。",
+                                "点击复制。好友无需任何安装，在 Java 版多人游戏中直接连接该地址；房主先在存档暂停菜单中「对局域网开放」。",
                                 fontSize = 11.sp,
                                 color = VerseColors.PcTextSecondary,
                                 modifier = Modifier.padding(top = 6.dp)
@@ -645,7 +645,7 @@ private fun RedStoneContent() {
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text(
-                            "先在游戏内存档暂停菜单中「对局域网开放」，再把游戏显示的端口填到这里（默认 25565）。",
+                            "先在游戏内存档暂停菜单中「对局域网开放」，再把游戏显示的端口填到这里（默认 25565）。中转走 TCP，仅支持 Java 版。",
                             fontSize = 11.sp,
                             color = VerseColors.PcTextMuted,
                             modifier = Modifier.padding(top = 6.dp)

@@ -15,20 +15,17 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
  * 红石联机（RedStone）隧道管理器
  *
- * 对接方式与 VersePC2（versepc2/src-tauri/src/redstone_online.rs）一致：
- * - 节点注册表：https://hongshi.site/newserver.json（name→address 映射），
- *   失败回退默认节点（南京）；
- * - 启动内核：`hongshi -server <节点> -port <本地MC端口> -status-file <状态文件>`；
- * - 状态：轮询状态文件（内核原子写）等待 status=open（30 秒超时，400ms 间隔）；
+ * 对接方式与官方 HongshiAndroid 客户端一致（Rust 内核 libhongshic.so）：
+ * - 启动内核：`libhongshi.so -t <节点> -p <本地MC端口> -v`；
+ * - stdout 解析 `endpoint=<host>:<port>`（隧道就绪标志），30 秒超时；
  * - 候选节点按序尝试：选中的节点在前，注册表其余节点去重追加，失败自动换下一个；
  * - 断线自动重连：内核异常退出时自动切换到剩余候选节点，最多 3 轮；
- * - 退出码：0=隧道被回收/关闭，1=创建失败，2=参数错误。
+ * - 节点注册表：https://hongshi.site/server.json（name→address 映射），失败回退默认节点。
  *
  * 内核二进制以 libhongshi.so 打包在 jniLibs（arm64-v8a），安装后位于
  * nativeLibraryDir（Android 允许执行该目录）。
@@ -57,11 +54,11 @@ object RedStoneTunnelManager {
 
     data class RedStoneNode(val name: String, val address: String)
 
-    /** 节点注册表（与 VersePC 的 REGISTRY_URL 一致） */
-    const val REGISTRY_URL = "https://hongshi.site/newserver.json"
+    /** 节点注册表（官方 HongshiAndroid 客户端使用的地址：hongshi.site/server.json） */
+    const val REGISTRY_URL = "https://hongshi.site/server.json"
 
-    /** 与 VersePC fetch_server_list 的回退默认节点一致 */
-    val DEFAULT_NODE = RedStoneNode("南京", "nanjing.hongshi.site")
+    /** 注册表不可用时的回退默认节点（与官方 server.json 的南京节点一致） */
+    val DEFAULT_NODE = RedStoneNode("南京", "nj.hongshi.site")
 
     // 与 VersePC 常量一致
     private const val STATUS_OPEN_TIMEOUT_MS = 30_000L
@@ -97,9 +94,6 @@ object RedStoneTunnelManager {
 
     fun workDir(context: Context): File =
         File(context.cacheDir, "redstone").apply { mkdirs() }
-
-    private fun statusFile(context: Context): File =
-        File(workDir(context), "tunnel.ini")
 
     private fun appendLog(line: String) {
         if (line.isBlank()) return
@@ -192,18 +186,22 @@ object RedStoneTunnelManager {
      * 成功返回进程对象；失败返回 null（原因写入状态/日志）。
      */
     private suspend fun tryStartNode(context: Context, binary: File, node: String, localPort: Int): Process? {
-        // 清掉旧状态文件，避免读到上一次的隧道（与 VersePC 对应）
-        statusFile(context).delete()
         workDir(context).mkdirs()
 
         _state.value = State.Starting(node)
+        // 诊断日志：完整命令行与内核文件状态（定位创建失败的具体环节）
+        // 注意：不可加 -v（clap 会把它当 version 标志，打印版本后直接退出码 0）
+        appendLog("启动内核: ${binary.absolutePath} -t $node -p $localPort")
+        appendLog(
+            "内核文件: 存在=${binary.exists()} 大小=${binary.length()} " +
+                "可执行=${binary.canExecute()} 工作目录=${workDir(context).absolutePath}"
+        )
         appendLog("中转服务器: $node  本地端口: $localPort")
 
         val processBuilder = ProcessBuilder(
             binary.absolutePath,
-            "-server", node,
-            "-port", localPort.toString(),
-            "-status-file", statusFile(context).absolutePath
+            "-t", node,
+            "-p", localPort.toString()
         ).directory(workDir(context))
         processBuilder.redirectErrorStream(true)
 
@@ -211,55 +209,56 @@ object RedStoneTunnelManager {
             processBuilder.start()
         } catch (e: IOException) {
             VerseLogger.error("启动内核失败: ${e.message}", TAG)
+            appendLog("启动内核失败: ${e.javaClass.simpleName}: ${e.message}")
             _state.value = State.Failed("启动内核失败: ${e.message}")
             return null
         }
         process = newProcess
 
-        // 内核输出仅用于展示
+        // stdout 逐行读：全部入日志，同时解析 endpoint=<host>:<port>（隧道就绪标志）
+        val endpoint = java.util.concurrent.atomic.AtomicReference<Pair<String, Int>?>(null)
         scope.launch {
             try {
                 newProcess.inputStream.bufferedReader().use { reader ->
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
                         appendLog(line ?: "")
+                        if (endpoint.get() == null && line != null) {
+                            val m = Regex("endpoint=(\\S+):(\\d+)").find(line!!)
+                            if (m != null) {
+                                endpoint.set(m.groupValues[1] to m.groupValues[2].toInt())
+                            }
+                        }
                     }
                 }
             } catch (_: Exception) {
             }
         }
 
-        // 轮询状态文件等待 status=open（30 秒超时，与 VersePC 对应）
+        // 等待 endpoint 出现（30 秒超时）
         val deadline = System.currentTimeMillis() + STATUS_OPEN_TIMEOUT_MS
-        while (newProcess.isAlive) {
-            // 内核提前退出 → 启动失败（与 VersePC 的退出码语义对应）
-            if (!newProcess.isAlive) break
-            val open = parseOpenTunnel(statusFile(context))
-            if (open != null) {
-                val address = "${open.first}:${open.second}"
-                appendLog("隧道已就绪，地址: $address")
-                _state.value = State.Open(open.first, open.second, address, node)
-                return newProcess
-            }
+        while (newProcess.isAlive && endpoint.get() == null) {
             if (System.currentTimeMillis() >= deadline) {
                 newProcess.destroy()
-                appendLog("等待隧道开启超时")
+                appendLog("等待隧道开启超时（30s），节点无 endpoint 输出")
                 _state.value = State.Failed("等待隧道开启超时（节点 $node）")
                 return null
             }
             Thread.sleep(STATUS_POLL_INTERVAL_MS)
         }
 
-        // 内核提前退出
+        val open = endpoint.get()
+        if (open != null) {
+            val address = "${open.first}:${open.second}"
+            appendLog("隧道已就绪，地址: $address")
+            _state.value = State.Open(open.first, open.second, address, node)
+            return newProcess
+        }
+
+        // 内核提前退出（无 endpoint）
         val code = runCatching { newProcess.waitFor() }.getOrDefault(-1)
         process = null
-        val msg = when (code) {
-            0 -> "内核已退出：隧道被回收或服务器关闭"
-            1 -> "隧道创建失败（服务器不可达/拒绝/无空闲端口）"
-            2 -> "参数错误"
-            else -> "内核异常退出，退出码 $code"
-        }
-        appendLog("节点 $node 失败: $msg")
+        appendLog("节点 $node 失败: 内核退出码 $code")
         return null
     }
 
@@ -288,13 +287,7 @@ object RedStoneTunnelManager {
                 return
             }
             if (attemptsDone >= DEFAULT_MAX_ATTEMPTS || remaining.isEmpty()) {
-                val reason = when (code) {
-                    0 -> "房间已关闭（空转回收或服务器维护）"
-                    1 -> "隧道创建失败（服务器不可达/拒绝/无空闲端口）"
-                    2 -> "参数错误"
-                    else -> "重连次数已达上限"
-                }
-                _state.value = State.Closed(reason)
+                _state.value = State.Closed("连接已断开（内核退出码 $code），重连次数已达上限")
                 return
             }
 
@@ -316,40 +309,6 @@ object RedStoneTunnelManager {
                 currentNode = next
             }
         }
-    }
-
-    /** 读取状态文件，status=open 时返回 (server, port)（与 VersePC read_open_tunnel 对应） */
-    fun parseOpenTunnel(file: File): Pair<String, Int>? {
-        if (!file.exists()) return null
-        val content = runCatching { file.readText() }.getOrNull() ?: return null
-        var section = ""
-        var status = ""
-        var server = ""
-        var port = ""
-        for (raw in content.lines()) {
-            val line = raw.substringBefore(';').trim()
-            if (line.isEmpty()) continue
-            if (line.startsWith("[") && line.endsWith("]")) {
-                section = line.trim('[', ']').trim()
-                continue
-            }
-            if (section != "tunnel") continue
-            val eq = line.indexOf('=')
-            if (eq <= 0) continue
-            val key = line.substring(0, eq).trim().lowercase(Locale.US)
-            val value = line.substring(eq + 1).trim()
-            when (key) {
-                "status" -> status = value
-                "server" -> server = value
-                "port" -> port = value
-            }
-        }
-        if (status.equals("open", ignoreCase = true)) {
-            val p = port.toIntOrNull() ?: return null
-            if (server.isEmpty()) return null
-            return Pair(server, p)
-        }
-        return null
     }
 
     /** 停止内核（关闭房间，与 VersePC stop_tunnel_inner 对应） */

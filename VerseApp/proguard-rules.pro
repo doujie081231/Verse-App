@@ -32,3 +32,6 @@
 
 # slf4j 在 Android 无实现绑定（StaticLoggerBinder 缺失为反射探测，正常现象）
 -dontwarn org.slf4j.**
+
+# Vulkan capability checker: JNI native methods resolve by class/method name
+-keep class com.verse.explorer.app.device.** { *; }
