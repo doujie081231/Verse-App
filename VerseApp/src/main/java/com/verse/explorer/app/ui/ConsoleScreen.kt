@@ -1,13 +1,15 @@
 package com.verse.explorer.app.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Base64
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,15 +24,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import coil.ImageLoader
-import coil.compose.AsyncImage
-import coil.decode.SvgDecoder
-import coil.request.ImageRequest
+import androidx.compose.ui.graphics.asImageBitmap
+import com.caverock.androidsvg.SVG
+import com.caverock.androidsvg.SVGParseException
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.feedback.FeedbackRepository
 import com.verse.explorer.app.ui.components.PageHeader
@@ -107,11 +109,7 @@ fun ConsoleScreen(navController: NavHostController) {
     var captchaSvg by remember { mutableStateOf("") }
     var captchaInput by remember { mutableStateOf("") }
     var signKey by remember { mutableStateOf("") }
-    val svgImageLoader = remember {
-        ImageLoader.Builder(context)
-            .components { add(SvgDecoder.Factory()) }
-            .build()
-    }
+    var captchaLoading by remember { mutableStateOf(true) }
 
     // 自动收集的日志附件
     var autoLogFiles by remember { mutableStateOf<List<File>>(emptyList()) }
@@ -119,6 +117,7 @@ fun ConsoleScreen(navController: NavHostController) {
 
     // 刷新验证码 + 签名密钥
     fun refreshCaptcha() {
+        captchaLoading = true
         scope.launch(Dispatchers.IO) {
             runCatching {
                 val (id, svg) = FeedbackRepository.fetchCaptcha()
@@ -129,9 +128,12 @@ fun ConsoleScreen(navController: NavHostController) {
                 }
             }.onFailure { e ->
                 withContext(Dispatchers.Main) {
+                    captchaId = ""
+                    captchaSvg = ""
                     Toast.makeText(context, "验证码加载失败：${e.message}", Toast.LENGTH_SHORT).show()
                 }
             }
+            withContext(Dispatchers.Main) { captchaLoading = false }
             // 签名密钥只取一次
             if (signKey.isBlank()) {
                 runCatching {
@@ -164,10 +166,28 @@ fun ConsoleScreen(navController: NavHostController) {
         scanLogs()
     }
 
-    // 验证码 SVG → data URI（coil-svg 渲染）
-    val captchaDataUri = remember(captchaSvg) {
+    // 验证码 SVG → 直接用 AndroidSVG 解析渲染成位图
+    // （coil 2.x 无 data URI fetcher，AsyncImage + data URI 会静默失败显示空白）
+    val captchaBitmap = remember(captchaSvg) {
         if (captchaSvg.isBlank()) null
-        else "data:image/svg+xml;base64," + Base64.encodeToString(captchaSvg.toByteArray(), Base64.NO_WRAP)
+        else runCatching {
+            val svg = SVG.getFromString(captchaSvg)
+            var w = svg.documentWidth.toInt()
+            var h = svg.documentHeight.toInt()
+            if (w <= 0 || h <= 0) {
+                // 未声明 width/height 时回退到 viewBox 尺寸
+                val vb = svg.documentViewBox
+                if (w <= 0 && vb != null && vb.width() > 0f) svg.setDocumentWidth(vb.width())
+                if (h <= 0 && vb != null && vb.height() > 0f) svg.setDocumentHeight(vb.height())
+                w = svg.documentWidth.toInt()
+                h = svg.documentHeight.toInt()
+            }
+            w = w.coerceIn(1, 1024)
+            h = h.coerceIn(1, 1024)
+            val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            svg.renderToCanvas(Canvas(bitmap))
+            bitmap.asImageBitmap()
+        }.onFailure { it.printStackTrace() }.getOrNull()
     }
 
     // 选择截图/视频
@@ -684,13 +704,25 @@ fun ConsoleScreen(navController: NavHostController) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            if (captchaDataUri != null) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(captchaDataUri)
-                                        .build(),
-                                    imageLoader = svgImageLoader,
+                            if (captchaLoading) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 130.dp, height = 44.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(VerseColors.PcBgTertiary),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = VerseColors.PcAccent
+                                    )
+                                }
+                            } else if (captchaBitmap != null) {
+                                Image(
+                                    bitmap = captchaBitmap,
                                     contentDescription = "验证码",
+                                    contentScale = ContentScale.Fit,
                                     modifier = Modifier
                                         .size(width = 130.dp, height = 44.dp)
                                         .clip(RoundedCornerShape(6.dp))
@@ -702,10 +734,11 @@ fun ConsoleScreen(navController: NavHostController) {
                                     modifier = Modifier
                                         .size(width = 130.dp, height = 44.dp)
                                         .clip(RoundedCornerShape(6.dp))
-                                        .background(VerseColors.PcBgTertiary),
+                                        .background(VerseColors.PcBgTertiary)
+                                        .clickable { refreshCaptcha() },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("加载中...", fontSize = 10.sp, color = VerseColors.PcTextMuted)
+                                    Text("点击重试", fontSize = 10.sp, color = VerseColors.PcRed)
                                 }
                             }
                             OutlinedTextField(
