@@ -277,6 +277,10 @@ public class ControlLayout extends FrameLayout {
 		mIsModified = isModified;
 	}
 
+	public boolean isModified() {
+		return mIsModified;
+	}
+
 	public List<ControlInterface> getButtonChildren(){
 		if(mModifiable || mButtons == null){
 			mButtons = new ArrayList<>();

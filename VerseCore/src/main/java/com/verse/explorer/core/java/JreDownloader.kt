@@ -19,18 +19,13 @@ internal object JreDownloader {
     private val JRE_DOWNLOAD_SOURCES = listOf(
         JREDownloadSource(
             name = "BMCLAPI",
-            baseUrl = "https://bmclapi2.bangbang93.com/fcl/java",
+            baseUrl = "https://bmclapi2.bangbang93.com/fcl/src/main/assets/app_runtime/java",
             priority = 0
         ),
         JREDownloadSource(
-            name = "FastMirror",
-            baseUrl = "https://fastmirror.cn/api/fcl/java",
-            priority = 1
-        ),
-        JREDownloadSource(
             name = "GitHub",
-            baseUrl = "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/main/app_runtime/java",
-            priority = 2
+            baseUrl = "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/main/FCL/src/main/assets/app_runtime/java",
+            priority = 1
         )
     )
 
@@ -159,14 +154,16 @@ internal object JreDownloader {
 
     fun downloadFile(url: String, outputFile: File): Boolean {
         return try {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.connectTimeout = 30000
-            connection.readTimeout = 60000
+            // GitHub 直连不可达网络下走 ghp.ci 代理（与全站 GitHub 下载约定一致）
+            val targetUrl = com.verse.explorer.core.config.GameConfig.replaceGitHubUrl(url)
+            val connection = URL(targetUrl).openConnection() as HttpURLConnection
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 30_000
             connection.instanceFollowRedirects = true
             connection.setRequestProperty("User-Agent", "VerseExplorer/1.0")
 
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                Log.w(TAG, "Download failed: ${connection.responseCode} for $url")
+                Log.w(TAG, "Download failed: ${connection.responseCode} for $targetUrl")
                 connection.disconnect()
                 return false
             }

@@ -120,8 +120,12 @@ fun ControlLayoutsContent() {
     var localLayouts by remember { mutableStateOf<List<File>>(emptyList()) }
     var defaultCtrlPath by remember { mutableStateOf(LauncherPreferences.PREF_DEFAULTCTRL_PATH ?: "") }
     var deleteTarget by remember { mutableStateOf<File?>(null) }
+    var detailTarget by remember { mutableStateOf<File?>(null) }
 
     fun refreshLocal() {
+        // CTRLMAP_PATH 由 Tools.init 初始化；直接进入本页时（未经启动设置/游戏）必须先初始化，
+        // 否则路径为空串导致本地布局列表永远为空
+        net.kdt.pojavlaunch.Tools.init(context)
         localLayouts = try {
             File(Tools.CTRLMAP_PATH).listFiles { f -> f.isFile && f.extension == "json" }
                 ?.sortedBy { it.nameWithoutExtension.lowercase(Locale.ROOT) }
@@ -306,6 +310,24 @@ fun ControlLayoutsContent() {
                                 color = if (isDefault) VerseColors.PcAccent else VerseColors.PcTextMuted
                             )
                         }
+                        Text(
+                            "编辑",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcAccent,
+                            modifier = Modifier
+                                .clickable {
+                                    com.verse.explorer.app.ui.game.LayoutEditorActivity.start(context, file.absolutePath)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                        Text(
+                            "详情",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextSecondary,
+                            modifier = Modifier
+                                .clickable { detailTarget = file }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
                         Text(
                             "设为默认",
                             fontSize = 12.sp,
@@ -521,6 +543,49 @@ fun ControlLayoutsContent() {
         }
 
         Spacer(Modifier.height(16.dp))
+    }
+
+    // 布局详情（名称/大小/控件数/是否默认）
+    detailTarget?.let { target ->
+        val detail = remember(target.absolutePath) {
+            runCatching {
+                val json = repoGson.fromJson(target.readText(), Map::class.java)
+                val buttons = (json?.get("mControlDataList") as? List<*>)?.size ?: 0
+                val drawers = (json?.get("mDrawerDataList") as? List<*>)?.size ?: 0
+                val joysticks = (json?.get("mJoystickDataList") as? List<*>)?.size ?: 0
+                Triple(buttons, drawers, joysticks)
+            }.getOrElse { Triple(0, 0, 0) }
+        }
+        AlertDialog(
+            onDismissRequest = { detailTarget = null },
+            title = {
+                Text(
+                    target.nameWithoutExtension,
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column {
+                    DetailLine("控件数量", "${detail.first}")
+                    DetailLine("抽屉控件", "${detail.second}")
+                    DetailLine("方向控制键", "${detail.third}")
+                    DetailLine("文件大小", "${target.length() / 1024} KB")
+                    DetailLine(
+                        "默认布局",
+                        if (target.absolutePath == defaultCtrlPath || (target.name == "Default.json" && defaultCtrlPath.isBlank()))
+                            "是" else "否"
+                    )
+                    DetailLine("文件路径", target.absolutePath)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailTarget = null }) {
+                    Text("关闭", color = VerseColors.PcAccent)
+                }
+            },
+            containerColor = VerseColors.PcBgSecondary
+        )
     }
 
     // 删除确认

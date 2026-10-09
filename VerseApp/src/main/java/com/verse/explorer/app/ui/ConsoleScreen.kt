@@ -793,7 +793,7 @@ fun ConsoleScreen(navController: NavHostController) {
                                 text = if (submitting) "提交中..." else "提交反馈",
                                 onClick = { submit() },
                                 variant = PcButtonVariant.PRIMARY,
-                                enabled = validate() == null && !submitting
+                                enabled = !submitting
                             )
                         }
                     }

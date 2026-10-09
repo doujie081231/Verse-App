@@ -123,6 +123,15 @@
             android:process=":crash"
             android:hardwareAccelerated="true" />
 
+        <!-- 触控布局编辑器（设置 → 触控布局 → 本地布局「编辑」）：独立画布编辑布局 json -->
+        <activity
+            android:name=".ui.game.LayoutEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VerseExplorer"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
+            android:screenOrientation="landscape"
+            android:hardwareAccelerated="true" />
+
         <service
             android:name=".terracotta.TerracottaVPNService"
             android:permission="android.permission.BIND_VPN_SERVICE"

@@ -2,6 +2,7 @@ package com.verse.explorer.core.version
 
 import android.util.Log
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.download.SmartDownloadClient
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
@@ -19,6 +20,8 @@ class VersionManager(private val gameDir: File) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .connectionPool(SmartDownloadClient.sharedConnectionPool)
+        .dns(SmartDownloadClient.ipv4Only())
         .followRedirects(true)
         .followSslRedirects(true)
         .build()

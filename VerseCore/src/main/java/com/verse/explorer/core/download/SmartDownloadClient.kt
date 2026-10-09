@@ -50,10 +50,22 @@ class SmartDownloadClient(
     companion object {
         private const val TAG = "SmartDownload"
 
+        /**
+         * 全局共享热连接池：
+         * 高并发小文件下载（assets 滑动窗口 64 路、libraries 32 路）时，
+         * OkHttp 默认池只保留 5 个空闲连接，稳态下每个新文件几乎都要重新
+         * DNS 解析 + TCP/TLS 握手；国内网络下这一握手成本远超文件本体下载，
+         * 表现为"每个小文件 2-3 秒"。池容量对齐最大并发，让整个下载阶段
+         * 复用同一批长连接（DNS 只解析一次）。
+         */
+        val sharedConnectionPool: okhttp3.ConnectionPool =
+            okhttp3.ConnectionPool(64, 5, TimeUnit.MINUTES)
+
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
+            .connectionPool(sharedConnectionPool)
             .dns(ipv4Only())
             .retryOnConnectionFailure(true)
             .build()

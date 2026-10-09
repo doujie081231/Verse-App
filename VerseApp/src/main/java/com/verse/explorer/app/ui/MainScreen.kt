@@ -159,9 +159,10 @@ fun MainScreen(
     val customBgActive = VersePersonalization.backgroundStyle != "none"
 
     // 苹果液态玻璃采样源（Kyant0/AndroidLiquidGlass backdrop-android 2.0.0）：
-    // RuntimeShader 完整效果需 Android 13+，低版本走库内降级路径
+    // RuntimeShader 完整效果需 Android 13+，低版本走库内降级路径；
+    // 可在「设置 → 个性化」开关控制
     val navGlassBackdrop = rememberLayerBackdrop()
-    val glassSupported = Build.VERSION.SDK_INT >= 33
+    val glassSupported = Build.VERSION.SDK_INT >= 33 && VersePersonalization.sidebarGlass
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 采样源层：自定义背景 + 页面内容。悬浮导航的玻璃层从此处透镜采样

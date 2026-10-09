@@ -965,27 +965,33 @@ class GameInstaller(private val context: Context) {
 
         if (missingNatives.isEmpty()) return
 
-        Log.d("GameInstaller", "Downloading ${missingNatives.size} native classifier JARs (smart)")
+        Log.d("GameInstaller", "Downloading ${missingNatives.size} native classifier JARs (32 threads, smart)")
 
-        var successCount = 0
-        for ((index, triple) in missingNatives.withIndex()) {
-            val (originalUrl, path, sha1) = triple
-            val nativeFile = File(librariesDir, path)
-
-            try {
-                val result = smartClient.download(
-                    originalUrl = originalUrl,
-                    targetFile = nativeFile,
-                    expectedSha1 = sha1,
-                    isCancelled = { cancelled }
-                ) { p -> downloadAgg.report(path, p.downloaded) }
-                if (result.isSuccess) successCount++
-            } catch (_: Exception) {}
-
-            onProgress(index.toFloat() / missingNatives.size, "下载原生库 (${index + 1}/${missingNatives.size})...", downloadAgg.speed, downloadAgg.downloaded)
+        var successCount = AtomicInteger(0)
+        val batchSize = 32
+        var done = 0
+        missingNatives.chunked(batchSize).forEach { batch ->
+            coroutineScope {
+                batch.map { (originalUrl, path, sha1) ->
+                    async {
+                        val nativeFile = File(librariesDir, path)
+                        try {
+                            val result = smartClient.download(
+                                originalUrl = originalUrl,
+                                targetFile = nativeFile,
+                                expectedSha1 = sha1,
+                                isCancelled = { cancelled }
+                            ) { p -> downloadAgg.report(path, p.downloaded) }
+                            if (result.isSuccess) successCount.incrementAndGet()
+                        } catch (_: Exception) {}
+                    }
+                }.forEach { it.await() }
+            }
+            done += batch.size
+            onProgress(done.toFloat() / missingNatives.size, "下载原生库 ($done/${missingNatives.size})...", downloadAgg.speed, downloadAgg.downloaded)
         }
 
-        Log.d("GameInstaller", "Native classifiers: $successCount/${missingNatives.size} downloaded")
+        Log.d("GameInstaller", "Native classifiers: ${successCount.get()}/${missingNatives.size} downloaded")
     }
 
     private fun extractNativeJarToDir(jarFile: File, targetDir: File) {

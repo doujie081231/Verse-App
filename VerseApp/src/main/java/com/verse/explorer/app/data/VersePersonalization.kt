@@ -31,10 +31,15 @@ object VersePersonalization {
     var backgroundOpacity by mutableStateOf(95)
         private set
 
+    /** 侧边栏液态玻璃效果（Android 13+ 生效，默认开） */
+    var sidebarGlass by mutableStateOf(true)
+        private set
+
     /** 启动/重置时从持久化加载（文件已删除则置 null） */
     fun load(context: Context) {
         backgroundStyle = SettingsRepository.getBackgroundStyle()
         backgroundOpacity = SettingsRepository.getBackgroundOpacity().coerceIn(0, 100)
+        sidebarGlass = SettingsRepository.getSidebarGlass()
         backgroundImagePath = SettingsRepository.getBackgroundImagePath()
             .takeIf { it.isNotEmpty() && File(it).exists() }
         backgroundVideoPath = SettingsRepository.getBackgroundVideoPath()
@@ -57,6 +62,11 @@ object VersePersonalization {
     fun setOpacity(opacity: Int) {
         backgroundOpacity = opacity.coerceIn(0, 100)
         SettingsRepository.setBackgroundOpacity(backgroundOpacity)
+    }
+
+    fun applySidebarGlass(enabled: Boolean) {
+        sidebarGlass = enabled
+        SettingsRepository.setSidebarGlass(enabled)
     }
 
     /** 从 SAF content uri 导入图片到内部目录，成功返回 true 并置为图片背景 */

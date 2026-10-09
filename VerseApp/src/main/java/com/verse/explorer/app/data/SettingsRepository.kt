@@ -75,6 +75,7 @@ object SettingsRepository {
         private const val KEY_VERSION_ISOLATION = "version_isolation"
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_BACKGROUND_OPACITY = "background_opacity"
+        private const val KEY_SIDEBAR_GLASS = "sidebar_liquid_glass"
         private const val KEY_GAME_WIDTH = "game_width"
         private const val KEY_GAME_HEIGHT = "game_height"
         private const val KEY_FULLSCREEN = "fullscreen"
@@ -520,6 +521,13 @@ object SettingsRepository {
 
     fun setBackgroundOpacity(opacity: Int) {
         prefs().edit().putInt(KEY_BACKGROUND_OPACITY, opacity).apply()
+    }
+
+    /** 侧边栏液态玻璃效果开关（默认开，Android 13+ 生效） */
+    fun getSidebarGlass(): Boolean = prefs().getBoolean(KEY_SIDEBAR_GLASS, true)
+
+    fun setSidebarGlass(enabled: Boolean) {
+        prefs().edit().putBoolean(KEY_SIDEBAR_GLASS, enabled).apply()
     }
 
     fun getGameWidth(): Int = prefs().getInt(KEY_GAME_WIDTH, DEFAULT_GAME_WIDTH)

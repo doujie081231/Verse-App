@@ -64,6 +64,7 @@ class DownloadManager(
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
+        .connectionPool(SmartDownloadClient.sharedConnectionPool)
         .dns(SmartDownloadClient.ipv4Only())
         .retryOnConnectionFailure(true)
         .build()

@@ -623,6 +623,16 @@ fun SettingsScreen(navController: NavHostController) {
                     }
 
                     item {
+                        PcCard(title = "界面效果") {
+                            PcSwitchRow(
+                                "侧边栏液态玻璃",
+                                "悬浮导航按钮与展开面板的液态玻璃折射效果（Android 13+ 生效）",
+                                VersePersonalization.sidebarGlass
+                            ) { VersePersonalization.applySidebarGlass(it) }
+                        }
+                    }
+
+                    item {
                         PcCard(title = "背景设置") {
                             Text(
                                 "背景风格",
