@@ -176,6 +176,7 @@ fun ControlLayoutsContent() {
     var expandedId by remember { mutableStateOf<String?>(null) }
     var versionCache by remember { mutableStateOf<Map<String, RepoVersion>>(emptyMap()) }
     var versionLoadingId by remember { mutableStateOf<String?>(null) }
+    var versionLoadKey by remember { mutableIntStateOf(0) }
     var downloadingId by remember { mutableStateOf<String?>(null) }
 
     fun repoHead(): String = if (sourceMirror) REPO_MIRROR else REPO_GITHUB
@@ -223,30 +224,34 @@ fun ControlLayoutsContent() {
         }
     }
 
-    // 下载布局 json（先查最新版本号，再下 versions/<code>.json，临时文件落盘后原子替换）
+    // 下载布局 json（版本号与文件均双源尝试：当前源失败自动切另一源，临时文件落盘后原子替换）
     fun downloadLayout(item: RepoIndexItem) {
         if (downloadingId != null) return
         downloadingId = item.id
         scope.launch(Dispatchers.IO) {
-            val head = repoHead()
-            val version = httpGetString(head + "repo_json/" + item.id + "/version.json")
-                ?.let { runCatching { repoGson.fromJson(it, RepoVersion::class.java) }.getOrNull() }
-            val code = version?.latest?.versionCode
-            val result = if (code == null) {
-                Result.failure(IllegalStateException("获取版本信息失败"))
-            } else {
-                runCatching {
-                    val body = httpGetString(head + "repo_json/" + item.id + "/versions/" + code + ".json")
-                        ?: error("下载布局文件失败")
-                    // 校验为合法布局 json 后落盘
-                    repoGson.fromJson(body, Map::class.java) ?: error("布局文件内容无效")
-                    val dest = File(Tools.CTRLMAP_PATH, sanitizeFileName(item.name) + ".json")
-                    val tmp = File(Tools.CTRLMAP_PATH, dest.name + ".tmp")
-                    tmp.writeText(body)
-                    if (dest.exists()) dest.delete()
-                    if (!tmp.renameTo(dest)) error("写入布局文件失败")
-                    dest
+            val heads = listOf(repoHead(), if (sourceMirror) REPO_GITHUB else REPO_MIRROR)
+            val result = runCatching {
+                var code: Int? = null
+                var body: String? = null
+                for (head in heads) {
+                    val v = httpGetString(head + "repo_json/" + item.id + "/version.json")
+                        ?.let { runCatching { repoGson.fromJson(it, RepoVersion::class.java) }.getOrNull() }
+                    code = v?.latest?.versionCode
+                    if (code != null) {
+                        body = httpGetString(head + "repo_json/" + item.id + "/versions/" + code + ".json")
+                        if (body != null) break
+                    }
                 }
+                if (code == null) error("获取版本信息失败")
+                body ?: error("下载布局文件失败")
+                // 校验为合法布局 json 后落盘
+                repoGson.fromJson(body, Map::class.java) ?: error("布局文件内容无效")
+                val dest = File(Tools.CTRLMAP_PATH, sanitizeFileName(item.name) + ".json")
+                val tmp = File(Tools.CTRLMAP_PATH, dest.name + ".tmp")
+                tmp.writeText(body)
+                if (dest.exists()) dest.delete()
+                if (!tmp.renameTo(dest)) error("写入布局文件失败")
+                dest
             }
             withContext(Dispatchers.Main) {
                 downloadingId = null
@@ -483,8 +488,31 @@ fun ControlLayoutsContent() {
                                     tint = VerseColors.PcTextMuted
                                 )
                             }
-                            // 内联详情（作者/版本/设备 + 下载）
+                            // 详情加载必须放在条目常驻组合内：若放进分支内部，
+                            // 加载态切换分支时协程会被取消，导致永远停在"加载详情"
                             if (expanded) {
+                                LaunchedEffect(item.id, sourceMirror, versionLoadKey) {
+                                    if (versionCache[item.id] == null) {
+                                        versionLoadingId = item.id
+                                        val v = withContext(Dispatchers.IO) {
+                                            // 当前源失败自动切另一源（与列表加载的双源互备一致）
+                                            val heads = listOf(repoHead(), if (sourceMirror) REPO_GITHUB else REPO_MIRROR)
+                                            var result: RepoVersion? = null
+                                            for (head in heads) {
+                                                result = httpGetString(head + "repo_json/" + item.id + "/version.json")
+                                                    ?.let {
+                                                        runCatching {
+                                                            repoGson.fromJson(it, RepoVersion::class.java)
+                                                        }.getOrNull()
+                                                    }
+                                                if (result != null) break
+                                            }
+                                            result
+                                        }
+                                        if (v != null) versionCache = versionCache + (item.id to v)
+                                        versionLoadingId = null
+                                    }
+                                }
                                 val cached = versionCache[item.id]
                                 when {
                                     versionLoadingId == item.id -> {
@@ -517,21 +545,12 @@ fun ControlLayoutsContent() {
                                         )
                                     }
                                     else -> {
-                                        LaunchedEffect(item.id, sourceMirror) {
-                                            versionLoadingId = item.id
-                                            val head = repoHead()
-                                            val v = withContext(Dispatchers.IO) {
-                                                httpGetString(head + "repo_json/" + item.id + "/version.json")
-                                                    ?.let {
-                                                        runCatching {
-                                                            repoGson.fromJson(it, RepoVersion::class.java)
-                                                        }.getOrNull()
-                                                    }
-                                            }
-                                            if (v != null) versionCache = versionCache + (item.id to v)
-                                            versionLoadingId = null
-                                        }
-                                        Text("展开加载详情…", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                        Text(
+                                            "详情加载失败，点击重试",
+                                            fontSize = 11.sp,
+                                            color = VerseColors.PcRed,
+                                            modifier = Modifier.clickable { versionLoadKey++ }
+                                        )
                                     }
                                 }
                             }
