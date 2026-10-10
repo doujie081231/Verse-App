@@ -43,7 +43,8 @@ fun FCLSkinViewer(
     account: Account,
     modifier: Modifier = Modifier,
     background: Color = Color.White,
-    animation: String = "idle"
+    animation: String = "idle",
+    autoRotate: Boolean = false
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
@@ -70,15 +71,21 @@ fun FCLSkinViewer(
         val type = when (animation) {
             "walk" -> SkinModel.SkinAnimationType.WALK
             "run" -> SkinModel.SkinAnimationType.RUN
+            "jump" -> SkinModel.SkinAnimationType.JUMP
             "fly" -> SkinModel.SkinAnimationType.FLY
             "wave" -> SkinModel.SkinAnimationType.WAVE
             "crouch" -> SkinModel.SkinAnimationType.CROUCH
+            "crawl" -> SkinModel.SkinAnimationType.CRAWL
             "hit" -> SkinModel.SkinAnimationType.HIT
             "swim" -> SkinModel.SkinAnimationType.SWIM
             "none" -> SkinModel.SkinAnimationType.NONE
             else -> SkinModel.SkinAnimationType.BREATHING
         }
         renderer?.skinModel?.setAnimation(type)
+    }
+
+    LaunchedEffect(autoRotate) {
+        renderer?.skinModel?.autoRotate = autoRotate
     }
 
     Box(

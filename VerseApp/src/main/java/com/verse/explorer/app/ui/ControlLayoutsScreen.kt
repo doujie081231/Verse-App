@@ -123,9 +123,11 @@ fun ControlLayoutsContent() {
     var detailTarget by remember { mutableStateOf<File?>(null) }
 
     fun refreshLocal() {
-        // CTRLMAP_PATH 由 Tools.init 初始化；直接进入本页时（未经启动设置/游戏）必须先初始化，
-        // 否则路径为空串导致本地布局列表永远为空
+        // CTRLMAP_PATH 与 LauncherPreferences 静态字段都由各自 init 初始化；直接进入本页时
+        // （未经启动设置/游戏/编辑器）两者均未初始化——路径为空串导致列表为空，
+        // DEFAULT_PREF 为 null 导致"设为默认"写入时 NPE 崩溃
         net.kdt.pojavlaunch.Tools.init(context)
+        LauncherPreferences.init(context)
         localLayouts = try {
             File(Tools.CTRLMAP_PATH).listFiles { f -> f.isFile && f.extension == "json" }
                 ?.sortedBy { it.nameWithoutExtension.lowercase(Locale.ROOT) }

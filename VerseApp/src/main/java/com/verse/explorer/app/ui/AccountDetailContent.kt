@@ -75,6 +75,7 @@ fun AccountDetailContent(
 
     var animation by remember { mutableStateOf("idle") }
     var background by remember { mutableStateOf("white") }
+    var autoRotate by remember { mutableStateOf(false) }
 
     // 微软本地皮肤库状态
     var msSkins by remember(account.id) { mutableStateOf<List<MsSkinRepository.MsSkin>>(emptyList()) }
@@ -143,6 +144,7 @@ fun AccountDetailContent(
                     account = account,
                     background = if (background == "black") Color.Black else Color.White,
                     animation = animation,
+                    autoRotate = autoRotate,
                     modifier = Modifier.fillMaxSize()
                 )
                 // 右上角 白/黑 切换（对齐 PC .acct-bg-toggle）
@@ -240,16 +242,18 @@ fun AccountDetailContent(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 动作（对齐 PC .acct-detail-animations：8 个按钮；默认「呼吸」站姿）
+                // 动作（对齐各启动器模型查看器动作集：默认呼吸站姿 + 跳跃/爬行/自动旋转）
                 Text("动作", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
                 Spacer(Modifier.height(8.dp))
                 val animations = listOf(
                     "idle" to "呼吸",
                     "walk" to "行走",
                     "run" to "跑步",
+                    "jump" to "跳跃",
                     "fly" to "飞行",
                     "wave" to "挥手",
                     "crouch" to "蹲下",
+                    "crawl" to "爬行",
                     "hit" to "攻击",
                     "swim" to "游泳"
                 )
@@ -282,6 +286,34 @@ fun AccountDetailContent(
                             }
                         }
                     }
+                }
+                // 自动旋转开关（模型绕 Y 轴匀速展示，可与其他动作叠加）
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val rotateSelected = autoRotate
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (rotateSelected) VerseColors.PcAccent else VerseColors.PcBgTertiary,
+                        border = if (rotateSelected) null else BorderStroke(1.dp, VerseColors.PcBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { autoRotate = !autoRotate }
+                    ) {
+                        Text(
+                            text = "旋转",
+                            fontSize = 11.sp,
+                            color = if (rotateSelected) VerseColors.PcAccentText else VerseColors.PcTextSecondary,
+                            fontWeight = if (rotateSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                        )
+                    }
+                    Spacer(Modifier.weight(3f))
                 }
 
                 Spacer(Modifier.height(16.dp))

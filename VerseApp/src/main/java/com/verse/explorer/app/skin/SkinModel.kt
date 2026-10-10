@@ -44,10 +44,13 @@ class SkinModel {
     private val rotate = floatArrayOf(0.0f, 0.0f, 0.0f)
     private val rotateStep = floatArrayOf(2.0f, 2.0f, 2.0f)
 
-    /** 动作类型（对齐 versepc2 setAnim 的 8 个动作；默认呼吸站姿） */
+    /** 动作类型（对齐各启动器皮肤查看器的动作集；默认呼吸站姿） */
     enum class SkinAnimationType {
-        BREATHING, WALK, RUN, FLY, WAVE, CROUCH, HIT, SWIM, NONE
+        BREATHING, WALK, RUN, JUMP, FLY, WAVE, CROUCH, CRAWL, HIT, SWIM, NONE
     }
+
+    /** 自动旋转展示（各启动器模型查看器的旋转开关） */
+    var autoRotate = false
 
     var animationType: SkinAnimationType = SkinAnimationType.BREATHING
 
@@ -139,6 +142,16 @@ class SkinModel {
                 setLimbSwing(leftLeg, leftLegOverlay, 1.0f, 2.0f)
                 setLimbSwing(rightLeg, rightLegOverlay, 1.0f, 2.0f)
             }
+            SkinAnimationType.JUMP -> {
+                // 跳跃：四肢摆动 + 模型上浮（腾空感）
+                this.bodyOffsetY = 2.2f
+                setLimbSwing(leftArm, leftArmOverlay, 1.2f, 2.0f)
+                setLimbSwing(rightArm, rightArmOverlay, 1.2f, 2.0f)
+                setLimbSwing(leftArmSlim, leftArmSlimOverlay, 1.2f, 2.0f)
+                setLimbSwing(rightArmSlim, rightArmSlimOverlay, 1.2f, 2.0f)
+                setLimbSwing(leftLeg, leftLegOverlay, 0.9f, 2.0f)
+                setLimbSwing(rightLeg, rightLegOverlay, 0.9f, 2.0f)
+            }
             SkinAnimationType.FLY -> {
                 // 飞行：四肢快速摆动（扇动感）+ 模型微微上浮
                 this.bodyOffsetY = 1.5f
@@ -167,6 +180,16 @@ class SkinModel {
                 setLimbSwing(rightArmSlim, rightArmSlimOverlay, 0.4f, 0.7f)
                 setLimbSwing(leftLeg, leftLegOverlay, 0.6f, 0.8f)
                 setLimbSwing(rightLeg, rightLegOverlay, 0.6f, 0.8f)
+            }
+            SkinAnimationType.CRAWL -> {
+                // 爬行：整体大幅下沉贴近地面，四肢前后爬动
+                this.bodyOffsetY = -3.4f
+                setLimbSwing(leftArm, leftArmOverlay, 0.9f, 1.6f)
+                setLimbSwing(rightArm, rightArmOverlay, 0.9f, 1.6f)
+                setLimbSwing(leftArmSlim, leftArmSlimOverlay, 0.9f, 1.6f)
+                setLimbSwing(rightArmSlim, rightArmSlimOverlay, 0.9f, 1.6f)
+                setLimbSwing(leftLeg, leftLegOverlay, 0.9f, 1.6f)
+                setLimbSwing(rightLeg, rightLegOverlay, 0.9f, 1.6f)
             }
             SkinAnimationType.HIT -> {
                 // 攻击：手臂快速挥动，双腿静止
@@ -245,6 +268,11 @@ class SkinModel {
     }
 
     fun drawBodyModel(gl10: GL10, slim: Boolean) {
+        // 自动旋转展示：绕 Y 轴匀速转动（旋转开关开启时）
+        if (this.autoRotate) {
+            val rotate = this.rotate
+            rotate[1] += this.rotateStep[1] * 0.6f
+        }
         gl10.glMatrixMode(GL10.GL_MODELVIEW)
         gl10.glTranslatef(0.0f, this.bodyOffsetY, 0.0f)
         gl10.glRotatef(this.rotate[0], 1.0f, 0.0f, 0.0f)
