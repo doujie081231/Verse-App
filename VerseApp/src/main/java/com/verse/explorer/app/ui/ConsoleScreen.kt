@@ -96,7 +96,8 @@ fun ConsoleScreen(navController: NavHostController) {
     )
 
     var selectedType by remember { mutableStateOf("bug") }
-    var selectedCategory by remember { mutableStateOf("other") }
+    // 默认选中启动问题：打开页面即可看到日志自动收集，「其他」不收集日志易被误认为检测不到
+    var selectedCategory by remember { mutableStateOf("launch") }
     var title by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf("") }
     var contact by remember { mutableStateOf("") }

@@ -1,5 +1,7 @@
 package net.kdt.pojavlaunch.customcontrols;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 
 import net.kdt.pojavlaunch.LwjglGlfwKeycode;
@@ -19,6 +21,12 @@ public class LayoutConverter {
         String jsonLayoutData = Tools.read(jsonPath);
         try {
             JSONObject layoutJobj = new JSONObject(jsonLayoutData);
+
+            // 布局仓库下载的控制器（viewGroups 结构）转换为本应用 v8 格式后加载
+            if (layoutJobj.has("viewGroups") && layoutJobj.has("controllerVersion")) {
+                JsonObject parsed = JsonParser.parseString(jsonLayoutData).getAsJsonObject();
+                return RepoLayoutConverter.convert(parsed);
+            }
 
             if (!layoutJobj.has("version")) { //v1 layout
                 CustomControls layout = LayoutConverter.convertV1Layout(layoutJobj);

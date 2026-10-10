@@ -373,7 +373,7 @@ private fun FloatingNavOverlay(
                 .then(circleGlass)
                 .then(
                     if (glassEnabled) Modifier
-                    else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                    else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f), CircleShape)
                 )
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -413,7 +413,7 @@ private fun FloatingNavOverlay(
                     .then(pillGlass)
                     .then(
                         if (glassEnabled) Modifier
-                        else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f))
+                        else Modifier.background(VerseColors.PcBgCard.copy(alpha = 0.85f), RoundedCornerShape(50))
                     )
             ) {
                 Column(

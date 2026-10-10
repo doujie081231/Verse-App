@@ -65,6 +65,8 @@ class LayoutEditorActivity : ComponentActivity() {
         } catch (e: Exception) {
             loaded = false
             android.widget.Toast.makeText(this, "布局加载失败：${e.message}", android.widget.Toast.LENGTH_LONG).show()
+            // 回退空白布局：编辑器保持可用（添加控件/另存新文件），不再因空数据崩溃
+            runCatching { controlLayout.loadLayout(net.kdt.pojavlaunch.customcontrols.CustomControls()) }
         }
         controlLayout.setControlVisible(true)
         controlLayout.setModifiable(true)
@@ -135,10 +137,12 @@ class LayoutEditorActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize()) {
             if (!loaded) {
                 Text(
-                    "布局加载失败，无法编辑",
-                    color = VerseColors.PcRed,
-                    fontSize = 14.sp,
-                    modifier = Modifier.align(Alignment.Center)
+                    "原布局加载失败，已切换为空白布局，保存时请使用新文件名",
+                    color = VerseColors.PcTextMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 20.dp)
                 )
             }
             // 顶部工具栏：悬浮胶囊，不遮挡画布整行

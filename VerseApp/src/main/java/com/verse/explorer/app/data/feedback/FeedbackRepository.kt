@@ -70,9 +70,11 @@ object FeedbackRepository {
                             name.startsWith("latest") || name.startsWith("terminal_export") ||
                             name.startsWith("game") || name.startsWith("native_debug") ||
                             name.startsWith("verse_debug") || name.endsWith(".log")
+                    // 下载问题同样附带主日志（下载失败/校验失败都会写入主日志）
                     "download" ->
                         name.contains("modpack-import") || name.contains("updater-download") ||
-                            name.contains("loader-install") || name.endsWith(".install")
+                            name.contains("loader-install") || name.endsWith(".install") ||
+                            name.startsWith("latest") || name.startsWith("launch")
                     else -> false
                 }
                 if (keep && f.exists() && f.length() > 0 && f.length() <= 20 * 1024 * 1024) {
@@ -81,10 +83,14 @@ object FeedbackRepository {
             }
         }
 
-        // 每个目录留最近修改的，避免日志爆炸
+        // 每个目录最多留 4 个最近的日志（主日志 latest/launch 优先），总量仍以 8 个封顶
         val grouped = candidates.groupBy { it.parentFile?.absolutePath }
-        val picked = grouped.values.map { group ->
-            group.sortedByDescending { it.lastModified() }.first()
+        val picked = grouped.values.flatMap { group ->
+            group.sortedWith(
+                compareByDescending<File> { f ->
+                    if (f.name.startsWith("latest") || f.name.startsWith("launch")) 1 else 0
+                }.thenByDescending { it.lastModified() }
+            ).take(4)
         }
         return picked.sortedByDescending { it.lastModified() }.take(8)
     }
