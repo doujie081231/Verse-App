@@ -65,6 +65,12 @@ class DownloadManager(
         .readTimeout(120, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
         .connectionPool(SmartDownloadClient.sharedConnectionPool)
+        // OkHttp 默认每 host 仅 5 个并发连接，大并发小文件下载（assets 64 路）
+        // 会被每 host 队列卡死，必须显式放开
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 256
+            maxRequestsPerHost = 128
+        })
         .dns(SmartDownloadClient.ipv4Only())
         .retryOnConnectionFailure(true)
         .build()

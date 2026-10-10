@@ -9,6 +9,9 @@ import com.verse.explorer.core.util.HashUtils
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -715,34 +718,45 @@ class DependencyDownloader(private val context: Context) {
 
             if (missingAssets.isEmpty()) return@withContext true
 
-            for ((index, pair) in missingAssets.withIndex()) {
-                val (name, hash) = pair
-                val subDir = hash.substring(0, 2)
-                val assetFile = File(assetsDir, "objects/$subDir/$hash")
+            // 滑动窗口并发（对齐主安装链 64 路）：串行逐个下载在数千个资源文件场景极慢
+            val totalMissing = missingAssets.size
+            val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val semaphore = kotlinx.coroutines.sync.Semaphore(64)
+            kotlinx.coroutines.coroutineScope {
+                missingAssets.forEach { (name, hash) ->
+                    launch {
+                        semaphore.withPermit {
+                            val subDir = hash.substring(0, 2)
+                            val assetFile = File(assetsDir, "objects/$subDir/$hash")
 
-                try {
-                    val assetUrl = GameConfig.getAssetDownloadUrl(hash, 0)
-                    try {
-                        downloadFile(assetUrl, assetFile)
-                    } catch (e: Exception) {
-                        val originalAssetUrl = "https://resources.download.minecraft.net/$subDir/$hash"
-                        downloadFile(originalAssetUrl, assetFile)
+                            try {
+                                // assets 官方 CDN 国内实测远优于镜像（镜像现为 302 跳转节点池），官方优先
+                                val originalAssetUrl = "https://resources.download.minecraft.net/$subDir/$hash"
+                                try {
+                                    downloadFile(originalAssetUrl, assetFile)
+                                } catch (e: Exception) {
+                                    val assetUrl = GameConfig.getAssetDownloadUrl(hash, 0)
+                                    downloadFile(assetUrl, assetFile)
+                                }
+                            } catch (e: Exception) {
+                                println("[DependencyDownloader] Failed to download asset $name: ${e.message}")
+                            }
+
+                            val done = completedCount.incrementAndGet()
+                            if (done % 20 == 0 || done == totalMissing) {
+                                val assetProgress = done.toFloat() / totalMissing
+                                val mappedProgress = progressMapper(assetProgress)
+                                onProgress(RepairProgress(
+                                    RepairStage.DOWNLOADING_ASSETS,
+                                    "下载资源文件 ($done/$totalMissing)...",
+                                    mappedProgress,
+                                    name,
+                                    totalMissing,
+                                    done
+                                ))
+                            }
+                        }
                     }
-                } catch (e: Exception) {
-                    println("[DependencyDownloader] Failed to download asset $name: ${e.message}")
-                }
-
-                if (index % 20 == 0 || index == missingAssets.size - 1) {
-                    val assetProgress = (index.toFloat() + 1) / missingAssets.size
-                    val mappedProgress = progressMapper(assetProgress)
-                    onProgress(RepairProgress(
-                        RepairStage.DOWNLOADING_ASSETS,
-                        "下载资源文件 (${index + 1}/${missingAssets.size})...",
-                        mappedProgress,
-                        name,
-                        missingAssets.size,
-                        index + 1
-                    ))
                 }
             }
 

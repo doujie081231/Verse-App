@@ -63,11 +63,19 @@ class GameInstaller(private val context: Context) {
     // 智能混合下载客户端：小文件竞速、大文件测速分块、低速换源、镜像熔断
     private val smartClient = SmartDownloadClient(context = context)
 
-    // 专用于 assets 小文件下载的快速客户端（短超时，对齐 PC 端 30s 策略）
+    // 专用于 assets 小文件下载的快速客户端（callTimeout 10s 覆盖整链含重定向：
+    // 镜像 302 到不可达节点时 10s 内快速失败换源，不占住 64 路并发窗口）
+    // Dispatcher 每 host 并发必须显式放开：OkHttp 默认每 host 仅 5 个连接，
+    // 64 路协程里 59 个在排队（实测 assets 只有 ~11 文件/s），放开后窗口才真正生效
     private val fastHttpClient = downloadManager.httpClient.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 256
+            maxRequestsPerHost = 128
+        })
         .dns(SmartDownloadClient.ipv4Only())
         .build()
 
@@ -77,8 +85,8 @@ class GameInstaller(private val context: Context) {
     // 全局下载聚合：各阶段实时累计已下载字节与速度（供进度 UI 显示）
     private val downloadAgg = DownloadAggregator()
 
-    // assets 小文件并发数（对齐 PC 端默认 64 线程）
-    private val concurrentAssets = 64
+    // assets 小文件并发数（官方 CDN 实测可扛 128 路；Dispatcher/连接池已同步放开）
+    private val concurrentAssets = 128
 
     @Volatile
     var cancelled = false
@@ -788,7 +796,11 @@ class GameInstaller(private val context: Context) {
                     semaphore.withPermit {
                         checkCancelled()
                         // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
-                        val urls = MirrorSourceManager.getMirrorUrls(context, url)
+                        // assets 官方 CDN 国内实测速度远优于镜像（镜像现为 302 跳转节点池，
+                        // 大面积不可达），官方源固定排在最前，镜像只作兜底
+                        val urls = MirrorSourceManager.getMirrorUrls(context, url).let { list ->
+                            list.sortedByDescending { it.startsWith("https://resources.download.minecraft.net/") }
+                        }
                         var success = false
                         for (mirrorUrl in urls) {
                             if (cancelled) throw CancelledInstallException()

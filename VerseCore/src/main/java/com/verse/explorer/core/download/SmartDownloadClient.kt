@@ -59,13 +59,19 @@ class SmartDownloadClient(
          * 复用同一批长连接（DNS 只解析一次）。
          */
         val sharedConnectionPool: okhttp3.ConnectionPool =
-            okhttp3.ConnectionPool(64, 5, TimeUnit.MINUTES)
+            okhttp3.ConnectionPool(128, 5, TimeUnit.MINUTES)
 
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .connectionPool(sharedConnectionPool)
+            // OkHttp 默认每 host 仅 5 个并发连接：分块下载 8 块/多源竞速都会被
+            // 每 host 队列卡住，必须显式放开
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 256
+                maxRequestsPerHost = 128
+            })
             .dns(ipv4Only())
             .retryOnConnectionFailure(true)
             .build()

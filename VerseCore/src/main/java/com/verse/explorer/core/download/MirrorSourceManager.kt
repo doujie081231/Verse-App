@@ -33,18 +33,22 @@ object MirrorSourceManager {
         "https://maven.quiltmc.org" to "https://bmclapi2.bangbang93.com/maven"
     )
 
-    private val MOJANG_TO_MCBBS = mapOf(
-        "https://piston-data.mojang.com" to "https://download.mcbbs.net",
-        "https://piston-meta.mojang.com" to "https://download.mcbbs.net",
-        "https://launchermeta.mojang.com" to "https://download.mcbbs.net",
-        "https://launcher.mojang.com" to "https://download.mcbbs.net",
-        "https://resources.download.minecraft.net" to "https://download.mcbbs.net/assets",
-        "https://libraries.minecraft.net" to "https://download.mcbbs.net/maven",
-        "https://maven.minecraftforge.net" to "https://download.mcbbs.net/maven",
-        "https://files.minecraftforge.net/maven" to "https://download.mcbbs.net/maven",
-        "https://maven.fabricmc.net" to "https://download.mcbbs.net/maven",
-        "https://maven.neoforged.net" to "https://download.mcbbs.net/maven",
-        "https://maven.quiltmc.org" to "https://download.mcbbs.net/maven"
+    // MCBBS 镜像已移除：download.mcbbs.net 域名失效，DNS 解析实测挂起 11 秒，
+    // 每个命中它的文件都要白等一轮系统 DNS 超时（镜像回退链 = [BMCLAPI, 官方]）
+
+    /**
+     * 资源下载 CDN 镜像（对齐 PC 端 to_mirror_url / to_curseforge_url）：
+     *  - Modrinth CDN → mcimirror 国内镜像（host 替换，路径不变），官方 CDN 国内直连仅几十 KB/s
+     *  - edge.forgecdn.net → mediafilez.forgecdn.net（同为 CurseForge 官方 CDN 节点）：
+     *    edge 对带 Range 的请求直接返回 404，分块下载/测速探针全灭；mediafilez 支持 Range，
+     *    换 host 后多源测速 + 分块下载才能生效。edge 原始 URL 保留为回退源（单流 302 跟随可下）。
+     *  - -service.overwolf.wtf → .forgecdn.net（CurseForge 部分接口返回的镜像 host）
+     */
+    private val RESOURCE_MIRROR_PAIRS = listOf(
+        "https://cdn.modrinth.com/" to "https://mod.mcimirror.top/",
+        "https://cdn-alt.modrinth.com/" to "https://mod.mcimirror.top/",
+        "https://edge.forgecdn.net/" to "https://mediafilez.forgecdn.net/",
+        "-service.overwolf.wtf/" to ".forgecdn.net/"
     )
 
     fun getCurrentSource(context: Context): String {
@@ -62,26 +66,7 @@ object MirrorSourceManager {
      */
     fun getMirrorUrls(context: Context, originalUrl: String): List<String> {
         if (originalUrl.isBlank()) return listOf(originalUrl)
-
-        val source = getCurrentSource(context)
-
-        if (source == "mojang") return listOf(originalUrl)
-
-        val bmclapiUrl = applyMirror(originalUrl, MOJANG_TO_BMCLAPI)
-        val mcbbsUrl = applyMirror(originalUrl, MOJANG_TO_MCBBS)
-
-        val mirrorUrls = mutableListOf<String>()
-        if (bmclapiUrl != originalUrl) mirrorUrls.add(bmclapiUrl)
-        if (mcbbsUrl != originalUrl && mcbbsUrl != bmclapiUrl) mirrorUrls.add(mcbbsUrl)
-
-        if (mirrorUrls.isEmpty()) return listOf(originalUrl)
-
-        return when (source) {
-            "auto" -> mirrorUrls + listOf(originalUrl)
-            "bmclapi" -> mirrorUrls + listOf(originalUrl)
-            "official" -> listOf(originalUrl) + mirrorUrls
-            else -> mirrorUrls + listOf(originalUrl)
-        }
+        return getMirrorUrls(getCurrentSource(context), originalUrl)
     }
 
     /**
@@ -92,20 +77,28 @@ object MirrorSourceManager {
         if (source == "mojang") return listOf(originalUrl)
 
         val bmclapiUrl = applyMirror(originalUrl, MOJANG_TO_BMCLAPI)
-        val mcbbsUrl = applyMirror(originalUrl, MOJANG_TO_MCBBS)
+        val resourceUrl = applyResourceMirror(originalUrl)
 
         val mirrorUrls = mutableListOf<String>()
         if (bmclapiUrl != originalUrl) mirrorUrls.add(bmclapiUrl)
-        if (mcbbsUrl != originalUrl && mcbbsUrl != bmclapiUrl) mirrorUrls.add(mcbbsUrl)
+        if (resourceUrl != originalUrl && resourceUrl !in mirrorUrls) mirrorUrls.add(resourceUrl)
 
         if (mirrorUrls.isEmpty()) return listOf(originalUrl)
 
         return when (source) {
-            "auto" -> mirrorUrls + listOf(originalUrl)
-            "bmclapi" -> mirrorUrls + listOf(originalUrl)
             "official" -> listOf(originalUrl) + mirrorUrls
             else -> mirrorUrls + listOf(originalUrl)
         }
+    }
+
+    /** 资源 CDN 镜像：命中即返回替换后的 URL（各映射互斥，取首个命中） */
+    private fun applyResourceMirror(url: String): String {
+        for ((pattern, replacement) in RESOURCE_MIRROR_PAIRS) {
+            if (url.contains(pattern)) {
+                return url.replace(pattern, replacement)
+            }
+        }
+        return url
     }
 
     private fun applyMirror(url: String, mapping: Map<String, String>): String {

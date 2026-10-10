@@ -21,6 +21,10 @@ class VersionManager(private val gameDir: File) {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .connectionPool(SmartDownloadClient.sharedConnectionPool)
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 256
+            maxRequestsPerHost = 128
+        })
         .dns(SmartDownloadClient.ipv4Only())
         .followRedirects(true)
         .followSslRedirects(true)
