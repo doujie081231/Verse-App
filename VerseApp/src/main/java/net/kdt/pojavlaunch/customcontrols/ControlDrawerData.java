@@ -19,11 +19,21 @@ public class ControlDrawerData {
 
     @androidx.annotation.Keep
     public enum Orientation {
-        DOWN,
-        LEFT,
-        UP,
-        RIGHT,
-        FREE
+        DOWN {
+            @Override public String toString() { return "向下展开"; }
+        },
+        LEFT {
+            @Override public String toString() { return "向左展开"; }
+        },
+        UP {
+            @Override public String toString() { return "向上展开"; }
+        },
+        RIGHT {
+            @Override public String toString() { return "向右展开"; }
+        },
+        FREE {
+            @Override public String toString() { return "自由方向"; }
+        }
     }
 
     public static Orientation[] getOrientations(){
@@ -57,7 +67,7 @@ public class ControlDrawerData {
     }
 
     public ControlDrawerData(ArrayList<ControlData> buttonProperties){
-        this(buttonProperties, new ControlData("Drawer", new int[] {}, Tools.currentDisplayMetrics.widthPixels/2f, Tools.currentDisplayMetrics.heightPixels/2f));
+        this(buttonProperties, new ControlData("抽屉按键", new int[] {}, Tools.currentDisplayMetrics.widthPixels/2f, Tools.currentDisplayMetrics.heightPixels/2f));
     }
 
     public ControlDrawerData(ArrayList<ControlData> buttonProperties, ControlData properties){

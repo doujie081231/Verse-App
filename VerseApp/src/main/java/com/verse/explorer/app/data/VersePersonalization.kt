@@ -31,8 +31,8 @@ object VersePersonalization {
     var backgroundOpacity by mutableStateOf(95)
         private set
 
-    /** 侧边栏液态玻璃效果（Android 13+ 生效，默认开） */
-    var sidebarGlass by mutableStateOf(true)
+    /** 侧边栏液态玻璃效果（Android 13+ 生效，默认关：实时着色器采样在低端机掉帧明显，可在设置开启） */
+    var sidebarGlass by mutableStateOf(false)
         private set
 
     /** 启动/重置时从持久化加载（文件已删除则置 null） */

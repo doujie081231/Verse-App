@@ -160,13 +160,15 @@ fun MainScreen(
 
     // 苹果液态玻璃采样源（Kyant0/AndroidLiquidGlass backdrop-android 2.0.0）：
     // RuntimeShader 完整效果需 Android 13+，低版本走库内降级路径；
-    // 可在「设置 → 个性化」开关控制
+    // 可在「设置 → 个性化」开关控制。玻璃关闭时不挂采样层，避免全屏逐帧录制开销
     val navGlassBackdrop = rememberLayerBackdrop()
     val glassSupported = Build.VERSION.SDK_INT >= 33 && VersePersonalization.sidebarGlass
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 采样源层：自定义背景 + 页面内容。悬浮导航的玻璃层从此处透镜采样
-        Box(modifier = Modifier.fillMaxSize().layerBackdrop(navGlassBackdrop)) {
+        Box(modifier = Modifier.fillMaxSize().then(
+            if (glassSupported) Modifier.layerBackdrop(navGlassBackdrop) else Modifier
+        )) {
         // 底层：用户自定义背景（图片/视频）
         AppBackground(Modifier.fillMaxSize())
         // 玻璃面板承载内容（页面根背景已透明化，由此处统一提供底色）

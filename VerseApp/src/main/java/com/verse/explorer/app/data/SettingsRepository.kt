@@ -523,8 +523,8 @@ object SettingsRepository {
         prefs().edit().putInt(KEY_BACKGROUND_OPACITY, opacity).apply()
     }
 
-    /** 侧边栏液态玻璃效果开关（默认开，Android 13+ 生效） */
-    fun getSidebarGlass(): Boolean = prefs().getBoolean(KEY_SIDEBAR_GLASS, true)
+    /** 侧边栏液态玻璃效果开关（默认关：低端机实时着色器开销大，可在设置开启） */
+    fun getSidebarGlass(): Boolean = prefs().getBoolean(KEY_SIDEBAR_GLASS, false)
 
     fun setSidebarGlass(enabled: Boolean) {
         prefs().edit().putBoolean(KEY_SIDEBAR_GLASS, enabled).apply()

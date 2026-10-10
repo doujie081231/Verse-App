@@ -20,6 +20,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/global_name"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
@@ -29,7 +31,10 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:gravity="center"
-        android:hint="Button Name"
+        android:hint="按键名称"
+        android:textColor="#F0F0F0"
+        android:textColorHint="#66F0F0F0"
+        android:backgroundTint="#40FFFFFF"
         android:imeOptions="flagNoExtractUi"
         android:maxLines="1"
 
@@ -45,6 +50,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_size"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/editName_editText"
@@ -55,6 +62,8 @@
         android:layout_width="@dimen/_134sdp"
         android:layout_height="wrap_content"
         android:gravity="center"
+        android:textColor="#F0F0F0"
+        android:backgroundTint="#40FFFFFF"
         android:imeOptions="flagNoExtractUi"
         android:inputType="numberDecimal"
 
@@ -66,6 +75,8 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:gravity="center"
+        android:textColor="#F0F0F0"
+        android:backgroundTint="#40FFFFFF"
         android:imeOptions="flagNoExtractUi"
         android:inputType="numberDecimal"
 
@@ -94,6 +105,8 @@
 
         android:paddingEnd="5dp"
         android:text="@string/customctrl_mapping"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/editSize_editTextX" />
@@ -175,6 +188,8 @@
         android:gravity="center"
         android:singleLine="true"
         android:textAlignment="inherit"
+        android:textColor="#F0F0F0"
+        android:background="@drawable/bg_side_dialog_row"
 
         app:layout_constraintEnd_toStartOf="@id/mapping_2_textview"
         app:layout_constraintStart_toStartOf="parent"
@@ -188,6 +203,7 @@
         android:layout_height="0dp"
         android:gravity="center"
         android:text="+"
+        android:textColor="#80F0F0F0"
 
         app:layout_constraintBottom_toBottomOf="@+id/mapping_1_textview"
         app:layout_constraintEnd_toEndOf="@+id/mapping_1_textview"
@@ -203,6 +219,8 @@
         android:gravity="center"
         android:singleLine="true"
         android:textAlignment="inherit"
+        android:textColor="#F0F0F0"
+        android:background="@drawable/bg_side_dialog_row"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/mapping_1_textview"
@@ -219,6 +237,8 @@
         android:gravity="center"
         android:singleLine="true"
         android:textAlignment="inherit"
+        android:textColor="#F0F0F0"
+        android:background="@drawable/bg_side_dialog_row"
 
         app:layout_constraintEnd_toStartOf="@id/mapping_4_textview"
         app:layout_constraintStart_toStartOf="parent"
@@ -232,6 +252,7 @@
         android:layout_height="0dp"
         android:gravity="center"
         android:text="+"
+        android:textColor="#80F0F0F0"
 
 
         app:layout_constraintBottom_toBottomOf="@+id/mapping_3_textview"
@@ -248,6 +269,8 @@
         android:gravity="center"
         android:singleLine="true"
         android:textAlignment="inherit"
+        android:textColor="#F0F0F0"
+        android:background="@drawable/bg_side_dialog_row"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@id/mapping_3_textview"
@@ -265,6 +288,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_orientation"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/mapping_3_textview" />
@@ -289,6 +314,9 @@
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/editOrientation_spinner"
+        android:textColor="#F0F0F0"
+        android:thumbTint="@color/side_dialog_switch_thumb"
+        android:trackTint="@color/side_dialog_switch_track"
         tools:ignore="UseSwitchCompatOrMaterialXml" />
 
     <!-- MOUSE PASS THROUGH SECTION -->
@@ -300,6 +328,9 @@
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/checkboxToggle"
+        android:textColor="#F0F0F0"
+        android:thumbTint="@color/side_dialog_switch_thumb"
+        android:trackTint="@color/side_dialog_switch_track"
         tools:ignore="UseSwitchCompatOrMaterialXml" />
 
     <!-- SWIPEABLE BUTTON SECTION -->
@@ -311,6 +342,9 @@
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/checkboxPassThrough"
+        android:textColor="#F0F0F0"
+        android:thumbTint="@color/side_dialog_switch_thumb"
+        android:trackTint="@color/side_dialog_switch_track"
         tools:ignore="UseSwitchCompatOrMaterialXml" />
 
     <!-- FORWARD LOCK SECTION -->
@@ -322,6 +356,9 @@
 
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/checkboxSwipeable"
+        android:textColor="#F0F0F0"
+        android:thumbTint="@color/side_dialog_switch_thumb"
+        android:trackTint="@color/side_dialog_switch_track"
         tools:ignore="UseSwitchCompatOrMaterialXml" />
 
     <Switch
@@ -331,6 +368,9 @@
         android:text="@string/customctrl_absolute_tracking"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/checkboxForwardLock"
+        android:textColor="#F0F0F0"
+        android:thumbTint="@color/side_dialog_switch_thumb"
+        android:trackTint="@color/side_dialog_switch_track"
         tools:ignore="UseSwitchCompatOrMaterialXml"/>
 
     <!-- BACKGROUND COLOR SECTION -->
@@ -338,11 +378,13 @@
         android:id="@+id/editBackgroundColor_textView"
         android:layout_width="0dp"
         android:layout_height="@dimen/_35sdp"
-        android:background="?attr/selectableItemBackground"
+        android:background="@drawable/bg_side_dialog_row"
         android:drawableEnd="@drawable/spinner_arrow_right"
         android:gravity="center_vertical"
+        android:paddingStart="10dp"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_background_color"
+        android:textColor="#F0F0F0"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -358,6 +400,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_stroke_width"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
 
         app:layout_constraintStart_toStartOf="parent"
@@ -367,6 +411,9 @@
         android:id="@+id/editStrokeWidth_seekbar"
         android:layout_width="0dp"
         android:layout_height="@dimen/_36sdp"
+        android:progressTint="#F0F0F0"
+        android:thumbTint="#F0F0F0"
+        android:progressBackgroundTint="#26FFFFFF"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.538"
@@ -379,6 +426,7 @@
         android:layout_height="0dp"
         android:gravity="center"
         android:text="100%"
+        android:textColor="#F0F0F0"
 
         app:layout_constraintBottom_toBottomOf="@id/editStrokeWidth_textView"
         app:layout_constraintEnd_toEndOf="parent"
@@ -389,11 +437,13 @@
         android:id="@+id/editStrokeColor_textView"
         android:layout_width="0dp"
         android:layout_height="@dimen/_35sdp"
-        android:background="?attr/selectableItemBackground"
+        android:background="@drawable/bg_side_dialog_row"
         android:drawableEnd="@drawable/spinner_arrow_right"
         android:gravity="center_vertical"
+        android:paddingStart="10dp"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_stroke_color"
+        android:textColor="#F0F0F0"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -408,6 +458,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_corner_radius"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
 
         app:layout_constraintStart_toStartOf="parent"
@@ -417,6 +469,9 @@
         android:id="@+id/editCornerRadius_seekbar"
         android:layout_width="0dp"
         android:layout_height="@dimen/_36sdp"
+        android:progressTint="#F0F0F0"
+        android:thumbTint="#F0F0F0"
+        android:progressBackgroundTint="#26FFFFFF"
 
 
         app:layout_constraintEnd_toEndOf="parent"
@@ -429,6 +484,7 @@
         android:layout_height="0dp"
         android:gravity="center"
         android:text="100%"
+        android:textColor="#F0F0F0"
 
         app:layout_constraintBottom_toBottomOf="@id/editCornerRadius_textView"
         app:layout_constraintEnd_toEndOf="parent"
@@ -442,6 +498,8 @@
         android:gravity="center"
         android:paddingEnd="5dp"
         android:text="@string/customctrl_button_opacity"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
 
 
         app:layout_constraintStart_toStartOf="parent"
@@ -451,6 +509,9 @@
         android:id="@+id/editButtonOpacity_seekbar"
         android:layout_width="0dp"
         android:layout_height="@dimen/_36sdp"
+        android:progressTint="#F0F0F0"
+        android:thumbTint="#F0F0F0"
+        android:progressBackgroundTint="#26FFFFFF"
 
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -462,6 +523,7 @@
         android:layout_height="0dp"
         android:gravity="center"
         android:text="100%"
+        android:textColor="#F0F0F0"
 
         app:layout_constraintBottom_toBottomOf="@id/editButtonOpacity_textView"
         app:layout_constraintEnd_toEndOf="parent"
@@ -473,6 +535,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/customctrl_visibility_title"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
         app:layout_constraintTop_toBottomOf="@+id/editButtonOpacity_seekbar"
         tools:layout_editor_absoluteX="6dp" />
 
@@ -481,6 +545,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/customctrl_visibility_ingame"
+        android:textColor="#F0F0F0"
+        android:buttonTint="@color/side_dialog_checkbox_tint"
         app:layout_constraintTop_toBottomOf="@+id/visibility_textview" />
 
     <CheckBox
@@ -488,6 +554,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/customctrl_visibility_in_menus"
+        android:textColor="#F0F0F0"
+        android:buttonTint="@color/side_dialog_checkbox_tint"
         app:layout_constraintTop_toBottomOf="@+id/visibility_game_checkbox" />
 
 

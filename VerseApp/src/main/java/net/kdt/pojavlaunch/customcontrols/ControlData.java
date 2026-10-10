@@ -69,7 +69,7 @@ public class ControlData {
     private float height;        //Dp instead of Px now
 
     public ControlData() {
-        this("button");
+        this("按键");
     }
 
     public ControlData(String name) {
@@ -156,16 +156,16 @@ public class ControlData {
     public static ControlData[] getSpecialButtons() {
         if (SPECIAL_BUTTONS == null) {
             SPECIAL_BUTTONS = new ControlData[]{
-                    new ControlData("Keyboard", new int[]{SPECIALBTN_KEYBOARD}, "${margin} * 3 + ${width} * 2", "${margin}", false),
-                    new ControlData("GUI", new int[]{SPECIALBTN_TOGGLECTRL}, "${margin}", "${bottom} - ${margin}"),
-                    new ControlData("PRI", new int[]{SPECIALBTN_MOUSEPRI}, "${margin}", "${screen_height} - ${margin} * 3 - ${height} * 3"),
-                    new ControlData("SEC", new int[]{SPECIALBTN_MOUSESEC}, "${margin} * 3 + ${width} * 2", "${screen_height} - ${margin} * 3 - ${height} * 3"),
-                    new ControlData("Mouse", new int[]{SPECIALBTN_VIRTUALMOUSE}, "${right}", "${margin}", false),
+                    new ControlData("键盘", new int[]{SPECIALBTN_KEYBOARD}, "${margin} * 3 + ${width} * 2", "${margin}", false),
+                    new ControlData("切换控件", new int[]{SPECIALBTN_TOGGLECTRL}, "${margin}", "${bottom} - ${margin}"),
+                    new ControlData("左键", new int[]{SPECIALBTN_MOUSEPRI}, "${margin}", "${screen_height} - ${margin} * 3 - ${height} * 3"),
+                    new ControlData("右键", new int[]{SPECIALBTN_MOUSESEC}, "${margin} * 3 + ${width} * 2", "${screen_height} - ${margin} * 3 - ${height} * 3"),
+                    new ControlData("虚拟鼠标", new int[]{SPECIALBTN_VIRTUALMOUSE}, "${right}", "${margin}", false),
 
-                    new ControlData("MID", new int[]{SPECIALBTN_MOUSEMID}, "${margin}", "${margin}"),
-                    new ControlData("SCROLLUP", new int[]{SPECIALBTN_SCROLLUP}, "${margin}", "${margin}"),
-                    new ControlData("SCROLLDOWN", new int[]{SPECIALBTN_SCROLLDOWN}, "${margin}", "${margin}"),
-                    new ControlData("MENU", new int[]{SPECIALBTN_MENU}, "${margin}", "${margin}")
+                    new ControlData("中键", new int[]{SPECIALBTN_MOUSEMID}, "${margin}", "${margin}"),
+                    new ControlData("滚轮上", new int[]{SPECIALBTN_SCROLLUP}, "${margin}", "${margin}"),
+                    new ControlData("滚轮下", new int[]{SPECIALBTN_SCROLLDOWN}, "${margin}", "${margin}"),
+                    new ControlData("菜单", new int[]{SPECIALBTN_MENU}, "${margin}", "${margin}")
             };
         }
 
@@ -176,7 +176,7 @@ public class ControlData {
         if (SPECIAL_BUTTON_NAME_ARRAY == null) {
             List<String> nameList = new ArrayList<>();
             for (ControlData btn : getSpecialButtons()) {
-                nameList.add("SPECIAL_" + btn.name);
+                nameList.add(btn.name);
             }
             SPECIAL_BUTTON_NAME_ARRAY = nameList;
             Collections.reverse(SPECIAL_BUTTON_NAME_ARRAY);

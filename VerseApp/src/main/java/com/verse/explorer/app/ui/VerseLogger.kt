@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +24,12 @@ object VerseLogger {
     private var mirrorWriter: PrintWriter? = null
     private var mirrorFile: File? = null
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+
+    // UI 状态批量刷新：刷日志高峰期（游戏启动）每行一次列表拷贝 + 全收集者重组会把
+    // 主线程拖死，改为 250ms 防抖合并，积压超过 200 条立即刷新
+    private val pendingEntries = ArrayList<LogEntry>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var flushScheduled = false
 
     data class LogState(
         val entries: List<LogEntry> = emptyList(),
@@ -90,10 +98,6 @@ object VerseLogger {
 
     private fun log(level: String, tag: String, message: String) {
         val timestamp = dateFormat.format(Date())
-        val entry = LogEntry(timestamp, level, tag, message)
-        val entries = (_logState.value.entries + entry).takeLast(5000)
-        _logState.value = _logState.value.copy(entries = entries)
-
         val line = "[$timestamp] [$tag/$level] $message"
         Log.d("VerseX", line)
         try {
@@ -104,9 +108,33 @@ object VerseLogger {
             mirrorWriter?.println(line)
             mirrorWriter?.flush()
         } catch (_: Exception) {}
+
+        val flushNow = synchronized(pendingEntries) {
+            pendingEntries.add(LogEntry(timestamp, level, tag, message))
+            pendingEntries.size >= 200
+        }
+        if (flushNow) {
+            flushLogState()
+        } else if (!flushScheduled) {
+            flushScheduled = true
+            mainHandler.postDelayed({ flushLogState() }, 250)
+        }
+    }
+
+    private fun flushLogState() {
+        flushScheduled = false
+        synchronized(pendingEntries) {
+            if (pendingEntries.isEmpty()) return
+            val batch = ArrayList(pendingEntries)
+            pendingEntries.clear()
+            _logState.value = _logState.value.copy(
+                entries = (_logState.value.entries + batch).takeLast(2000)
+            )
+        }
     }
 
     fun clear() {
+        synchronized(pendingEntries) { pendingEntries.clear() }
         _logState.value = LogState(entries = emptyList(), logPath = _logState.value.logPath)
         try {
             logFile?.writeText("")

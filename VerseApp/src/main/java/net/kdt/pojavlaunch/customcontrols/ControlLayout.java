@@ -478,9 +478,9 @@ public class ControlLayout extends FrameLayout {
 	}
 
 	public void updateLoadedFileName(String path) {
-		path = path.replace(Tools.CTRLMAP_PATH, ".");
-		path = path.substring(0, path.length() - 5);
-		mLayoutFileName = path;
+		String name = new File(path).getName();
+		if (name.endsWith(".json")) name = name.substring(0, name.length() - 5);
+		mLayoutFileName = name;
 	}
 
 	public String saveToDirectory(String name) throws Exception{
@@ -527,8 +527,8 @@ public class ControlLayout extends FrameLayout {
 		AlertDialog.Builder builder = new AlertDialog.Builder(context);
 		builder.setTitle(R.string.global_save);
 		builder.setView(edit);
-		builder.setPositiveButton(android.R.string.ok, null);
-		builder.setNegativeButton(android.R.string.cancel, null);
+		builder.setPositiveButton(R.string.global_confirm, null);
+		builder.setNegativeButton(R.string.global_cancel, null);
 		if(editorExitable != null) builder.setNeutralButton(R.string.global_save_and_exit, null);
 		final AlertDialog dialog = builder.create();
 		dialog.setOnShowListener(dialogInterface -> {
@@ -543,7 +543,7 @@ public class ControlLayout extends FrameLayout {
 	public void openLoadDialog() {
 		AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
 		builder.setTitle(R.string.global_load);
-		builder.setPositiveButton(android.R.string.cancel, null);
+		builder.setPositiveButton(R.string.global_cancel, null);
 
 		final AlertDialog dialog = builder.create();
 		FileListView flv = new FileListView(dialog, "json");
@@ -568,7 +568,7 @@ public class ControlLayout extends FrameLayout {
 	public void openSetDefaultDialog() {
 		AlertDialog.Builder builder = new AlertDialog.Builder(getContext());
 		builder.setTitle(R.string.customctrl_selectdefault);
-		builder.setPositiveButton(android.R.string.cancel, null);
+		builder.setPositiveButton(R.string.global_cancel, null);
 
 		final AlertDialog dialog = builder.create();
 		FileListView flv = new FileListView(dialog, "json");

@@ -16,6 +16,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:padding="@dimen/padding_moderate"
+        android:textColor="#F0F0F0"
+        android:textStyle="bold"
+        android:textSize="16sp"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
 
@@ -50,6 +53,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentStart="true"
+            android:textColor="#F0F0F0"
+            android:textAllCaps="false"
             android:visibility="gone"
 
             tools:visibility="visible"
@@ -62,6 +67,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_alignParentEnd="true"
+            android:textColor="#F0F0F0"
+            android:textAllCaps="false"
+            android:textStyle="bold"
             android:visibility="gone"
 
             tools:text="Confirm"
