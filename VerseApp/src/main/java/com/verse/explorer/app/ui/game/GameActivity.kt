@@ -449,8 +449,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             //   · 空白区 → GameInputHandler（FCL FCLInput 移植），含 hasMoved：滑动过的
             //     手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
             //   · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
-            val gestureSkipIds = virtualControlPointerIndexes(ev)
-            if (inGameControl?.trackMultiTouch(ev, gestureSkipIds) == true) {
+            val buttonPointerIds = resolveButtonPointerIds(ev)
+            if (inGameControl?.trackMultiTouch(ev, buttonPointerIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
                 inGameControl?.fireSwipe()
                 return true
@@ -462,22 +462,22 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 touchOverlay?.dispatchTouchEvent(ev)
                 return true
             }
-            val buttonIndexes = virtualControlPointerIndexes(ev)
-            if (buttonIndexes.isNotEmpty()) {
+            // 按钮指针的事件流必须完整送达 ControlLayout：按下按钮的手指即使滑出
+            // 按钮边界，MOVE/UP 也要继续转发，按钮才能在抬手时释放按键，
+            // 否则按键会一直保持按住状态。
+            if (buttonPointerIds.isNotEmpty()) {
                 touchOverlay?.dispatchTouchEvent(ev)
             }
-            val skipIds = mutableSetOf<Int>()
-            for (i in buttonIndexes) skipIds.add(ev.getPointerId(i))
-            diagDispatch(ev, buttonIndexes, skipIds)
-            if (skipIds.size < ev.pointerCount) {
+            diagDispatch(ev, buttonPointerIds, buttonPointerIds)
+            if (buttonPointerIds.size < ev.pointerCount) {
                 if (inputHandler.isGrabbing() && MenuSetting.isDisableLeftTouch) {
                     val mainIndex = (0 until ev.pointerCount)
-                        .firstOrNull { ev.getPointerId(it) !in skipIds } ?: 0
+                        .firstOrNull { ev.getPointerId(it) !in buttonPointerIds } ?: 0
                     if (ev.getX(mainIndex) <= resources.displayMetrics.widthPixels / 2f) {
                         return true
                     }
                 }
-                inputHandler.handleTouchEvent(ev, skipIds)
+                inputHandler.handleTouchEvent(ev, buttonPointerIds)
             }
             return true
         }
@@ -520,6 +520,41 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
         }
         return hit
+    }
+
+    /** DOWN 时被虚拟按钮捕获的指针 id；抬起/取消后移除 */
+    private val capturedButtonPointerIds = mutableSetOf<Int>()
+
+    /**
+     * 计算本次事件中属于虚拟按钮的指针 id 集合，并维护捕获记录。
+     * 指针按下时落在按钮上即被捕获，此后无论滑到哪里（坐标命中早已失效），
+     * 其 MOVE/UP 都必须继续送进 ControlLayout，按钮才能在抬手时释放按键；
+     * 同时这些指针不会进入游戏触控，也不会参与双指下滑手势判定。
+     */
+    private fun resolveButtonPointerIds(ev: MotionEvent): Set<Int> {
+        // 自愈：清理指向已消亡指针的陈旧捕获记录（如覆盖层接管期间漏掉收尾）
+        capturedButtonPointerIds.retainAll { id ->
+            (0 until ev.pointerCount).any { ev.getPointerId(it) == id }
+        }
+        val hitIndexes = virtualControlPointerIndexes(ev)
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN ->
+                if (0 in hitIndexes) capturedButtonPointerIds.add(ev.getPointerId(0))
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val idx = ev.actionIndex
+                if (idx in hitIndexes) capturedButtonPointerIds.add(ev.getPointerId(idx))
+            }
+            else -> {}
+        }
+        val ids = mutableSetOf<Int>()
+        ids.addAll(capturedButtonPointerIds)
+        for (i in hitIndexes) ids.add(ev.getPointerId(i))
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> capturedButtonPointerIds.clear()
+            MotionEvent.ACTION_POINTER_UP ->
+                capturedButtonPointerIds.remove(ev.getPointerId(ev.actionIndex))
+        }
+        return ids
     }
 
     private fun isTouchOnQuickInput(ev: MotionEvent): Boolean {
