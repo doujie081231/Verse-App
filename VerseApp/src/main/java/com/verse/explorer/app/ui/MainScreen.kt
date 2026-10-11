@@ -222,6 +222,16 @@ fun MainScreen(
                 VersionSettingsScreen(versionId = versionId, navController = navController)
             }
             composable(
+                "installed_mods/{versionId}",
+                enterTransition = { DetailEnterTransition },
+                exitTransition = { DetailExitTransition },
+                popEnterTransition = { DetailPopEnterTransition },
+                popExitTransition = { DetailPopExitTransition }
+            ) { backStackEntry ->
+                val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
+                InstalledModsScreen(versionId = versionId, navController = navController)
+            }
+            composable(
                 "version_detail/{versionId}?type={versionType}&url={versionUrl}",
                 enterTransition = { DetailEnterTransition },
                 exitTransition = { DetailExitTransition },

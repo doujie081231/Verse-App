@@ -2,7 +2,7 @@ package com.verse.explorer.app.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,17 +10,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.verse.explorer.app.BuildConfig
+import com.verse.explorer.app.R
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.theme.VerseColors
 
@@ -30,40 +32,40 @@ import com.verse.explorer.app.ui.theme.VerseColors
  */
 
 private data class CreditItem(
-    val shortName: String,
+    val iconRes: Int,
     val displayName: String,
     val description: String,
     val link: String
 )
 
-// 致谢条目（与 PC 端「致谢」卡片同风格：图标块 + 名称 + 一句感谢语，点击打开项目主页）
+// 致谢条目（与 PC 端「致谢」卡片同风格：项目图标 + 名称 + 一句感谢语，点击打开项目主页）
 private val creditItems = listOf(
     CreditItem(
-        "P",
+        R.drawable.credit_pcl,
         "Plain Craft Launcher 2",
         "借鉴了其优秀的多线程下载技术，大幅提升了文件下载速度与稳定性",
         "https://github.com/Meloong-Git/PCL"
     ),
     CreditItem(
-        "F",
+        R.drawable.credit_fcl,
         "Fold Craft Launcher",
         "参考了其游戏启动链路与触控布局仓库体系，让启动与触控方案更加完善",
         "https://github.com/FCL-Team/FoldCraftLauncher"
     ),
     CreditItem(
-        "P",
+        R.drawable.credit_pojav,
         "PojavLauncher",
         "提供了 Android 端 Java 运行环境与游戏渲染的底层方案",
-        "https://github.com/PojavLauncherTeam/Pojav-Launcher"
+        "https://github.com/PojavLauncherTeam/PojavLauncher"
     ),
     CreditItem(
-        "Z",
+        R.drawable.credit_zalith,
         "Zalith Launcher 2",
         "其控制布局格式为布局编辑与多启动器布局互通提供了参照",
         "https://github.com/ZalithLauncher/ZalithLauncher2"
     ),
     CreditItem(
-        "V",
+        R.drawable.credit_versepc,
         "VersePC 2",
         "Verse 系列的 PC 端启动器，桌面端功能与本应用保持同一体验基准",
         "https://verselauncher.cn"
@@ -121,20 +123,15 @@ fun AboutContent() {
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 字母图标块（对齐 PC 端 48dp 圆角项目图标）
-                Box(
+                // 项目图标（44dp 圆角，对齐 PC 端项目图标块）
+                Image(
+                    painter = painterResource(item.iconRes),
+                    contentDescription = item.displayName,
                     modifier = Modifier
                         .size(44.dp)
-                        .background(VerseColors.PcAccent.copy(alpha = 0.14f), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        item.shortName,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VerseColors.PcAccent
-                    )
-                }
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Crop
+                )
                 Spacer(Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(

@@ -815,8 +815,8 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             }
 
-            // 保存设置按钮
-            item {
+            // 保存设置按钮（关于页为纯展示信息，不提供保存操作）
+            if (selectedPage != 4) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End

@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 193
-        versionName = "2.4.57"
+        versionCode = 195
+        versionName = "2.4.59"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -155,6 +155,7 @@ dependencies {
     implementation(project(":JvmLauncher"))
     implementation(project(":LayerController"))
     implementation(project(":Terracotta"))
+    implementation(project(":CardGrid"))
     implementation(project(":FclCore"))
 
     implementation("androidx.core:core-ktx:1.15.0")

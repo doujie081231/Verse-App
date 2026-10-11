@@ -14,8 +14,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
@@ -162,6 +164,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             InstalledVersionItem(
                                 version = version,
                                 selected = version.id == currentLaunchVersionId,
+                                pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
                                 onSelect = {
                                     SettingsRepository.setCustomSetting("last_version", version.id)
                                     currentLaunchVersionId = version.id
@@ -169,6 +172,13 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                 },
                                 onSettings = {
                                     navController.navigate("version_settings/${version.id}")
+                                },
+                                onToggleHome = { pinned ->
+                                    if (pinned) {
+                                        com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
+                                    } else {
+                                        com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
+                                    }
                                 },
                                 onDelete = { showDeleteConfirm = version.id }
                             )
@@ -198,6 +208,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             InstalledVersionItem(
                                 version = version,
                                 selected = version.id == currentLaunchVersionId,
+                                pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
                                 onSelect = {
                                     SettingsRepository.setCustomSetting("last_version", version.id)
                                     currentLaunchVersionId = version.id
@@ -205,6 +216,13 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                 },
                                 onSettings = {
                                     navController.navigate("version_settings/${version.id}")
+                                },
+                                onToggleHome = { pinned ->
+                                    if (pinned) {
+                                        com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
+                                    } else {
+                                        com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
+                                    }
                                 },
                                 onDelete = { showDeleteConfirm = version.id }
                             )
@@ -260,8 +278,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 private fun InstalledVersionItem(
     version: MinecraftVersion,
     selected: Boolean,
+    pinnedToHome: Boolean,
     onSelect: () -> Unit,
     onSettings: () -> Unit,
+    onToggleHome: (Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
@@ -394,6 +414,19 @@ private fun InstalledVersionItem(
                     )
                 }
 
+                // 主页固定（把版本作为主页卡片显示/移除）
+                IconButton(
+                    onClick = { onToggleHome(!pinnedToHome) },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.Home,
+                        contentDescription = if (pinnedToHome) "从主页移除" else "固定到主页",
+                        tint = if (pinnedToHome) VerseColors.PcAccent else VerseColors.PcTextMuted,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(Modifier.width(2.dp))
                 // 齿轮（版本设置）
                 IconButton(
                     onClick = onSettings,

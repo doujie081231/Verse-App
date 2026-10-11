@@ -152,7 +152,7 @@ fun VersionSettingsScreen(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { navController.navigate(Screen.Mods.route) },
+                            .clickable { navController.navigate("installed_mods/$versionId") },
                         shape = RoundedCornerShape(12.dp),
                         color = VerseColors.PcAccent.copy(alpha = 0.14f),
                         border = BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.45f))
@@ -178,7 +178,7 @@ fun VersionSettingsScreen(
                                     color = VerseColors.PcAccent
                                 )
                                 Text(
-                                    "查看、添加此版本的模组资源",
+                                    "查看、管理、导入此版本已安装的模组",
                                     fontSize = 11.sp,
                                     color = VerseColors.PcTextSecondary
                                 )

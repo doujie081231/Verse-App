@@ -36,6 +36,7 @@ import com.verse.explorer.app.launch.GameLaunchController
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcLaunchOverlay
+import com.verse.explorer.app.ui.home.VersionCardManager
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.core.account.AccountType
@@ -104,23 +105,48 @@ fun HomeScreen(
                 if (selectedVersionId == null && versions.isNotEmpty()) {
                     selectedVersionId = versions.first().id
                 }
+                // 主页版本卡片：核对可用性；首次使用自动固定当前版本
+                VersionCardManager.initialize(context)
+                VersionCardManager.refresh(context, versions)
+                if (!VersionCardManager.hasSeeded(context) && versions.isNotEmpty()) {
+                    val seed = settingsLastVersion()?.takeIf { last -> versions.any { it.id == last } }
+                        ?: versions.first().id
+                    VersionCardManager.addCard(context, seed)
+                    VersionCardManager.markSeeded(context)
+                }
             } catch (_: Exception) {}
         }
     }
 
     val selected = localVersions.find { it.id == selectedVersionId }
+    val gridState = com.verse.explorer.cardgrid.state.rememberCardGridState()
+    val homeActions = remember {
+        com.verse.explorer.app.ui.home.HomeVersionActions(
+            onLaunch = { versionId ->
+                if (!launchState.isLaunching) launchController.launchGame(versionId)
+            },
+            onOpenVersionSettings = { versionId ->
+                navController.navigate("version_settings/$versionId")
+            }
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        HomePageContent(
-            selectedAccount = selectedAccount,
-            selected = selected,
-            selectedVersionId = selectedVersionId,
-            isLaunching = launchState.isLaunching,
-            runningInstance = runningInstance,
-            onGoAccounts = { navController.navigate(Screen.Accounts.route) },
-            onOpenVersions = { navController.navigate("installed_versions") },
-            onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
-        )
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.verse.explorer.app.ui.home.LocalHomeVersionActions provides homeActions
+        ) {
+            HomePageContent(
+                selectedAccount = selectedAccount,
+                selected = selected,
+                selectedVersionId = selectedVersionId,
+                isLaunching = launchState.isLaunching,
+                runningInstance = runningInstance,
+                gridState = gridState,
+                onGoAccounts = { navController.navigate(Screen.Accounts.route) },
+                onOpenVersions = { navController.navigate("installed_versions") },
+                onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
+            )
+        }
 
         // 启动加载弹窗（ZL2 样式：遮罩 + 居中卡片，不可取消）
         if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
@@ -146,7 +172,8 @@ data class RunningGame(
 )
 
 /**
- * 主页页面内容（对齐 versepc2 .home-page 布局）
+ * 主页页面内容（对齐 versepc2 .home-page 布局）：
+ * 顶部固定区（账户、当前版本、启动入口）+ 下方可自定义排布的版本卡片网格
  */
 @Composable
 private fun HomePageContent(
@@ -155,6 +182,7 @@ private fun HomePageContent(
     selectedVersionId: String?,
     isLaunching: Boolean,
     runningInstance: RunningGame?,
+    gridState: com.verse.explorer.cardgrid.state.CardGridState,
     onGoAccounts: () -> Unit,
     onOpenVersions: () -> Unit,
     onLaunch: () -> Unit
@@ -164,6 +192,7 @@ private fun HomePageContent(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -224,6 +253,13 @@ private fun HomePageContent(
                 Spacer(Modifier.height(6.dp))
                 HomeRunningCard(instance = runningInstance)
             }
+            Spacer(Modifier.height(10.dp))
+
+            // 主页版本卡片网格：长按卡片拖动/缩放排布，工具条可删除，布局自动保存
+            com.verse.explorer.app.ui.home.VerseHomeGrid(
+                state = gridState,
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(Modifier.height(6.dp))
         }
 }
@@ -361,7 +397,7 @@ private fun HomeCurrentVersionCard(
  * 其次加载器图标（hint/名称），最后按版本类型渲染（grass/cobblestone/old）
  */
 @Composable
-private fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.unit.Dp) {
+internal fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.unit.Dp) {
     val context = LocalContext.current
     // 整合包作者图标（安装整合包时写入 versions/<id>/modpack_icon.png）
     val packIconBitmap = remember(version.id) {
@@ -429,7 +465,7 @@ private fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.uni
  * 优先版本 json 识别的加载器（loaderHint），再退化名称关键词判定。
  */
 @Composable
-private fun LoaderBadge(version: MinecraftVersion) {
+internal fun LoaderBadge(version: MinecraftVersion) {
     val hint = version.loaderHint?.lowercase()
     val (badge, color) = if (!hint.isNullOrBlank()) {
         when (hint) {
