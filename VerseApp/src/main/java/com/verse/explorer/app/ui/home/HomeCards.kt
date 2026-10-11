@@ -48,12 +48,13 @@ object HomeCards {
 
     private val accountCardType = CardType(
         typeId = ACCOUNT_CARD_TYPE_ID,
-        defaultSpan = IntOffset(10, 6),
+        defaultSpan = IntOffset(2, 2),
         limits = CardLimits(
-            minWidth = 10,
-            minHeight = 4,
-            maxHeight = 12
+            minWidth = 2,
+            minHeight = 2,
+            maxHeight = 8
         ),
+        decorated = false,
         content = {
             AccountCardContent()
         }
@@ -61,10 +62,10 @@ object HomeCards {
 
     private val currentVersionCardType = CardType(
         typeId = CURRENT_VERSION_CARD_TYPE_ID,
-        defaultSpan = IntOffset(10, 4),
+        defaultSpan = IntOffset(8, 2),
         limits = CardLimits(
-            minWidth = 10,
-            minHeight = 4,
+            minWidth = 4,
+            minHeight = 2,
             maxHeight = 8
         ),
         content = {
@@ -74,12 +75,13 @@ object HomeCards {
 
     private val launchCardType = CardType(
         typeId = LAUNCH_CARD_TYPE_ID,
-        defaultSpan = IntOffset(10, 4),
+        defaultSpan = IntOffset(8, 2),
         limits = CardLimits(
-            minWidth = 10,
-            minHeight = 4,
+            minWidth = 4,
+            minHeight = 2,
             maxHeight = 8
         ),
+        decorated = false,
         content = {
             LaunchCardContent()
         }

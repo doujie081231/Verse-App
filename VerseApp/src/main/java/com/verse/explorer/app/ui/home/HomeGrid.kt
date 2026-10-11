@@ -56,28 +56,45 @@ fun VerseHomeGrid(
 ) {
     val context = LocalContext.current
 
-    // 播种持久化的用户卡片布局
+    // 播种持久化的用户卡片布局；首次使用（无快照）按原主页结构排布
     LaunchedEffect(Unit) {
         val snapshot = HomeGridStore.load(context)
+        val seeds: List<CardSeed> = snapshot?.cards?.map { entry ->
+            CardSeed(
+                id = entry.id,
+                typeId = entry.type,
+                layout = CardRect(
+                    id = entry.id,
+                    x = entry.x,
+                    y = entry.y,
+                    width = entry.width,
+                    height = entry.height
+                )
+            )
+        } ?: listOf(
+            // 头像（居中 2×2）→ 当前版本选择 → 启动按钮 → 版本卡片垫底
+            CardSeed(
+                id = "system_account",
+                typeId = HomeCards.ACCOUNT_CARD_TYPE_ID,
+                layout = CardRect("system_account", 4, 0, 2, 2)
+            ),
+            CardSeed(
+                id = "system_current_version",
+                typeId = HomeCards.CURRENT_VERSION_CARD_TYPE_ID,
+                layout = CardRect("system_current_version", 1, 2, 8, 2)
+            ),
+            CardSeed(
+                id = "system_launch",
+                typeId = HomeCards.LAUNCH_CARD_TYPE_ID,
+                layout = CardRect("system_launch", 1, 4, 8, 2)
+            )
+        )
         state.seed(
             types = HomeCards.userCardTypes,
-            seeds = snapshot?.cards?.map { entry ->
-                CardSeed(
-                    id = entry.id,
-                    typeId = entry.type,
-                    layout = CardRect(
-                        id = entry.id,
-                        x = entry.x,
-                        y = entry.y,
-                        width = entry.width,
-                        height = entry.height
-                    )
-                )
-            } ?: emptyList(),
+            seeds = seeds,
             storedColumns = snapshot?.columns ?: 0
         )
-        // 固定功能卡片：账户 / 当前版本 / 启动入口，保证主页基础功能常驻；
-        // 首次进入按 空闲最上最左 落位，此后位置随用户排布持久化
+        // 快照恢复缺卡时补齐固定功能卡片，保证主页基础功能常驻
         ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
         ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
         ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")

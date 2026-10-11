@@ -28,7 +28,7 @@ data class HomeGridSnapshot(
  */
 object HomeGridStore {
     private const val PREFS = "home_grid"
-    private const val KEY_LAYOUT = "homeCardLayout_v2"
+    private const val KEY_LAYOUT = "homeCardLayout_v3"
 
     private val gson = Gson()
 

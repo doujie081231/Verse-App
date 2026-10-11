@@ -269,19 +269,32 @@ private fun CardSlot(
             .cardBounds(rectProvider)
             .zIndex(zIndex)
     ) {
-        CardSurface(
-            interaction = interaction,
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (state.isSessionCard(card.id)) Modifier.graphicsLayer { alpha = GhostAlpha } else Modifier),
-            shape = card.type.shape ?: MaterialTheme.shapes.extraLarge,
-            containerColor = containerColor,
-            contentColor = contentColor,
-            cardBackground = cardBackground,
-            selected = adjusting
-        ) {
-            CompositionLocalProvider(LocalLayoutDirection provides contentDirection) {
-                card.type.content(state.cardStateOf(card), card.id)
+        if (card.type.decorated) {
+            CardSurface(
+                interaction = interaction,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (state.isSessionCard(card.id)) Modifier.graphicsLayer { alpha = GhostAlpha } else Modifier),
+                shape = card.type.shape ?: MaterialTheme.shapes.extraLarge,
+                containerColor = containerColor,
+                contentColor = contentColor,
+                cardBackground = cardBackground,
+                selected = adjusting
+            ) {
+                CompositionLocalProvider(LocalLayoutDirection provides contentDirection) {
+                    card.type.content(state.cardStateOf(card), card.id)
+                }
+            }
+        } else {
+            // 纯内容卡片：不绘制表面，仅保留选中态高亮描边
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (state.isSessionCard(card.id)) Modifier.graphicsLayer { alpha = GhostAlpha } else Modifier)
+            ) {
+                CompositionLocalProvider(LocalLayoutDirection provides contentDirection) {
+                    card.type.content(state.cardStateOf(card), card.id)
+                }
             }
         }
     }

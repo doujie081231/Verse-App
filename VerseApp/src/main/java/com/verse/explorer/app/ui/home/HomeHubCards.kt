@@ -51,13 +51,12 @@ data class HomeHubState(
 val LocalHomeHub = staticCompositionLocalOf { HomeHubState() }
 
 /**
- * 账户卡片：头像 + 用户名 + 账户类型，点按进入账户管理
+ * 账户卡片：纯头像铺满卡片（未登录为添加账号虚线框），点按进入账户管理
  */
 @Composable
 fun CardState.AccountCardContent() {
     val hub = LocalHomeHub.current
     val currentInteraction by rememberUpdatedCardInteraction()
-    val big = sizeClass.height >= CardSizeClass.LARGE
 
     Box(
         modifier = Modifier
@@ -65,75 +64,8 @@ fun CardState.AccountCardContent() {
             .homeCardTap {
                 if (currentInteraction == CardInteraction.Idle) hub.onGoAccounts()
             }
-            .padding(12.dp),
-        contentAlignment = Alignment.Center
     ) {
-        if (big) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(76.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                ) {
-                    HomeAvatar(account = hub.account, onClick = {})
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = hub.account?.username ?: "未登录",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = VerseColors.PcTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = accountTypeLabel(hub.account),
-                    fontSize = 10.sp,
-                    color = VerseColors.PcTextMuted
-                )
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                ) {
-                    HomeAvatar(account = hub.account, onClick = {})
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = hub.account?.username ?: "未登录",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VerseColors.PcTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = accountTypeLabel(hub.account),
-                        fontSize = 10.sp,
-                        color = VerseColors.PcTextMuted
-                    )
-                }
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = VerseColors.PcTextMuted,
-                    modifier = Modifier.size(14.dp)
-                )
-            }
-        }
+        HomeAvatar(account = hub.account, onClick = {})
     }
 }
 
@@ -200,7 +132,7 @@ fun CardState.CurrentVersionCardContent() {
 }
 
 /**
- * 启动卡片：主启动按钮（与主页主启动按钮同风格）
+ * 启动卡片：主启动按钮（与原主页启动按钮同款渐变按钮，无卡片装饰）
  */
 @Composable
 fun CardState.LaunchCardContent() {
@@ -209,52 +141,16 @@ fun CardState.LaunchCardContent() {
     val textColor = if (enabled) VerseColors.PcAccentText else VerseColors.PcAccentText.copy(alpha = 0.45f)
 
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        if (sizeClass.height >= CardSizeClass.LARGE) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                LaunchButtonCore(
-                    launching = hub.launching,
-                    enabled = enabled,
-                    textColor = textColor,
-                    big = true
-                ) { hub.onLaunch() }
-            }
-        } else {
-            LaunchButtonCore(
-                launching = hub.launching,
-                enabled = enabled,
-                textColor = textColor,
-                big = false
-            ) { hub.onLaunch() }
-        }
-    }
-}
-
-@Composable
-private fun LaunchButtonCore(
-    launching: Boolean,
-    enabled: Boolean,
-    textColor: Color,
-    big: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                brush = Brush.linearGradient(
-                    listOf(VerseColors.PcLaunchGradientStart, VerseColors.PcLaunchGradientEnd)
-                )
-            )
-            .homeCardTap(onTap = { if (enabled) onClick() })
-            .padding(
-                horizontal = if (big) 36.dp else 26.dp,
-                vertical = if (big) 14.dp else 9.dp
-            )
-    ) {
         Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(
+                    brush = Brush.linearGradient(
+                        listOf(VerseColors.PcLaunchGradientStart, VerseColors.PcLaunchGradientEnd)
+                    )
+                )
+                .homeCardTap(onTap = { if (enabled) hub.onLaunch() })
+                .padding(horizontal = 30.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
@@ -262,21 +158,14 @@ private fun LaunchButtonCore(
                 Icons.Filled.PlayArrow,
                 contentDescription = null,
                 tint = textColor,
-                modifier = Modifier.size(if (big) 18.dp else 14.dp)
+                modifier = Modifier.size(14.dp)
             )
             Text(
-                text = if (launching) "启动中..." else "启动游戏",
-                fontSize = if (big) 15.sp else 13.sp,
+                text = if (hub.launching) "启动中..." else "启动游戏",
+                fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor
             )
         }
     }
-}
-
-private fun accountTypeLabel(account: com.verse.explorer.core.account.Account?): String = when (account?.type) {
-    com.verse.explorer.core.account.AccountType.MICROSOFT -> "Microsoft 正版"
-    com.verse.explorer.core.account.AccountType.AUTHLIB -> "外置登录"
-    com.verse.explorer.core.account.AccountType.OFFLINE -> "离线模式"
-    null -> "点击登录"
 }
