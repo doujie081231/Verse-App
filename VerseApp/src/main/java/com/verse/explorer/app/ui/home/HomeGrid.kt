@@ -1,17 +1,15 @@
 package com.verse.explorer.app.ui.home
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -56,15 +54,16 @@ data class HomeVersionActions(
 
 /**
  * 主页卡片网格：负责布局的播种、持久化与卡片记录同步，
- * 系统区域（账户、启动入口等）绘制在网格之外。
+ * 系统区域（账户、启动入口等）绘制在网格之外；
+ * 卡片拖拽的边缘自动滚动直接驱动外层滚动容器，网格自身不再嵌套滚动。
  */
 @Composable
 fun VerseHomeGrid(
     state: CardGridState,
+    outerScrollState: ScrollState,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scrollState = rememberScrollState()
 
     // 播种持久化的用户卡片布局
     LaunchedEffect(Unit) {
@@ -125,40 +124,32 @@ fun VerseHomeGrid(
                 )
             }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(scrollState)
-                .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            CardGrid(
-                state = state,
-                containerColor = VerseColors.PcBgCard,
-                contentColor = VerseColors.PcTextPrimary,
-                adjustingBar = { barModifier, card ->
-                    CardToolbar(
-                        modifier = barModifier,
-                        state = state,
-                        card = card
-                    )
-                }
-            )
-            if (cardCount.isEmpty()) {
-                Text(
-                    text = "暂无主页卡片，可在「已安装版本」列表中将版本固定到这里",
-                    fontSize = 11.sp,
-                    color = VerseColors.PcTextMuted,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        CardGrid(
+            state = state,
+            containerColor = VerseColors.PcBgCard,
+            contentColor = VerseColors.PcTextPrimary,
+            adjustingBar = { barModifier, card ->
+                CardToolbar(
+                    modifier = barModifier,
+                    state = state,
+                    card = card
                 )
             }
+        )
+        if (cardCount.isEmpty()) {
+            Text(
+                text = "暂无主页卡片，可在「已安装版本」列表中将版本固定到这里",
+                fontSize = 11.sp,
+                color = VerseColors.PcTextMuted,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
         CardGridAutoScroll(
             state = state,
-            scrollState = scrollState
+            scrollState = outerScrollState
         )
     }
 }

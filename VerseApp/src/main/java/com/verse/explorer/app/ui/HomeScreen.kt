@@ -188,11 +188,12 @@ private fun HomePageContent(
     onLaunch: () -> Unit
 ) {
     // 无顶部标题（直接去掉，腾出纵向空间）；中心内容列竖排，整体紧凑化
+    val homeScrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(homeScrollState)
             .padding(horizontal = 24.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -258,6 +259,7 @@ private fun HomePageContent(
             // 主页版本卡片网格：长按卡片拖动/缩放排布，工具条可删除，布局自动保存
             com.verse.explorer.app.ui.home.VerseHomeGrid(
                 state = gridState,
+                outerScrollState = homeScrollState,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(6.dp))
