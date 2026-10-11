@@ -17,7 +17,7 @@ object VersionCardManager {
 
     private const val PREFS = "home_version_cards"
     private const val KEY_RECORDS = "versionCards"
-    private const val KEY_SEEDED = "seeded"
+    private const val KEY_SEEDED = "seeded_v2"
 
     private val gson = Gson()
 

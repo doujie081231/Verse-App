@@ -132,20 +132,20 @@ fun HomeScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val hubState = com.verse.explorer.app.ui.home.HomeHubState(
+            account = selectedAccount,
+            currentVersion = selected,
+            currentVersionId = selectedVersionId,
+            launching = launchState.isLaunching,
+            onGoAccounts = { navController.navigate(Screen.Accounts.route) },
+            onOpenVersions = { navController.navigate("installed_versions") },
+            onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
+        )
         androidx.compose.runtime.CompositionLocalProvider(
-            com.verse.explorer.app.ui.home.LocalHomeVersionActions provides homeActions
+            com.verse.explorer.app.ui.home.LocalHomeVersionActions provides homeActions,
+            com.verse.explorer.app.ui.home.LocalHomeHub provides hubState
         ) {
-            HomePageContent(
-                selectedAccount = selectedAccount,
-                selected = selected,
-                selectedVersionId = selectedVersionId,
-                isLaunching = launchState.isLaunching,
-                runningInstance = runningInstance,
-                gridState = gridState,
-                onGoAccounts = { navController.navigate(Screen.Accounts.route) },
-                onOpenVersions = { navController.navigate("installed_versions") },
-                onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
-            )
+            HomePageContent(gridState = gridState)
         }
 
         // 启动加载弹窗（ZL2 样式：遮罩 + 居中卡片，不可取消）
@@ -172,105 +172,35 @@ data class RunningGame(
 )
 
 /**
- * 主页页面内容（对齐 versepc2 .home-page 布局）：
- * 顶部固定区（账户、当前版本、启动入口）+ 下方可自定义排布的版本卡片网格
+ * 主页页面内容：整页均为可自定义排布的卡片网格，
+ * 账户、当前版本、启动入口与已固定的版本全部是卡片组件。
  */
 @Composable
 private fun HomePageContent(
-    selectedAccount: com.verse.explorer.core.account.Account?,
-    selected: MinecraftVersion?,
-    selectedVersionId: String?,
-    isLaunching: Boolean,
-    runningInstance: RunningGame?,
-    gridState: com.verse.explorer.cardgrid.state.CardGridState,
-    onGoAccounts: () -> Unit,
-    onOpenVersions: () -> Unit,
-    onLaunch: () -> Unit
+    gridState: com.verse.explorer.cardgrid.state.CardGridState
 ) {
-    // 无顶部标题（直接去掉，腾出纵向空间）；中心内容列竖排，整体紧凑化
     val homeScrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .verticalScroll(homeScrollState)
-            .padding(horizontal = 24.dp, vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 24.dp, vertical = 10.dp)
     ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // 头像
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.22f)
-                    .aspectRatio(1f)
-                    .weight(1f, fill = false),
-                contentAlignment = Alignment.Center
-            ) {
-                HomeAvatar(account = selectedAccount, onClick = onGoAccounts)
-            }
-
-            // 账户信息（对齐 .home-account-bar）
-            Spacer(Modifier.height(4.dp))
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = selectedAccount?.username ?: "未登录",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = VerseColors.PcTextPrimary
-                )
-                Spacer(Modifier.height(1.dp))
-                Text(
-                    text = when (selectedAccount?.type) {
-                        AccountType.MICROSOFT -> "Microsoft 正版"
-                        AccountType.AUTHLIB -> "外置登录"
-                        AccountType.OFFLINE -> "离线模式"
-                        null -> "点击登录"
-                    },
-                    fontSize = 9.sp,
-                    color = VerseColors.PcTextMuted
-                )
-            }
-
-            // 版本卡片（对齐 .home-version-card-wrap width min(420px, 80%)）
-            Spacer(Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 340.dp)
-                    .fillMaxWidth(0.66f)
-            ) {
-                HomeCurrentVersionCard(
-                    selected = selected,
-                    onClick = onOpenVersions
-                )
-            }
-
-            // 启动按钮（对齐 .home-launch-btn）
-            Spacer(Modifier.height(6.dp))
-            HomeLaunchButton(isLaunching = isLaunching, enabled = selectedVersionId != null, onClick = onLaunch)
-
-            // 运行中游戏卡片（对齐 .home-running-card，有运行实例时显示）
-            if (runningInstance != null) {
-                Spacer(Modifier.height(6.dp))
-                HomeRunningCard(instance = runningInstance)
-            }
-            Spacer(Modifier.height(10.dp))
-
-            // 主页版本卡片网格：长按卡片拖动/缩放排布，工具条可删除，布局自动保存
-            com.verse.explorer.app.ui.home.VerseHomeGrid(
-                state = gridState,
-                outerScrollState = homeScrollState,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(Modifier.height(6.dp))
-        }
+        com.verse.explorer.app.ui.home.VerseHomeGrid(
+            state = gridState,
+            outerScrollState = homeScrollState,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(6.dp))
+    }
 }
 
 /**
  * 头像块：未登录显示虚线"添加账号"框；已登录显示皮肤头部
  */
 @Composable
-private fun HomeAvatar(
+internal fun HomeAvatar(
     account: com.verse.explorer.core.account.Account?,
     onClick: () -> Unit
 ) {

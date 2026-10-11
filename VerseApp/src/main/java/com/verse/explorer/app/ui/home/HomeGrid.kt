@@ -15,15 +15,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,10 +25,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.cardgrid.state.CardGridState
 import com.verse.explorer.cardgrid.state.CardSeed
@@ -85,6 +76,11 @@ fun VerseHomeGrid(
             } ?: emptyList(),
             storedColumns = snapshot?.columns ?: 0
         )
+        // 固定功能卡片：账户 / 当前版本 / 启动入口，保证主页基础功能常驻；
+        // 首次进入按 空闲最上最左 落位，此后位置随用户排布持久化
+        ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
+        ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
+        ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
     }
 
     // 布局结算后持久化
@@ -112,8 +108,6 @@ fun VerseHomeGrid(
         }
     }
 
-    val cardCount by VersionCardManager.cards.collectAsStateWithLifecycle()
-
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -136,21 +130,17 @@ fun VerseHomeGrid(
                 )
             }
         )
-        if (cardCount.isEmpty()) {
-            Text(
-                text = "暂无主页卡片，可在「已安装版本」列表中将版本固定到这里",
-                fontSize = 11.sp,
-                color = VerseColors.PcTextMuted,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-        }
         CardGridAutoScroll(
             state = state,
             scrollState = outerScrollState
         )
+    }
+}
+
+/** 确保固定功能卡片存在于网格（id 固定，位置随用户排布持久化） */
+private fun ensureSystemCard(state: CardGridState, type: com.verse.explorer.cardgrid.model.CardType, id: String) {
+    if (state.cards.none { it.id == id }) {
+        state.addCard(type, id)
     }
 }
 
@@ -174,15 +164,18 @@ private fun CardToolbar(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                modifier = Modifier.size(34.dp),
-                onClick = { state.removeCard(card.id) }
-            ) {
-                Icon(
-                    Icons.Filled.Delete,
-                    contentDescription = "删除卡片",
-                    tint = MaterialTheme.colorScheme.error
-                )
+            if (card.type.typeId == HomeCards.VERSION_CARD_TYPE_ID) {
+                // 版本卡片可移除（可从版本列表重新固定），固定功能卡片不提供删除
+                IconButton(
+                    modifier = Modifier.size(34.dp),
+                    onClick = { state.removeCard(card.id) }
+                ) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = "删除卡片",
+                        tint = VerseColors.PcOrange
+                    )
+                }
             }
             IconButton(
                 modifier = Modifier.size(34.dp),

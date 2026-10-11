@@ -1,8 +1,6 @@
 package com.verse.explorer.app.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,13 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.withTimeoutOrNull
 import com.verse.explorer.app.ui.LoaderBadge
 import com.verse.explorer.app.ui.VersionIcon
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -227,27 +223,5 @@ private fun CardLaunchButton(enabled: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * 卡片内容的点按判定：长按阈值内未超出触摸 slop 才视为点按，
- * 不拦截指针事件，避免与卡片的长按拖拽手势冲突。
+ * 卡片内容的点按判定与交互状态辅助见 [homeCardTap]（HomeCards.kt 公共实现）。
  */
-private fun Modifier.homeCardTap(onTap: () -> Unit): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        if (down.isConsumed) return@awaitEachGesture
-        val startPosition = down.position
-        val slopPx = viewConfiguration.touchSlop
-        val longPressMillis = viewConfiguration.longPressTimeoutMillis
-        val tapped = withTimeoutOrNull(longPressMillis) {
-            while (true) {
-                val event = awaitPointerEvent()
-                val change = event.changes.firstOrNull { it.id == down.id } ?: continue
-                if ((change.position - startPosition).getDistance() > slopPx) {
-                    return@withTimeoutOrNull false
-                }
-                if (!change.pressed) return@withTimeoutOrNull true
-            }
-            @Suppress("UNREACHABLE_CODE") false
-        } ?: false
-        if (tapped) onTap()
-    }
-}
