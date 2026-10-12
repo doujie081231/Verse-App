@@ -14,7 +14,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
 
-        // 与 JvmLauncher 一致：外部 CMake 构建 verseexec（JVMLoader native）
+        // ? JvmLauncher ??:?? CMake ?? verseexec(JVMLoader native)
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
@@ -33,6 +33,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    packaging {
+        jniLibs {
+            pickFirsts += "**/*.so"
         }
     }
 
