@@ -53,8 +53,8 @@ import java.io.File
 import kotlin.math.roundToInt
 
 /**
- * ??:?? 1/3 ????????(????:? 1/3 ?????????),
- * ?? 2/3 ??????? + ??????(????,????)?
+ * 主页:左侧 1/3 为可拖拽的用户头像入口(默认位于 1/3 中线),
+ * 右侧 2/3 为版本选择卡 + 启动按钮(全高垂直居中,点击进入对应页面)
  */
 @Composable
 fun HomeScreen(
@@ -71,7 +71,7 @@ fun HomeScreen(
     var selectedAccount by remember { mutableStateOf<com.verse.explorer.core.account.Account?>(null) }
     var runningInstance by remember { mutableStateOf<RunningGame?>(null) }
 
-    // ?????? -> ?????
+    // 启动流程状态 -> 运行中卡片
     LaunchedEffect(launchState.phase) {
         when (launchState.phase) {
             LaunchPhase.LAUNCHING -> {
@@ -88,14 +88,14 @@ fun HomeScreen(
         }
     }
 
-    // ????
+    // 账户加载
     LaunchedEffect(Unit) {
         val vm = AccountsViewModel(context.applicationContext as android.app.Application)
         vm.loadAccounts()
         vm.selectedAccount.collect { selectedAccount = it }
     }
 
-    // ??????(???????????,?????????? last_version)
+    // 版本列表加载(返回主页时重新加载,并同步版本管理页修改的 last_version)
     LaunchedEffect(navController.currentBackStackEntry) {
         val route = navController.currentBackStackEntry?.destination?.route
         scope.launch {
@@ -103,14 +103,14 @@ fun HomeScreen(
                 val vm = VersionManager(GameConfig.getGameDir(context))
                 val versions = withContext(Dispatchers.IO) { vm.getLocalVersions() }
                 localVersions = versions
-                // ?????????,??????????
+                // 从版本管理页返回后,重新读取最后选中版本
                 if (route == Screen.Home.route) {
                     selectedVersionId = settingsLastVersion() ?: selectedVersionId
                 }
                 if (selectedVersionId == null && versions.isNotEmpty()) {
                     selectedVersionId = versions.first().id
                 }
-                // ?????;????????????
+                // 卡片列表刷新;首次使用自动固定当前版本
                 VersionCardManager.initialize(context)
                 VersionCardManager.refresh(context, versions)
                 if (!VersionCardManager.hasSeeded(context) && versions.isNotEmpty()) {
@@ -135,7 +135,7 @@ fun HomeScreen(
             onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
         )
 
-        // ??????(?? + ????,????)
+        // 启动加载弹窗(ZL2 样式:遮罩 + 居中卡片,不可取消)
         if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
             PcLaunchOverlay(
                 launchState = launchState
@@ -151,7 +151,7 @@ fun SectionTitle(title: String) {
     Text(title, color = VerseColors.PcTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
 }
 
-/** ??????? */
+/** 运行中游戏实例 */
 data class RunningGame(
     val versionId: String,
     val pid: Int,
@@ -159,9 +159,9 @@ data class RunningGame(
 )
 
 /**
- * ??????:
- * - ?? 2/3(??):?????? + ??????,????,??????????
- * - ?? 1/3:???????,?????? 1/3 ?????????,?????????
+ * 主页内容布局:
+ * - 右侧 2/3(主区):版本选择卡 + 启动按钮,垂直居中,占据主视觉焦点
+ * - 左侧 1/3:可拖拽头像,初始位于 1/3 中线,可自由拖动到屏幕其他位置
  */
 @Composable
 private fun HomePageContent(
@@ -183,7 +183,7 @@ private fun HomePageContent(
         val density = LocalDensity.current
         val avatarSizePx = with(density) { avatarSize.toPx() }
 
-        // ===== ?? 2/3:?????? + ??????(??) =====
+        // ===== 右侧 2/3:版本选择卡 + 启动按钮(居中) =====
         Row(modifier = Modifier.fillMaxSize()) {
             Spacer(modifier = Modifier.weight(1f))
             Column(
@@ -199,7 +199,7 @@ private fun HomePageContent(
             }
         }
 
-        // ===== ?? 1/3:?????(??:? 1/3 ?????????) =====
+        // ===== 左侧 1/3:头像入口(默认位于 1/3 中线,可拖拽) =====
         var dragOffset by remember { mutableStateOf(Offset.Zero) }
         val baseX = screenW / 6f - avatarSizePx / 2f
         val baseY = screenH / 2f - avatarSizePx / 2f
@@ -232,7 +232,7 @@ private fun HomePageContent(
 }
 
 /**
- * ???:???????"????"?;?????????
+ * 头像:未登录显示虚线"添加账号"框;已登录显示皮肤头部
  */
 @Composable
 internal fun HomeAvatar(
@@ -242,7 +242,7 @@ internal fun HomeAvatar(
     val shape = RoundedCornerShape(12.dp)
     val sizeModifier = Modifier.fillMaxSize()
     if (account == null) {
-        // ???:??? + ?? + ????
+        // 无账户:虚线框 + 十字 + 添加账号
         Box(
             modifier = sizeModifier
                 .clip(shape)
@@ -262,9 +262,9 @@ internal fun HomeAvatar(
                     modifier = Modifier.size(26.dp)
                 )
                 Spacer(Modifier.height(6.dp))
-                Text("????", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextMuted)
+                Text("添加账号", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextMuted)
             }
-            // ????
+            // 虚线边框
             Box(
                 modifier = Modifier
                     .matchParentSize()
@@ -289,8 +289,8 @@ internal fun HomeAvatar(
 }
 
 /**
- * ??????(???):?? + ?? + ?? + ??,???????
- * ???????????????
+ * 大版本卡片(右侧主区):图标 + 名称 + 徽章 + 箭头,点击进入版本列表
+ * 未选择版本时显示占位图标与引导文案
  */
 @Composable
 private fun HomeVersionCardLarge(
@@ -332,14 +332,14 @@ private fun HomeVersionCardLarge(
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "????",
+                        text = "选择版本",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = VerseColors.PcTextPrimary
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        text = "??????????",
+                        text = "点击进入版本列表选择游戏版本",
                         fontSize = 13.sp,
                         color = VerseColors.PcTextMuted
                     )
@@ -366,13 +366,13 @@ private fun HomeVersionCardLarge(
 }
 
 /**
- * ????:?????????(???? versions/<id>/modpack_icon.png),
- * ???????(hint/??),?????????(grass/cobblestone/old)
+ * 版本图标:优先整合包作者图标(安装时存 versions/<id>/modpack_icon.png),
+ * 其次加载器图标(hint/名称),最后按版本类型回退(grass/cobblestone/old)
  */
 @Composable
 internal fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.unit.Dp) {
     val context = LocalContext.current
-    // ???????(???????? versions/<id>/modpack_icon.png)
+    // 整合包作者图标(安装整合包时写入 versions/<id>/modpack_icon.png)
     val packIconBitmap = remember(version.id) {
         try {
             val packIcon = File(
@@ -434,8 +434,8 @@ internal fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.un
 }
 
 /**
- * ?????(??/Forge/Fabric/NeoForge/???)?
- * ???? json ??????(loaderHint),???????????
+ * 加载器徽章(原版/Forge/Fabric/NeoForge/整合包等)。
+ * 优先读取 json 解析出的加载器(loaderHint),否则按版本名推断
  */
 @Composable
 internal fun LoaderBadge(version: MinecraftVersion) {
@@ -447,7 +447,7 @@ internal fun LoaderBadge(version: MinecraftVersion) {
             "neoforge" -> "NeoForge" to VerseColors.PcOrange
             "forge" -> "Forge" to VerseColors.PcOrange
             "optifine" -> "OptiFine" to VerseColors.PcYellow
-            else -> "??" to VerseColors.PcTextSecondary
+            else -> "原版" to VerseColors.PcTextSecondary
         }
     } else {
         val lower = version.id.lowercase()
@@ -455,8 +455,8 @@ internal fun LoaderBadge(version: MinecraftVersion) {
             lower.contains("fabric") -> "Fabric" to VerseColors.ForgeColor
             lower.contains("forge") -> "Forge" to VerseColors.PcOrange
             lower.contains("neoforge") -> "NeoForge" to VerseColors.PcOrange
-            lower.contains("modpack") || lower.contains("??") -> "???" to VerseColors.PcGreen
-            else -> "??" to VerseColors.PcTextSecondary
+            lower.contains("modpack") || lower.contains("整合") -> "整合包" to VerseColors.PcGreen
+            else -> "原版" to VerseColors.PcTextSecondary
         }
     }
     Surface(shape = RoundedCornerShape(3.dp), color = color.copy(alpha = 0.15f)) {
@@ -470,7 +470,8 @@ internal fun LoaderBadge(version: MinecraftVersion) {
 }
 
 /**
- * ??????(???:?????????)
+ * 主页启动按钮(大号绿色渐变)
+ * 未选择版本或正在启动时不可点击
  */
 @Composable
 private fun HomeLaunchButtonLarge(isLaunching: Boolean, enabled: Boolean, onClick: () -> Unit) {
@@ -506,7 +507,7 @@ private fun HomeLaunchButtonLarge(isLaunching: Boolean, enabled: Boolean, onClic
                 modifier = Modifier.size(24.dp)
             )
             Text(
-                text = if (isLaunching) "???..." else "????",
+                text = if (isLaunching) "启动中..." else "启动游戏",
                 fontSize = 19.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor

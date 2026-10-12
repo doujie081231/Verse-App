@@ -34,9 +34,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * ???:?? / ?? / ?? ????????????
- * ???????????????(??????????);
- * ???????? / ???????
+ * 传输:激活 / 上传 / 下载 一体化的数据迁移入口
+ * 通过激活码绑定设备后可跨设备迁移数据(需网络连接);
+ * 当前版本先开放激活,上传 / 下载陆续开放
  */
 @Composable
 fun TransferScreen() {
@@ -56,27 +56,27 @@ fun TransferScreen() {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
-        Text("??", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
+        Text("传输", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
         Spacer(Modifier.height(4.dp))
         Text(
-            "?? / ?? / ??,???????????",
+            "激活 / 上传 / 下载,跨设备迁移一步到位",
             fontSize = 13.sp,
             color = VerseColors.PcTextSecondary
         )
         Spacer(Modifier.height(18.dp))
 
         if (activatedKey == null) {
-            // ===== ???? =====
+            // ===== 激活码输入 =====
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 color = VerseColors.PcGlassCardBg
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text("??????", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
+                    Text("输入激活码", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "??? verselauncher.cn ???????????????,????????",
+                        "前往 verselauncher.cn 获取激活码,每个激活码可绑定一台设备",
                         fontSize = 13.sp,
                         color = VerseColors.PcTextSecondary
                     )
@@ -85,7 +85,7 @@ fun TransferScreen() {
                         value = input,
                         onValueChange = { input = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("???") },
+                        label = { Text("激活码") },
                         placeholder = { Text("XXXX-XXXX-XXXX-XXXX") },
                         singleLine = true,
                         enabled = !loading
@@ -105,7 +105,7 @@ fun TransferScreen() {
                                         val key = result.second
                                         prefs.edit().putString("activation_key", key).apply()
                                         activatedKey = key
-                                        msg = true to "????"
+                                        msg = true to "激活成功"
                                     } else {
                                         msg = false to (result.second)
                                     }
@@ -117,7 +117,7 @@ fun TransferScreen() {
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = VerseColors.PcAccent)
                     ) {
-                        Text(if (loading) "???." else "??", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (loading) "激活中." else "激活", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     }
                     msg?.let { (ok, text) ->
                         Spacer(Modifier.height(10.dp))
@@ -131,7 +131,7 @@ fun TransferScreen() {
                 }
             }
         } else {
-            // ===== ???:?? / ?? =====
+            // ===== 已激活:上传 / 下载 =====
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -143,24 +143,24 @@ fun TransferScreen() {
                     tint = VerseColors.PcGreen,
                     modifier = Modifier.size(18.dp)
                 )
-                Text("???", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcGreen)
+                Text("已激活", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcGreen)
             }
             Spacer(Modifier.height(14.dp))
 
             TransferModeCard(
                 icon = Icons.Outlined.UploadFile,
-                title = "????",
-                desc = "???????? / ?? / ??,???????????"
+                title = "上传数据",
+                desc = "把整合包 / 存档 / 配置上传,供其他设备拉取"
             )
             Spacer(Modifier.height(12.dp))
             TransferModeCard(
                 icon = Icons.Outlined.Download,
-                title = "????",
-                desc = "????????,???????????"
+                title = "下载数据",
+                desc = "从云端拉取已上传数据,同步到当前设备"
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "??????????,?????????",
+                "上传与下载功能即将开放,敬请期待后续更新",
                 fontSize = 12.sp,
                 color = VerseColors.PcTextMuted
             )
@@ -203,8 +203,8 @@ private fun TransferModeCard(
 }
 
 /**
- * ???????????????
- * ?? (????, ????????? / ????????)
+ * 校验激活码是否可用并绑定当前设备
+ * 返回 (是否成功, 成功时为规范化激活码 / 失败时为错误信息)
  */
 private fun verifyKey(context: Context, rawKey: String): Pair<Boolean, String> {
     var conn: HttpURLConnection? = null
@@ -234,10 +234,10 @@ private fun verifyKey(context: Context, rawKey: String): Pair<Boolean, String> {
             val normalized = rawKey.replace("-", "").replace(" ", "").uppercase()
             Pair(true, normalized)
         } else {
-            Pair(false, json.optString("error", "????(HTTP $code)"))
+            Pair(false, json.optString("error", "验证失败(HTTP $code)"))
         }
     } catch (e: Exception) {
-        Pair(false, "????:${e.message ?: "????????"}")
+        Pair(false, "网络异常:${e.message ?: "无法连接服务器"}")
     } finally {
         conn?.disconnect()
     }

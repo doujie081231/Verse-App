@@ -1,7 +1,7 @@
 pluginManagement {
     repositories {
-        // ??????(CI ????);??????????????
-        // KSP 2.3.x ????? Maven Central,???????
+        // 官方仓库优先(镜像仅作国内补充);声明顺序经过 CI 验证
+        // KSP 2.3.x 已发布到 Maven Central,gradlePluginPortal 作为兜底
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -18,7 +18,7 @@ dependencyResolutionManagement {
         mavenCentral()
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/central")
-        maven("https://jitpack.io") // ?? com.github.steveice10:opennbt ? GitHub ????
+        maven("https://jitpack.io") // 承载 com.github.steveice10:opennbt 等 GitHub 托管依赖
     }
 }
 

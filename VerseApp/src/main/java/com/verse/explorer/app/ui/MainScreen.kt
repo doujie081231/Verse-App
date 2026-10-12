@@ -51,18 +51,18 @@ sealed class Screen(
     val icon: ImageVector,
     val selectedIcon: ImageVector = icon
 ) {
-    object Home : Screen("home", "??", Icons.Outlined.Home, Icons.Filled.Home)
-    object Versions : Screen("versions", "??", Icons.Outlined.Download, Icons.Filled.Download)
-    object Mods : Screen("mods", "??", Icons.Outlined.Extension, Icons.Filled.Extension)
-    object Modpacks : Screen("modpacks", "???", Icons.Outlined.Inventory2, Icons.Filled.Inventory2)
-    object ResourcePacks : Screen("resourcepacks", "???", Icons.Outlined.Palette, Icons.Filled.Palette)
-    object Shaders : Screen("shaders", "??", Icons.Outlined.Flare, Icons.Filled.Flare)
-    object Lan : Screen("lan", "??", Icons.Outlined.Wifi, Icons.Filled.Wifi)
-    object Transfer : Screen("transfer", "??", Icons.Outlined.SwapHoriz, Icons.Filled.SwapHoriz)
-    object Accounts : Screen("accounts", "??", Icons.Outlined.Person, Icons.Filled.Person)
-    object Settings : Screen("settings", "??", Icons.Outlined.Settings, Icons.Filled.Settings)
+    object Home : Screen("home", "主页", Icons.Outlined.Home, Icons.Filled.Home)
+    object Versions : Screen("versions", "下载", Icons.Outlined.Download, Icons.Filled.Download)
+    object Mods : Screen("mods", "模组", Icons.Outlined.Extension, Icons.Filled.Extension)
+    object Modpacks : Screen("modpacks", "整合包", Icons.Outlined.Inventory2, Icons.Filled.Inventory2)
+    object ResourcePacks : Screen("resourcepacks", "材质包", Icons.Outlined.Palette, Icons.Filled.Palette)
+    object Shaders : Screen("shaders", "光影", Icons.Outlined.Flare, Icons.Filled.Flare)
+    object Lan : Screen("lan", "联机", Icons.Outlined.Wifi, Icons.Filled.Wifi)
+    object Transfer : Screen("transfer", "传输", Icons.Outlined.SwapHoriz, Icons.Filled.SwapHoriz)
+    object Accounts : Screen("accounts", "账户", Icons.Outlined.Person, Icons.Filled.Person)
+    object Settings : Screen("settings", "设置", Icons.Outlined.Settings, Icons.Filled.Settings)
     object Java : Screen("java", "Java", Icons.Outlined.Code, Icons.Filled.Code)
-    object Console : Screen("console", "????", Icons.Outlined.Feedback, Icons.Filled.Feedback)
+    object Console : Screen("console", "问题反馈", Icons.Outlined.Feedback, Icons.Filled.Feedback)
 }
 
 private data class NavItem(
@@ -74,24 +74,24 @@ private data class NavItem(
 )
 
 private val mainNavItems = listOf(
-    NavItem(screen = Screen.Home, icon = Icons.Outlined.Home, label = "??"),
-    NavItem(screen = Screen.Versions, icon = Icons.Outlined.Download, label = "??"),
+    NavItem(screen = Screen.Home, icon = Icons.Outlined.Home, label = "主页"),
+    NavItem(screen = Screen.Versions, icon = Icons.Outlined.Download, label = "下载"),
     NavItem(
         icon = Icons.Outlined.Widgets,
-        label = "??",
+        label = "资源",
         isSubmenuToggle = true,
         submenuItems = listOf(Screen.Mods, Screen.Modpacks, Screen.ResourcePacks, Screen.Shaders)
     ),
-    NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "??"),
-    NavItem(screen = Screen.Transfer, icon = Icons.Outlined.SwapHoriz, label = "??"),
-    NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "??"),
-    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "??")
+    NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "联机"),
+    NavItem(screen = Screen.Transfer, icon = Icons.Outlined.SwapHoriz, label = "传输"),
+    NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "账户"),
+    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置")
 )
 
 private val footerNavItem = NavItem(
     screen = Screen.Console,
     icon = Icons.Outlined.Feedback,
-    label = "????"
+    label = "问题反馈"
 )
 
 private val allSidebarRoutes = mainNavItems
@@ -104,8 +104,8 @@ private val submenuRoutes = mainNavItems
     .flatMap { it.submenuItems.map { s -> s.route } }
     .toSet()
 
-// ==================== ??????(?? Material Motion System)====================
-// ?????:FadeThrough ??(?? + ????,???????)
+// ==================== 页面转场动画(Material Motion System)====================
+// 页签切换:FadeThrough 效果(淡入淡出 + 轻微缩放,方向无关)
 private val TabEnterTransition: EnterTransition =
     fadeIn(animationSpec = tween(260, easing = LinearOutSlowInEasing)) +
         scaleIn(initialScale = 0.97f, animationSpec = tween(260, easing = LinearOutSlowInEasing))
@@ -113,7 +113,7 @@ private val TabExitTransition: ExitTransition =
     fadeOut(animationSpec = tween(200, easing = FastOutLinearInEasing)) +
         scaleOut(targetScale = 0.97f, animationSpec = tween(200, easing = FastOutLinearInEasing))
 
-// ??/???:Shared X-Axis(???? 1/3 ? + ????,????),???????????
+// 进/退层级:Shared X-Axis(滑入约 1/3 宽 + 淡入淡出,方向相反),用于详情页进退
 private val DetailEnterTransition: EnterTransition =
     fadeIn(animationSpec = tween(260, delayMillis = 80, easing = LinearOutSlowInEasing)) +
         slideInHorizontally(animationSpec = tween(340, easing = FastOutSlowInEasing)) { it / 3 }
@@ -148,8 +148,8 @@ fun MainScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator(color = VerseColors.PcAccent)
                 Spacer(modifier = Modifier.height(16.dp))
-                Text("?????Java????...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
-                Text("????JRE,???", color = VerseColors.PcTextMuted, fontSize = 12.sp)
+                Text("正在初始化Java运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
+                Text("首次解压JRE,请稍候", color = VerseColors.PcTextMuted, fontSize = 12.sp)
             }
         }
         return
@@ -157,23 +157,23 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    // ???????????? scrim ???,??????(??????????)
+    // 启用自定义背景时叠加 scrim 遮罩,保证前景内容可读性(仅自定义背景时生效)
     val customBgActive = VersePersonalization.backgroundStyle != "none"
 
-    // ?????????(Kyant0/AndroidLiquidGlass backdrop-android 2.0.0):
-    // RuntimeShader ????? Android 13+,??????????;
-    // ????? ? ???????????????????,??????????
+    // 悬浮导航液态玻璃(Kyant0/AndroidLiquidGlass backdrop-android 2.0.0):
+    // RuntimeShader 实现仅支持 Android 13+,低版本自动降级为普通面板;
+    // 内容层与玻璃层分离渲染,圆形按钮与胶囊容器从背后内容透镜采样
     val navGlassBackdrop = rememberLayerBackdrop()
     val glassSupported = Build.VERSION.SDK_INT >= 33 && VersePersonalization.sidebarGlass
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ????:????? + ????????????????????
+        // 采样源层:自定义背景 + 页面内容,悬浮导航的玻璃层从此处透镜采样
         Box(modifier = Modifier.fillMaxSize().then(
             if (glassSupported) Modifier.layerBackdrop(navGlassBackdrop) else Modifier
         )) {
-        // ??:???????(??/??)
+        // 背景:自定义背景(渐变/图片)
         AppBackground(Modifier.fillMaxSize())
-        // ????????(?????????,?????????)
+        // 玻璃半透明遮罩(保证前景内容可读性,自定义背景时减弱)
         Box(modifier = Modifier.fillMaxSize().background(
             if (customBgActive) VerseColors.PcGlassBg.copy(alpha = 0.60f)
             else VerseColors.PcGlassBg
@@ -294,7 +294,7 @@ fun MainScreen(
         }
         }
 
-        // ??????(?????,??????;??????????)
+        // 悬浮圆形导航(最上层图层,不占页面布局;液态玻璃采样上层内容)
         if (showSidebar) {
             FloatingNavOverlay(
                 navController = navController,
@@ -303,8 +303,8 @@ fun MainScreen(
                 glassEnabled = glassSupported
             )
         }
-        // ?????????(??? ACTION_SEND ? ?? ? FCL ????),
-        // ??????:??????????,??????????
+        // 分享导入整合包(接收 ACTION_SEND 事件,兼容 FCL 分享格式),
+        // 挂在导航外层:无论当前处于哪个页面,分享导入弹窗都能弹出
         ModpackImportFlow(
             importSource = shareImportUri,
             onHandled = onShareImportHandled
@@ -313,9 +313,9 @@ fun MainScreen(
 }
 
 /**
- * ??????:???????????????,
- * ?? `popUpTo(startDestination)` + `restoreState` ????????
- * ???????????(???????/??????)????
+ * 页签切换策略:切换时清空返回栈并定位到目标页,
+ * 保证返回键行为可预期、各页签状态独立,
+ * 同时避免多层返回栈导致的行为不一致问题
  */
 private fun navigateToTab(navController: NavHostController, route: String) {
     navController.navigate(route) {
@@ -334,7 +334,7 @@ private fun FloatingNavOverlay(
     var expanded by remember { mutableStateOf(false) }
     val openSubmenus = remember { mutableStateMapOf<String, Boolean>() }
 
-    // ???????????????(????????)
+    // 子页激活时自动展开对应父级菜单(进入子页时)
     LaunchedEffect(currentRoute) {
         mainNavItems.filter { it.isSubmenuToggle }.forEach { item ->
             val isChildActive = item.submenuItems.any { it.route == currentRoute }
@@ -344,8 +344,8 @@ private fun FloatingNavOverlay(
         }
     }
 
-    // ??????(AndroidLiquidGlass drawBackdrop:???? + ????/??),
-    // Android 13+ ??,???????????
+    // 液态玻璃效果(AndroidLiquidGlass drawBackdrop:透镜折射 + 默认高光/投影),
+    // 仅 Android 13+ 启用,低版本自动降级为普通面板
     val circleGlass = if (glassEnabled) Modifier.drawBackdrop(
         backdrop = backdrop,
         shape = { CircleShape },
@@ -367,7 +367,7 @@ private fun FloatingNavOverlay(
     ) else Modifier
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ?????:????????????
+        // 全屏遮罩:点击空白处收起导航
         if (expanded) {
             Box(
                 modifier = Modifier
@@ -379,7 +379,7 @@ private fun FloatingNavOverlay(
             )
         }
 
-        // ??????(?? versepc2 .sidebar-toggle-fab:??????????????????)
+        // 导航开关按钮:悬浮最上层、避开状态栏、不占页面布局
         Box(
             modifier = Modifier
                 .statusBarsPadding()
@@ -398,14 +398,14 @@ private fun FloatingNavOverlay(
         ) {
             Icon(
                 if (expanded) Icons.Filled.Close else Icons.Filled.Menu,
-                "????",
+                "导航菜单",
                 Modifier.size(20.dp),
                 VerseColors.PcTextPrimary
             )
         }
 
-        // ????:?????????(????),???????,????????
-        // ??? 56dp???? 40dp,?????? 4dp ?????????(???? x=12+20=32=4+28)
+        // 展开容器:竖着的整个胶囊容器(两端半圆),图标按钮放里面,从按钮处向下划出
+        // 胶囊宽 56dp、按钮宽 40dp,胶囊左偏移取 4dp 使两者水平中心对齐(按钮中心 x=12+20=32=4+28)
         AnimatedVisibility(
             visible = expanded,
             modifier = Modifier
@@ -512,7 +512,7 @@ private fun FloatingNavOverlay(
     }
 }
 
-/** ???????????(??,????):???? LiquidBottomTab,???????????,??????????? */
+/** 胶囊容器内的主图标按钮(圆形,只放图标):内部内容为普通圆角面板,玻璃由胶囊容器统一提供 */
 @Composable
 private fun NavCircleButton(
     icon: ImageVector,
@@ -547,7 +547,7 @@ private fun NavCircleButton(
     }
 }
 
-/** ???????????(?????,????):????,?????? */
+/** 胶囊容器内的子图标按钮(资源子页面,更小一圈):普通圆角面板,样式与主按钮一致 */
 @Composable
 private fun NavCircleMini(
     icon: ImageVector,
@@ -582,7 +582,7 @@ private fun NavCircleMini(
     }
 }
 
-/** ?????????? */
+/** 资源子页面对应的图标 */
 private fun subScreenIcon(screen: Screen): ImageVector = when (screen) {
     Screen.Mods -> Icons.Outlined.Extension
     Screen.Modpacks -> Icons.Outlined.Inventory2

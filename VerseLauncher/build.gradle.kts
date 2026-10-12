@@ -14,7 +14,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
 
-        // ? JvmLauncher ??:?? CMake ?? verseexec(JVMLoader native)
+        // 与 JvmLauncher 一致:同一套 CMake 产出 verseexec(JVMLoader native)
         externalNativeBuild {
             cmake {
                 cppFlags += "-std=c++17"
