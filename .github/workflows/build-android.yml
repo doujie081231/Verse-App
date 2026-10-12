@@ -22,8 +22,11 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-37.0" --channel=3 2>&1 | tail -3
-          cp -r "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37" 2>/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;29.0.14206865" 2>&1 | tail -3
+          cp -r "$ANDROID_HOME/platforms/android-37.0" "$ANDROID_HOME/platforms/android-37"
+          sed -i 's|platforms;android-37.0|platforms;android-37|g' "$ANDROID_HOME/platforms/android-37/source.properties" || true
+          echo "--- android-37 ?? ---"
+          ls "$ANDROID_HOME/platforms/android-37" | head -5
 
       - name: Build debug APK
         run: |
