@@ -18,17 +18,19 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Accept Android SDK licenses
-        run: (yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses) || true
+      - name: Install Android SDK components
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "ndk;29.0.14206865" > /dev/null
 
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew :VerseApp:assembleDebug --no-daemon --stacktrace
+          ./gradlew :VerseApp:assembleDebug -Darch=arm64 --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Verse-2.4.62-APK
+          name: Verse-2.4.63-APK
           path: VerseApp/build/outputs/apk/debug/*.apk
           if-no-files-found: error
