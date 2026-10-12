@@ -24,11 +24,11 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew :VerseApp:assembleDebug -Darch=arm64 --no-daemon --stacktrace
+          ./gradlew :VerseApp:assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Verse-2.4.63-APK
+          name: Verse-2.4.62-APK
           path: VerseApp/build/outputs/apk/debug/*.apk
           if-no-files-found: error
