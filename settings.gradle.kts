@@ -1,25 +1,23 @@
 pluginManagement {
     repositories {
-        // KSP 2.3.x ??????????(??? google ???? 1.5.30),
-        // ? GitHub google/ksp release artifacts.zip ????? Maven ????
-        // ??????:dl.google.com ??????????(Read timed out),
-        // ?????????? Google Maven / Maven Central ??
-        maven("https://maven.aliyun.com/repository/gradle-plugin")
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
+        // ??????(CI ????);??????????????
+        // KSP 2.3.x ????? Maven Central,???????
         google()
         mavenCentral()
         gradlePluginPortal()
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
     }
 }
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
         google()
         mavenCentral()
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
         maven("https://jitpack.io") // ?? com.github.steveice10:opennbt ? GitHub ????
     }
 }
