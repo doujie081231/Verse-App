@@ -15,7 +15,7 @@ val localProperties = Properties().apply {
         localPropsFile.inputStream().use { load(it) }
     }
 }
-// 支持命令行 -Darch=arm64 或 local.properties 里的 arch=arm64
+// ????? -Darch=arm64 ? local.properties ?? arch=arm64
 if (System.getProperty("arch") == null) {
     localProperties.getProperty("arch")?.let { System.setProperty("arch", it) }
 }
@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 198
-        versionName = "2.4.62"
+        versionCode = 199
+        versionName = "2.4.63"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -60,7 +60,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 诊断期临时开启：便于 run-as 读持久化 + kill -3/debuggerd 抓线程栈定位进世界卡死
+            // ???????:?? run-as ???? + kill -3/debuggerd ???????????
             isDebuggable = true
         }
         debug {
@@ -77,8 +77,8 @@ android {
         compose = true
     }
 
-    // backdrop 2.0.0 传递依赖升级 lifecycle lint 检测器，与 AGP 8.7.3 内置 lint 不兼容
-    // （IncompatibleClassChangeError: NonNullableMutableLiveDataDetector），发布构建关闭 lint
+    // backdrop 2.0.0 ?????? lifecycle lint ???,? AGP 8.7.3 ?? lint ???
+    // (IncompatibleClassChangeError: NonNullableMutableLiveDataDetector),?????? lint
     lint {
         checkReleaseBuilds = false
     }
@@ -87,13 +87,13 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        // FCL 对齐：把原生库物理解压到 nativeLibraryDir，保证
-        // 1) 设置页 availableRenderers 能通过 File.exists() 检测到渲染器库（否则子菜单展不开）
-        // 2) NativesDeployer 能遍历 nativeLibraryDir 复制渲染器库到启动目录（否则启动时加载失败崩溃）
+        // FCL ??:????????? nativeLibraryDir,??
+        // 1) ??? availableRenderers ??? File.exists() ???????(????????)
+        // 2) NativesDeployer ??? nativeLibraryDir ???????????(???????????)
         jniLibs {
             useLegacyPackaging = true
-            // lwjgl 栈切到 Pojav 配对版（lwjgl-glfw-classes.jar + Pojav liblwjgl*.so）：
-            // lwjgl3-natives-release.aar 也打包了同名 lwjgl native，保留项目 jniLibs 中的 Pojav 版。
+            // lwjgl ??? Pojav ???(lwjgl-glfw-classes.jar + Pojav liblwjgl*.so):
+            // lwjgl3-natives-release.aar ?????? lwjgl native,???? jniLibs ?? Pojav ??
             pickFirsts += listOf("**/liblwjgl*.so", "**/libfreetype.so", "**/libshaderc.so")
         }
     }
@@ -111,7 +111,7 @@ androidComponents {
                 afterEvaluate {
                     val task =
                         tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
-                    // 把 arch 作为输入属性，切换 -Darch 时强制重新 merge assets，确保 JRE 包被正确过滤
+                    // ? arch ??????,?? -Darch ????? merge assets,?? JRE ??????
                     task.inputs.property("verseArch", System.getProperty("arch", "all"))
                     task.doLast {
                         val arch = System.getProperty("arch", "all")
@@ -167,23 +167,23 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    // Apple Liquid Glass（Kyant0/AndroidLiquidGlass Backdrop 2.0.0，Apache 2.0）：
-    // 侧边栏圆形按钮/展开胶囊容器的液态玻璃效果（折射+模糊+泛光+边缘高光）
+    // Apple Liquid Glass(Kyant0/AndroidLiquidGlass Backdrop 2.0.0,Apache 2.0):
+    // ???????/?????????????(??+??+??+????)
     implementation("io.github.kyant0:backdrop-android:2.0.0")
     implementation("io.github.kyant0:shapes-android:1.2.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("io.coil-kt:coil-compose:2.7.0")
-    // SVG 验证码渲染（反馈页人机验证）：coil-svg 的 androidsvg 为 runtime 作用域，需显式引入才能编译期使用
+    // SVG ?????(???????):coil-svg ? androidsvg ? runtime ???,????????????
     implementation("io.coil-kt:coil-svg:2.7.0")
     implementation("com.caverock:androidsvg-aar:1.4")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("org.tukaani:xz:1.10")
-    // Markdown 渲染（对齐 PC marked 库：Modrinth body 是 CommonMark）
+    // Markdown ??(?? PC marked ?:Modrinth body ? CommonMark)
     implementation("io.noties.markwon:core:4.6.2")
-    // Pojav 触控模块迁移依赖
+    // Pojav ????????
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("com.github.Mathias-Boulay:virtual-joystick-android:1.14")
