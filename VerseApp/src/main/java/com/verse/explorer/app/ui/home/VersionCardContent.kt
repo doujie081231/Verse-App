@@ -82,7 +82,7 @@ fun CardState.VersionCardContent(cardId: String) {
                     Text(
                         "版本已不存在",
                         fontSize = 12.sp,
-                        color = VerseColors.PcTextMuted
+                        color = LocalCellTextMuted.current
                     )
                 }
             }
@@ -116,7 +116,7 @@ private fun TallCardContent(version: com.verse.explorer.core.version.MinecraftVe
                 text = version.id,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = VerseColors.PcTextPrimary,
+                color = LocalCellTextPrimary.current,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -127,7 +127,7 @@ private fun TallCardContent(version: com.verse.explorer.core.version.MinecraftVe
                 text = versionId,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = VerseColors.PcTextPrimary,
+                color = LocalCellTextPrimary.current,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -161,7 +161,7 @@ private fun RowCardContent(
                     text = version.id,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.PcTextPrimary,
+                    color = LocalCellTextPrimary.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -174,7 +174,7 @@ private fun RowCardContent(
                     text = versionId ?: "",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.PcTextPrimary,
+                    color = LocalCellTextPrimary.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

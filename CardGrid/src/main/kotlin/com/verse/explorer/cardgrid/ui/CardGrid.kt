@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.verse.explorer.cardgrid.model.CardInteraction
+import com.verse.explorer.cardgrid.model.CardLimits
 import com.verse.explorer.cardgrid.state.CardGridState
 import com.verse.explorer.cardgrid.state.GridCard
 import kotlin.math.ceil
@@ -279,7 +280,8 @@ private fun CardSlot(
                 containerColor = containerColor,
                 contentColor = contentColor,
                 cardBackground = cardBackground,
-                selected = adjusting
+                selected = adjusting,
+                limits = card.type.limits
             ) {
                 CompositionLocalProvider(LocalLayoutDirection provides contentDirection) {
                     card.type.content(state.cardStateOf(card), card.id)
@@ -355,6 +357,7 @@ private fun CardSurface(
     contentColor: Color,
     cardBackground: (@Composable (Modifier) -> Modifier)?,
     selected: Boolean,
+    limits: CardLimits,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val activated = interaction != CardInteraction.Idle
@@ -363,7 +366,9 @@ private fun CardSurface(
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "cardGridSurfaceElevation"
     )
-    val handles = if (selected) {
+    // 尺寸固定的卡片（最小=最大跨度）不提供缩放手柄
+    val resizable = limits.minWidth != limits.maxWidth || limits.minHeight != limits.maxHeight
+    val handles = if (selected && resizable) {
         Modifier.selectionHandles(color = MaterialTheme.colorScheme.primary)
     } else {
         Modifier

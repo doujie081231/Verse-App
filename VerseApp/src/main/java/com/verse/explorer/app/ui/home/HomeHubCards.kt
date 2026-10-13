@@ -65,7 +65,7 @@ fun CardState.AccountCardContent() {
                 if (currentInteraction == CardInteraction.Idle) hub.onGoAccounts()
             }
     ) {
-        HomeAvatar(account = hub.account, onClick = {})
+        HomeAvatar(account = hub.account)
     }
 }
 
@@ -101,7 +101,7 @@ fun CardState.CurrentVersionCardContent() {
                         .background(VerseColors.PcBgTertiary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("+", fontSize = 16.sp, color = VerseColors.PcTextMuted, fontWeight = FontWeight.Bold)
+                    Text("+", fontSize = 16.sp, color = LocalCellTextMuted.current, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.width(2.dp))
@@ -110,7 +110,7 @@ fun CardState.CurrentVersionCardContent() {
                     text = hub.currentVersion?.id ?: "点击选择版本",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.PcTextPrimary,
+                    color = LocalCellTextPrimary.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -118,13 +118,13 @@ fun CardState.CurrentVersionCardContent() {
                 if (hub.currentVersion != null) {
                     LoaderBadge(version = hub.currentVersion)
                 } else {
-                    Text("选择要启动的版本", fontSize = 10.sp, color = VerseColors.PcTextMuted)
+                    Text("选择要启动的版本", fontSize = 10.sp, color = LocalCellTextMuted.current)
                 }
             }
             Icon(
                 Icons.Filled.ChevronRight,
                 contentDescription = null,
-                tint = VerseColors.PcTextMuted,
+                tint = LocalCellTextMuted.current,
                 modifier = Modifier.size(14.dp)
             )
         }
@@ -143,26 +143,26 @@ fun CardState.LaunchCardContent() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(
                     brush = Brush.linearGradient(
                         listOf(VerseColors.PcLaunchGradientStart, VerseColors.PcLaunchGradientEnd)
                     )
                 )
                 .homeCardTap(onTap = { if (enabled) hub.onLaunch() })
-                .padding(horizontal = 30.dp, vertical = 8.dp),
+                .padding(horizontal = 22.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(
                 Icons.Filled.PlayArrow,
                 contentDescription = null,
                 tint = textColor,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(13.dp)
             )
             Text(
                 text = if (hub.launching) "启动中..." else "启动游戏",
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = textColor
             )

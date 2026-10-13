@@ -57,15 +57,19 @@ object GridEngine {
         height: Int,
         origin: IntOffset,
         columns: Int,
-        obstacles: List<CardRect>
+        obstacles: List<CardRect>,
+        rows: Int? = null
     ): IntOffset? {
         if (width <= 0 || height <= 0 || width > columns) return null
+        if (rows != null && height > rows) return null
         val maxRow = obstacles.maxOfOrNull { it.bottom } ?: 0
         val originCenterX = origin.x + width / 2f
         val originCenterY = origin.y + height / 2f
         var best: IntOffset? = null
         var bestDistance = Float.MAX_VALUE
         for (cy in 0..maxRow) {
+            // 底边墙：候选槽位不得越过最大行数
+            if (rows != null && cy + height > rows) continue
             for (cx in 0..columns - width) {
                 val candidate = CardRect("", cx, cy, width, height)
                 if (obstacles.any { it.intersects(candidate) }) continue
@@ -99,7 +103,8 @@ object GridEngine {
         columns: Int,
         cards: List<CardRect>,
         pointer: IntOffset? = null,
-        directions: Map<String, IntOffset> = emptyMap()
+        directions: Map<String, IntOffset> = emptyMap(),
+        rows: Int? = null
     ): Map<String, CardRect>? {
         val displaced = cards
             .filter { it.id != moving.id && it.intersects(moving) }
@@ -130,7 +135,7 @@ object GridEngine {
                 perpendicular,
                 IntOffset(-perpendicular.x, -perpendicular.y)
             ).firstNotNullOfOrNull { candidate ->
-                slideChain(current, candidate, moving, columns, occupied)
+                slideChain(current, candidate, moving, columns, occupied, rows)
             } ?: return null
             occupied.removeAll { it.id in chain }
             occupied.addAll(chain.values)
@@ -168,6 +173,7 @@ object GridEngine {
      * 链式滑动：把 [head] 沿 [direction]（单位轴向量）逐格推动，
      * 挡在路径上的卡片级联加入链条同步移动，
      * 直到 [head] 完全脱离 [mover]；任何成员越出网格边界（横向越界或纵向越过网格边缘）即推不动。
+     * [rows] 为底边墙（最大行数），向下推使任一成员底边越墙即推不动；null 表示纵向不设限。
      *
      * @return 链条上全部被移动的卡片（id -> 新布局），推不动时返回 null
      */
@@ -176,7 +182,8 @@ object GridEngine {
         direction: IntOffset,
         mover: CardRect,
         columns: Int,
-        obstacles: List<CardRect>
+        obstacles: List<CardRect>,
+        rows: Int? = null
     ): Map<String, CardRect>? {
         val moved = linkedMapOf(head.id to head)
         while (moved.getValue(head.id).intersects(mover)) {
@@ -193,7 +200,8 @@ object GridEngine {
             val overflow = moved.values.any { member ->
                 val next = member.shift(direction)
                 (direction.x != 0 && (next.x < 0 || next.right > columns)) ||
-                    (direction.y < 0 && next.y < 0)
+                    (direction.y < 0 && next.y < 0) ||
+                    (rows != null && direction.y > 0 && next.bottom > rows)
             }
             if (overflow) return null
             // 整链同步前进一格
@@ -215,17 +223,18 @@ object GridEngine {
         pointer: IntOffset,
         columns: Int,
         limits: CardLimits,
-        obstacles: List<CardRect>
+        obstacles: List<CardRect>,
+        rows: Int? = null
     ): ResizeResult {
         val lim = limits.clampedFor(columns)
         val horizontal = edge == ResizeEdge.Start || edge == ResizeEdge.End
         val minSpan = if (horizontal) lim.minWidth else lim.minHeight
         val maxSpan = if (horizontal) lim.maxWidth else lim.maxHeight
-        // 硬性界限下被拖动边的最大跨度，与阻挡卡片无关
+        // 硬性界限下被拖动边的最大跨度，与阻挡卡片无关（底边墙限制向下扩张）
         val hardMax = when (edge) {
             ResizeEdge.End -> columns - current.x
             ResizeEdge.Start -> current.right
-            ResizeEdge.Bottom -> Int.MAX_VALUE
+            ResizeEdge.Bottom -> rows?.let { (it - current.y).coerceAtLeast(1) } ?: Int.MAX_VALUE
             ResizeEdge.Top -> current.bottom
         }.coerceAtLeast(1)
         val upper = minOf(maxSpan, hardMax).coerceAtLeast(1)
@@ -243,7 +252,7 @@ object GridEngine {
         val forward = edge == ResizeEdge.End || edge == ResizeEdge.Bottom
         var candidate = desired
         while (true) {
-            val pushed = push(candidate, axis, forward, columns, obstacles)
+            val pushed = push(candidate, axis, forward, columns, obstacles, rows)
             if (pushed != null) return ResizeResult(candidate, pushed)
             val shrunk = spanOf(candidate, edge) - 1
             if (shrunk < spanOf(current, edge)) return ResizeResult(current, emptyMap())
@@ -263,7 +272,8 @@ object GridEngine {
         axis: PushAxis,
         forward: Boolean,
         columns: Int,
-        obstacles: List<CardRect>
+        obstacles: List<CardRect>,
+        rows: Int? = null
     ): Map<String, CardRect>? {
         val horizontal = axis == PushAxis.Horizontal
 
@@ -303,7 +313,7 @@ object GridEngine {
             front += if (forward) span(card) else -span(card)
             val blocked = when {
                 horizontal && forward -> front > columns
-                forward -> false
+                forward -> rows != null && front > rows
                 else -> front < 0
             }
             if (blocked) return null

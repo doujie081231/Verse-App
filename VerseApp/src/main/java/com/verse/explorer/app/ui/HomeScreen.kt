@@ -1,35 +1,26 @@
 package com.verse.explorer.app.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -39,10 +30,15 @@ import com.verse.explorer.app.launch.GameLaunchController
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcLaunchOverlay
+import com.verse.explorer.app.ui.home.HomeHubState
+import com.verse.explorer.app.ui.home.HomeVersionActions
+import com.verse.explorer.app.ui.home.LocalHomeHub
+import com.verse.explorer.app.ui.home.LocalHomeVersionActions
+import com.verse.explorer.app.ui.home.VerseHomeGrid
 import com.verse.explorer.app.ui.home.VersionCardManager
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
-import com.verse.explorer.core.account.AccountType
+import com.verse.explorer.cardgrid.state.rememberCardGridState
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
@@ -50,11 +46,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.roundToInt
 
 /**
- * 主页:左侧 1/3 为可拖拽的用户头像入口(默认位于 1/3 中线),
- * 右侧 2/3 为版本选择卡 + 启动按钮(全高垂直居中,点击进入对应页面)
+ * 主页（ZL2 同款控件自定义）：整页为可自定义排布的白色卡片网格，
+ * 头像、版本选择与启动入口均为可控卡片，可拖动换位；
+ * 头像支持放大缩小，版本选择与启动按钮尺寸固定。
  */
 @Composable
 fun HomeScreen(
@@ -124,16 +120,34 @@ fun HomeScreen(
     }
 
     val selected = localVersions.find { it.id == selectedVersionId }
+    val gridState = rememberCardGridState()
+    val homeActions = remember {
+        HomeVersionActions(
+            onLaunch = { versionId ->
+                if (!launchState.isLaunching) launchController.launchGame(versionId)
+            },
+            onOpenVersionSettings = { versionId ->
+                navController.navigate("version_settings/$versionId")
+            }
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        HomePageContent(
+        val hubState = HomeHubState(
             account = selectedAccount,
-            selected = selected,
-            isLaunching = launchState.isLaunching,
+            currentVersion = selected,
+            currentVersionId = selectedVersionId,
+            launching = launchState.isLaunching,
             onGoAccounts = { navController.navigate(Screen.Accounts.route) },
             onOpenVersions = { navController.navigate("installed_versions") },
             onLaunch = { if (!launchState.isLaunching) launchController.launchGame(selectedVersionId) }
         )
+        CompositionLocalProvider(
+            LocalHomeVersionActions provides homeActions,
+            LocalHomeHub provides hubState
+        ) {
+            HomePageContent(gridState = gridState)
+        }
 
         // 启动加载弹窗(ZL2 样式:遮罩 + 居中卡片,不可取消)
         if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
@@ -159,99 +173,51 @@ data class RunningGame(
 )
 
 /**
- * 主页内容布局:
- * - 右侧 2/3(主区):版本选择卡 + 启动按钮,垂直居中,占据主视觉焦点
- * - 左侧 1/3:可拖拽头像,初始位于 1/3 中线,可自由拖动到屏幕其他位置
+ * 主页页面内容：整页均为可自定义排布的卡片网格，
+ * 账户、当前版本、启动入口与已固定的版本全部是卡片组件。
  */
 @Composable
 private fun HomePageContent(
-    account: com.verse.explorer.core.account.Account?,
-    selected: MinecraftVersion?,
-    isLaunching: Boolean,
-    onGoAccounts: () -> Unit,
-    onOpenVersions: () -> Unit,
-    onLaunch: () -> Unit
+    gridState: com.verse.explorer.cardgrid.state.CardGridState
 ) {
-    BoxWithConstraints(
+    val homeScrollState = rememberScrollState()
+    var screenBoundsHeightPx by remember { mutableStateOf(0f) }
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
+            .verticalScroll(homeScrollState)
+            .padding(horizontal = 24.dp, vertical = 10.dp)
+            .onSizeChanged { screenBoundsHeightPx = it.height.toFloat() }
     ) {
-        val screenW = constraints.maxWidth.toFloat()
-        val screenH = constraints.maxHeight.toFloat()
-        val avatarSize = 96.dp
-        val density = LocalDensity.current
-        val avatarSizePx = with(density) { avatarSize.toPx() }
-
-        // ===== 右侧 2/3:版本选择卡 + 启动按钮(居中) =====
-        Row(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.weight(1f))
-            Column(
-                modifier = Modifier
-                    .weight(2f)
-                    .fillMaxHeight()
-                    .padding(end = 28.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                HomeVersionCardLarge(selected = selected, onClick = onOpenVersions)
-                Spacer(Modifier.height(18.dp))
-                HomeLaunchButtonLarge(isLaunching = isLaunching, enabled = selected != null, onClick = onLaunch)
-            }
-        }
-
-        // ===== 左侧 1/3:头像入口(默认位于 1/3 中线,可拖拽) =====
-        var dragOffset by remember { mutableStateOf(Offset.Zero) }
-        val baseX = screenW / 6f - avatarSizePx / 2f
-        val baseY = screenH / 2f - avatarSizePx / 2f
-        Box(
-            modifier = Modifier
-                .offset {
-                    IntOffset(
-                        (baseX + dragOffset.x).roundToInt(),
-                        (baseY + dragOffset.y).roundToInt()
-                    )
-                }
-                .size(avatarSize)
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            dragOffset = Offset(
-                                (dragOffset.x + dragAmount.x)
-                                    .coerceIn(-baseX, screenW - avatarSizePx - baseX),
-                                (dragOffset.y + dragAmount.y)
-                                    .coerceIn(-baseY, screenH - avatarSizePx - baseY)
-                            )
-                        }
-                    )
-                }
-        ) {
-            HomeAvatar(account = account, onClick = onGoAccounts)
-        }
+        VerseHomeGrid(
+            state = gridState,
+            outerScrollState = homeScrollState,
+            modifier = Modifier.fillMaxWidth(),
+            screenBoundsHeightPx = screenBoundsHeightPx
+        )
+        Spacer(Modifier.height(6.dp))
     }
 }
 
 /**
- * 头像:未登录显示虚线"添加账号"框;已登录显示皮肤头部
+ * 头像:未登录显示虚线"添加账号"框;已登录显示皮肤头部。
+ * 不内建点击手势:点按由账户卡片内容统一处理,长按拖拽由网格容器处理,
+ * 内部任何手势消费都会让网格的长按会话失效。
  */
 @Composable
 internal fun HomeAvatar(
     account: com.verse.explorer.core.account.Account?,
-    onClick: () -> Unit
+    modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(12.dp)
-    val sizeModifier = Modifier.fillMaxSize()
+    val sizeModifier = modifier.fillMaxSize()
     if (account == null) {
         // 无账户:虚线框 + 十字 + 添加账号
         Box(
             modifier = sizeModifier
                 .clip(shape)
-                .background(Color(0x0BFFFFFF))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick
-                ),
+                .background(Color(0x0BFFFFFF)),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -275,92 +241,9 @@ internal fun HomeAvatar(
         }
     } else {
         Box(
-            modifier = sizeModifier
-                .clip(shape)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick
-                )
+            modifier = sizeModifier.clip(shape)
         ) {
             AccountAvatar(account = account, modifier = Modifier.fillMaxSize(), shape = shape)
-        }
-    }
-}
-
-/**
- * 大版本卡片(右侧主区):图标 + 名称 + 徽章 + 箭头,点击进入版本列表
- * 未选择版本时显示占位图标与引导文案
- */
-@Composable
-private fun HomeVersionCardLarge(
-    selected: MinecraftVersion?,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        shape = RoundedCornerShape(16.dp),
-        color = VerseColors.PcGlassCardBg,
-        border = BorderStroke(1.dp, VerseColors.PcBorder)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            if (selected == null) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(VerseColors.PcBgTertiary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = null,
-                        tint = VerseColors.PcTextMuted,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "选择版本",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VerseColors.PcTextPrimary
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = "点击进入版本列表选择游戏版本",
-                        fontSize = 13.sp,
-                        color = VerseColors.PcTextMuted
-                    )
-                }
-                Icon(Icons.Filled.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
-            } else {
-                VersionIcon(version = selected, size = 52.dp)
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = selected.id,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VerseColors.PcTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    LoaderBadge(version = selected)
-                }
-                Icon(Icons.Filled.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
-            }
         }
     }
 }
@@ -466,52 +349,5 @@ internal fun LoaderBadge(version: MinecraftVersion) {
             color = color,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
         )
-    }
-}
-
-/**
- * 主页启动按钮(大号绿色渐变)
- * 未选择版本或正在启动时不可点击
- */
-@Composable
-private fun HomeLaunchButtonLarge(isLaunching: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val textColor = if (enabled && !isLaunching) {
-        VerseColors.PcAccentText
-    } else {
-        VerseColors.PcAccentText.copy(alpha = 0.45f)
-    }
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                brush = Brush.linearGradient(listOf(VerseColors.PcLaunchGradientStart, VerseColors.PcLaunchGradientEnd))
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = enabled && !isLaunching,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                Icons.Filled.PlayArrow,
-                contentDescription = null,
-                tint = textColor,
-                modifier = Modifier.size(24.dp)
-            )
-            Text(
-                text = if (isLaunching) "启动中..." else "启动游戏",
-                fontSize = 19.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor
-            )
-        }
     }
 }

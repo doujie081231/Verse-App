@@ -17,7 +17,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -27,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.verse.explorer.cardgrid.model.MIN_GRID_COLUMNS
 import com.verse.explorer.cardgrid.state.CardGridState
 import com.verse.explorer.cardgrid.state.CardSeed
 import com.verse.explorer.cardgrid.model.CardRect
@@ -38,6 +44,10 @@ val LocalHomeVersionActions = staticCompositionLocalOf<HomeVersionActions> {
     HomeVersionActions(onLaunch = {}, onOpenVersionSettings = {})
 }
 
+/** 白色网格单元内的文字配色：白底使用深色文字保证可读性 */
+val LocalCellTextPrimary = staticCompositionLocalOf { Color(0xFF1B1B1B) }
+val LocalCellTextMuted = staticCompositionLocalOf { Color(0xFF9A9A9A) }
+
 data class HomeVersionActions(
     val onLaunch: (String) -> Unit,
     val onOpenVersionSettings: (String) -> Unit
@@ -47,57 +57,80 @@ data class HomeVersionActions(
  * 主页卡片网格：负责布局的播种、持久化与卡片记录同步，
  * 系统区域（账户、启动入口等）绘制在网格之外；
  * 卡片拖拽的边缘自动滚动直接驱动外层滚动容器，网格自身不再嵌套滚动。
+ * @param screenBoundsHeightPx 外层滚动容器的像素高度，作为拖动/缩放的底部边界
  */
 @Composable
 fun VerseHomeGrid(
     state: CardGridState,
     outerScrollState: ScrollState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    screenBoundsHeightPx: Float = 0f
 ) {
     val context = LocalContext.current
 
-    // 播种持久化的用户卡片布局；首次使用（无快照）按原主页结构排布
+    // 上报屏幕可用高度：网格底部边界与屏幕底边对齐
+    LaunchedEffect(screenBoundsHeightPx) {
+        state.onScreenBounds(screenBoundsHeightPx)
+    }
+
+    // 播种持久化的用户卡片布局；有快照时按存储列数折算恢复
+    var seededFirstLayout by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val snapshot = HomeGridStore.load(context)
-        val seeds: List<CardSeed> = snapshot?.cards?.map { entry ->
-            CardSeed(
-                id = entry.id,
-                typeId = entry.type,
-                layout = CardRect(
+        if (snapshot != null) {
+            val seeds: List<CardSeed> = snapshot.cards.map { entry ->
+                CardSeed(
                     id = entry.id,
-                    x = entry.x,
-                    y = entry.y,
-                    width = entry.width,
-                    height = entry.height
+                    typeId = entry.type,
+                    layout = CardRect(
+                        id = entry.id,
+                        x = entry.x,
+                        y = entry.y,
+                        width = entry.width,
+                        height = entry.height
+                    )
                 )
+            }
+            state.seed(
+                types = HomeCards.userCardTypes,
+                seeds = seeds,
+                storedColumns = snapshot.columns
             )
-        } ?: listOf(
-            // 头像（居中 2×2）→ 当前版本选择 → 启动按钮 → 版本卡片垫底
+            ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
+            ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
+            ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
+            seededFirstLayout = true
+        }
+    }
+
+    // 首次使用（无快照）：等待真实列数测量完成后，居中排布 头像 → 版本选择 → 启动按钮
+    LaunchedEffect(state.geometry.columns) {
+        if (seededFirstLayout) return@LaunchedEffect
+        val columns = state.geometry.columns
+        // 几何默认值为 4 列/20dp，视为尚未完成实际测量
+        if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
+        val seeds = listOf(
             CardSeed(
                 id = "system_account",
                 typeId = HomeCards.ACCOUNT_CARD_TYPE_ID,
-                layout = CardRect("system_account", 4, 0, 2, 2)
+                layout = CardRect("system_account", (columns - 6) / 2, 1, 6, 6)
             ),
             CardSeed(
                 id = "system_current_version",
                 typeId = HomeCards.CURRENT_VERSION_CARD_TYPE_ID,
-                layout = CardRect("system_current_version", 1, 2, 8, 2)
+                layout = CardRect("system_current_version", (columns - 12) / 2, 9, 12, 3)
             ),
             CardSeed(
                 id = "system_launch",
                 typeId = HomeCards.LAUNCH_CARD_TYPE_ID,
-                layout = CardRect("system_launch", 1, 4, 8, 2)
+                layout = CardRect("system_launch", (columns - 8) / 2, 13, 8, 3)
             )
         )
-        state.seed(
-            types = HomeCards.userCardTypes,
-            seeds = seeds,
-            storedColumns = snapshot?.columns ?: 0
-        )
-        // 快照恢复缺卡时补齐固定功能卡片，保证主页基础功能常驻
+        state.seed(types = HomeCards.userCardTypes, seeds = seeds, storedColumns = 0)
         ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
         ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
         ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
+        seededFirstLayout = true
     }
 
     // 布局结算后持久化
@@ -135,18 +168,24 @@ fun VerseHomeGrid(
                 )
             }
     ) {
-        CardGrid(
-            state = state,
-            containerColor = VerseColors.PcBgCard,
-            contentColor = VerseColors.PcTextPrimary,
-            adjustingBar = { barModifier, card ->
-                CardToolbar(
-                    modifier = barModifier,
-                    state = state,
-                    card = card
-                )
-            }
-        )
+        // 白色网格单元：卡片表面为纯白，内部文字切换为深色配色
+        CompositionLocalProvider(
+            LocalCellTextPrimary provides Color(0xFF1B1B1B),
+            LocalCellTextMuted provides Color(0xFF9A9A9A)
+        ) {
+            CardGrid(
+                state = state,
+                containerColor = Color.White,
+                contentColor = LocalCellTextPrimary.current,
+                adjustingBar = { barModifier, card ->
+                    CardToolbar(
+                        modifier = barModifier,
+                        state = state,
+                        card = card
+                    )
+                }
+            )
+        }
         CardGridAutoScroll(
             state = state,
             scrollState = outerScrollState

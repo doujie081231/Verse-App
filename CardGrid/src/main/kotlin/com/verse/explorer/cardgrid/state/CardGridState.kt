@@ -131,6 +131,21 @@ class CardGridState internal constructor(
     var viewportHeightPx by mutableFloatStateOf(0f)
         private set
 
+    /** 屏幕可用高度（px）：拖动/缩放的底部边界，未上报时不设限 */
+    var screenBoundsPx by mutableFloatStateOf(0f)
+        private set
+
+    /** 上报屏幕可用高度（外层滚动容器的像素高度），网格底部边界与其对齐 */
+    fun onScreenBounds(heightPx: Float) {
+        if (heightPx > 0f) screenBoundsPx = heightPx
+    }
+
+    /** 底部边界行数：屏幕可容纳的行数；屏幕高度未上报时返回 null（不设限，禁止当作真实行数使用） */
+    private fun bottomRowBound(): Int? {
+        if (screenBoundsPx <= 0f || cellPx <= 0f) return null
+        return (screenBoundsPx / cellPx).toInt().coerceAtLeast(1)
+    }
+
     /** 网格区域布局位置回调 */
     fun onAreaPositioned(offsetInRoot: Offset) {
         areaOffsetInRoot = offsetInRoot
@@ -298,13 +313,19 @@ class CardGridState internal constructor(
         bottom = layout.bottom * cellPx - cardInsetPx
     )
 
-    /** 网格内容高度（px），含一行备用行供尾部推放 */
+    /** 网格内容高度（px）：内容不足一屏时撑满一屏（底部边界与屏幕对齐），超出时留一行备用行供尾部推放 */
     fun gridHeightPx(): Float {
-        val rows = max(
+        val contentRows = max(
             GridEngine.totalRows(cards.map { it.layout }),
             dragPreview?.bottom ?: 0
         )
-        return (rows + 1) * cellPx
+        val boundRows = bottomRowBound()
+        val rows = when {
+            boundRows == null -> contentRows + 1
+            contentRows < boundRows -> boundRows
+            else -> contentRows + 1
+        }
+        return rows * cellPx
     }
 
     // ---------- 卡片管理 ----------
@@ -410,12 +431,18 @@ class CardGridState internal constructor(
             pointer.x - current.grabOffset.x,
             pointer.y - current.grabOffset.y
         )
-        dragRawRect = Rect(offset = topLeft, size = size)
-        // 吸附到单元格，横向钳制在网格内
+        // 跟手矩形钳制在屏幕底边内：手指越过底边后卡片停在墙上不再跟随
+        val boundPx = bottomRowBound()?.let { it * cellPx }
+        val maxGhostTop = boundPx?.let { (it - size.height).coerceAtLeast(0f) }
+        val ghostTop = if (maxGhostTop != null) topLeft.y.coerceIn(0f, maxGhostTop) else topLeft.y
+        dragRawRect = Rect(offset = Offset(topLeft.x, ghostTop), size = size)
+        // 吸附到单元格，横向钳制在网格内、纵向钳制在屏幕底边内（边界未知时不设限）
         // 被压卡片依据手指位置实时做方向性让位预览
+        val bound = bottomRowBound()
+        val maxY = if (bound == null) Int.MAX_VALUE else (bound - current.card.layout.height).coerceAtLeast(0)
         val target = IntOffset(
             (topLeft.x / cellPx).roundToInt().coerceIn(0, geometry.columns - current.card.layout.width),
-            (topLeft.y / cellPx).roundToInt().coerceAtLeast(0)
+            (ghostTop / cellPx).roundToInt().coerceIn(0, maxY)
         )
         val preview = current.card.layout.positionAt(target)
         val pointerCell = IntOffset(
@@ -428,16 +455,18 @@ class CardGridState internal constructor(
             columns = geometry.columns,
             cards = layouts(),
             pointer = pointerCell,
-            directions = lockedDirections
+            directions = lockedDirections,
+            rows = bound
         )
         if (displacements == null) {
-            // 引擎无法确定让位方向（方向信息缺失）时兜底：落点钳制到最近可行空位
+            // 引擎无法确定让位方向（方向信息缺失或底边墙挡住）时兜底：落点钳制到最近可行空位
             val clamped = GridEngine.findNearestFreeSlot(
                 width = current.card.layout.width,
                 height = current.card.layout.height,
                 origin = target,
                 columns = geometry.columns,
-                obstacles = layouts().filterNot { it.id == current.card.id }
+                obstacles = layouts().filterNot { it.id == current.card.id },
+                rows = bound
             ) ?: return
             applyPreview(current.card.layout.positionAt(clamped), emptyMap())
             return
@@ -498,7 +527,8 @@ class CardGridState internal constructor(
             ),
             columns = geometry.columns,
             limits = current.card.type.limits,
-            obstacles = layouts().filterNot { it.id == current.card.id }
+            obstacles = layouts().filterNot { it.id == current.card.id },
+            rows = bottomRowBound()
         )
         dragRawRect = rawRectForResize(current.card, edge, pointer, result.layout)
         applyPreview(result.layout, result.pushed)

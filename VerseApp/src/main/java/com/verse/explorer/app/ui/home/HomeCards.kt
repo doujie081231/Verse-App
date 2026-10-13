@@ -46,13 +46,15 @@ object HomeCards {
         }
     )
 
+    /** 头像卡片：可自由放大缩小 */
     private val accountCardType = CardType(
         typeId = ACCOUNT_CARD_TYPE_ID,
-        defaultSpan = IntOffset(2, 2),
+        defaultSpan = IntOffset(6, 6),
         limits = CardLimits(
-            minWidth = 2,
-            minHeight = 2,
-            maxHeight = 8
+            minWidth = 4,
+            minHeight = 4,
+            maxWidth = 12,
+            maxHeight = 12
         ),
         decorated = false,
         content = {
@@ -60,26 +62,30 @@ object HomeCards {
         }
     )
 
+    /** 版本选择卡片：尺寸固定（最小=最大跨度，调整态不出现缩放手柄） */
     private val currentVersionCardType = CardType(
         typeId = CURRENT_VERSION_CARD_TYPE_ID,
-        defaultSpan = IntOffset(8, 2),
+        defaultSpan = IntOffset(12, 3),
         limits = CardLimits(
-            minWidth = 4,
-            minHeight = 2,
-            maxHeight = 8
+            minWidth = 12,
+            minHeight = 3,
+            maxWidth = 12,
+            maxHeight = 3
         ),
         content = {
             CurrentVersionCardContent()
         }
     )
 
+    /** 启动卡片：尺寸固定，且整体比版本选择卡片更小 */
     private val launchCardType = CardType(
         typeId = LAUNCH_CARD_TYPE_ID,
-        defaultSpan = IntOffset(8, 2),
+        defaultSpan = IntOffset(8, 3),
         limits = CardLimits(
-            minWidth = 4,
-            minHeight = 2,
-            maxHeight = 8
+            minWidth = 8,
+            minHeight = 3,
+            maxWidth = 8,
+            maxHeight = 3
         ),
         decorated = false,
         content = {
