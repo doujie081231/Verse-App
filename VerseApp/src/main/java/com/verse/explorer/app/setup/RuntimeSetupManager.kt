@@ -189,7 +189,6 @@ object RuntimeSetupManager {
             RuntimeComponent.JAVA_25 -> "25"
             else -> "17"
         }
-        // FCL/Pojav 的 JRE release 文件规范包含 OS_ARCH 字段，FCLauncher.getJavaLibDir()
         // 依赖它计算 lib 路径（archAsInt 对 null 会抛 NPE）。此处保持与 OpenJDK release
         // 文件格式一致；lib/<arch> 子目录不存在时 getJavaLibDir 回退到默认 /lib。
         val osArch = when (getArchName()) {
@@ -234,8 +233,6 @@ object RuntimeSetupManager {
     private fun downloadComponentFiles(component: RuntimeComponent, targetDir: String) {
         when (component) {
             RuntimeComponent.LWJGL -> {
-                // lwjgl 必须内置（assets/app_runtime/lwjgl/lwjgl.jar = FCL 官方版，
-                // 与 Pojav patched 原生库配对且含 glfwGetMonitorName）。
                 // 禁止网络回退：官方 lwjgl-3.3.1 core jar 不含 org.lwjgl.glfw 类，
                 // 会导致 MC 1.19.4+/26.x 启动失败，比旧裁剪版更糟。
                 throw RuntimeException("LWJGL 必须从内置资产安装，禁止网络回退替换")

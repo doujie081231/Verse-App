@@ -33,10 +33,10 @@ internal class JvmArgsBuilder(
         val rendererId = effectiveRenderer.id
         File(cacheDir).mkdirs()
 
-        // FCL-style: Cacio Java args
+        //Cacio Java args
         environmentSetup.addCacioArgs(args, config, isJava8, nativeLibDir)
 
-        // FCL-style: 关键系统属性（必须在 -Xmx/-Xms 之前）
+        //关键系统属性（必须在 -Xmx/-Xms 之前）
         args.add("-Djdk.lang.Process.launchMechanism=FORK")
         args.add("-Dglfwstub.initEgl=false")
         args.add("-Dswing.defaultlaf=javax.swing.plaf.nimbus.NimbusLookAndFeel")
@@ -55,21 +55,21 @@ internal class JvmArgsBuilder(
         val log4j2File = gameArgsParser.ensureLog4j2Config(config)
         args.add("-Dlog4j.configurationFile=${log4j2File.absolutePath}")
 
-        // FCL-style: 自定义 JVM args
+        //自定义 JVM args
         if (config.customJvmArgs.isNotBlank()) {
             args.addAll(config.customJvmArgs.split("\\s+".toRegex()).filter { it.isNotBlank() })
         }
 
-        // FCL-style: 额外的 Java arguments (从版本配置传入)
+        //额外的 Java arguments (从版本配置传入)
         config.javaArguments.forEach { arg ->
             if (arg.isNotBlank()) args.add(arg)
         }
 
-        // FCL-style: memory settings
+        //memory settings
         if (config.maxMemory > 0) args.add("-Xmx${config.maxMemory}m")
         if (config.minMemory > 0 && config.minMemory <= config.maxMemory) args.add("-Xms${config.minMemory}m")
 
-        // FCL-style: GC settings
+        //GC settings
         val gcArg = when (config.gcType.lowercase()) {
             "g1gc", "g1" -> "-XX:+UseG1GC"
             "zgc", "z" -> "-XX:+UseZGC"
@@ -82,18 +82,18 @@ internal class JvmArgsBuilder(
         }
         if (gcArg.isNotEmpty()) args.add(gcArg)
 
-        // 已移除 -XX:TieredStopAtLevel=1（对齐 FCL：FCL 保留 C2 完整 JIT）。
+        // 已移除 -XX:TieredStopAtLevel=1（保留 C2 完整 JIT）。
         // C1-only 会让区块构建/光照等热循环慢数倍；本机 6 份 hs_err 均无 C2 aarch64 断言。
 
-        // FCL-style: gl4es 会触发 System.gc()，禁用以避免卡顿
+        //gl4es 会触发 System.gc()，禁用以避免卡顿
         if (rendererId == RendererManager.ID_GL4ES || rendererId == RendererManager.ID_VGPU) {
             args.add("-XX:+DisableExplicitGC")
         }
 
-        // FCL-style: java.home
+        //java.home
         args.add("-Djava.home=${config.javaHome.absolutePath}")
 
-        // FCL-style: encoding
+        //encoding
         args.add("-Dfile.encoding=UTF-8")
         if (config.javaVersion < 19) {
             args.add("-Dsun.stdout.encoding=UTF-8")
@@ -103,28 +103,28 @@ internal class JvmArgsBuilder(
             args.add("-Dstderr.encoding=UTF-8")
         }
 
-        // FCL-style: Log4j RCE mitigation
+        //Log4j RCE mitigation
         args.add("-Djava.rmi.server.useCodebaseOnly=true")
         args.add("-Dcom.sun.jndi.rmi.object.trustURLCodebase=false")
         args.add("-Dcom.sun.jndi.cosnaming.object.trustURLCodebase=false")
         args.add("-Dlog4j2.formatMsgNoLookups=true")
 
-        // FCL-style: thread stack for 32-bit
+        //thread stack for 32-bit
         if (Build.SUPPORTED_32_BIT_ABIS.isNotEmpty() && Build.SUPPORTED_64_BIT_ABIS.isEmpty()) {
             args.add("-Xss1m")
         }
 
-        // FCL-style: core flags
+        //core flags
         args.add("-Dminecraft.client.jar=${classpathBuilder.getVersionJar(config)}")
         args.add("-XX:ActiveProcessorCount=${Runtime.getRuntime().availableProcessors()}")
         args.add("-Dfml.ignoreInvalidMinecraftCertificates=true")
         args.add("-Dfml.ignorePatchDiscrepancies=true")
         args.add("-Dfml.earlyprogresswindow=false")
 
-        // FCL-style: FCL specific system properties
+        // 运行时系统属性
         args.add("-Djava.io.tmpdir=$cacheDir")
 
-        // FCL-style: glfwstub window size (FCL LWJGL reads these)
+        // glfwstub 窗口尺寸（LWJGL 读取）
         args.add("-Dglfwstub.windowWidth=${config.width}")
         args.add("-Dglfwstub.windowHeight=${config.height}")
 
@@ -132,16 +132,16 @@ internal class JvmArgsBuilder(
         args.add("-Doshi.os.prefix=Android")
         args.add("-Doshi.arch=${Build.SUPPORTED_64_BIT_ABIS.firstOrNull() ?: "aarch64"}")
 
-        // FCL-style: OS identity
+        //OS identity
         args.add("-Dos.name=Linux")
         args.add("-Dos.version=Android-${Build.VERSION.RELEASE}")
 
-        // FCL-style: LWJGL library paths
+        //LWJGL library paths
         args.add("-Dorg.lwjgl.system.stackSize=3072")
         args.add("-Dorg.lwjgl.util.Debug=true")
         args.add("-Dorg.lwjgl.util.DebugLoader=true")
         val glLibName = effectiveRenderer.glName
-        // 系统库使用真实 Pojav/FCL patched 的 liblwjgl.so（提供完整的 MemoryUtil/FFICIF/JNI.invoke 等系统原生方法），
+        // 系统库使用 patched 的 liblwjgl.so（提供完整的 MemoryUtil/FFICIF/JNI.invoke 等系统原生方法），
         // 避免手写 stub 缺失 FFICIF 等结构体访问方法导致 UnsatisfiedLinkError。
         // glfw 保留自定义 libverseexec.so（提供基于 bionic 的 EGL/GLFW 实现与 CallbackBridge 钩子）。
         args.add("-Dorg.lwjgl.system.libname=liblwjgl.so")
@@ -151,7 +151,7 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.vulkan.libname=libvulkan.so")
         args.add("-Dorg.lwjgl.spvc.libname=spirv-cross-c-shared")
 
-        // FCL-style: Library path
+        //Library path
         val modRuntimeDir = context.getDir("runtime_mod", 0).absolutePath
 
         val libraryPath = environmentSetup.buildFclLibraryPath(
@@ -169,7 +169,7 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.system.SharedLibraryExtractPath=${config.nativesDir.absolutePath}")
         args.add("-Dorg.lwjgl.librarypath=$libraryPath")
 
-        // FCL-style: misc
+        //misc
         args.add("-Dloader.disable_forked_guis=true")
         args.add("-Duser.home=${config.gameDir.absolutePath}")
         args.add("-Duser.language=${System.getProperty("user.language", "zh")}")
@@ -178,19 +178,19 @@ internal class JvmArgsBuilder(
         args.add("-Dsodium.checks.issue2561=false")
         args.add("-Dcpu.name=${environmentSetup.getSocName()}")
 
-        // FCL-style: JNA boot path
+        //JNA boot path
         args.add("-Djna.boot.library.path=${jnaDir.absolutePath}")
         args.add("-Djna.nosys=true")
         args.add("-Djna.nounpack=true")
         args.add("-Djna.tmpdir=$cacheDir")
 
-        // FCL-style: Fix 1.7.2 Forge
+        //Fix 1.7.2 Forge
         val gameVersion = resolveGameVersion(config)
         if (gameVersion == "1.7.2") {
             args.add("-Dsort.patch=true")
         }
 
-        // V3.6: MioLibPatcher + MioLaunchWrapper (FCL-style complete Mio infrastructure)
+        // V3.6: MioLibPatcher + MioLaunchWrapper（完整 Mio 基础设施）
         val pluginsDir = File(context.filesDir, "plugins")
         if (!pluginsDir.exists()) pluginsDir.mkdirs()
 
@@ -217,15 +217,15 @@ internal class JvmArgsBuilder(
             Log.w(TAG, "verse-bootstrap.jar not found, VerseBootstrap main class will not be available")
         }
 
-        // FCL-style: mod loader env markers (空实现)
+        //mod loader env markers (空实现)
         addModLoaderMarkers(config, args)
 
-        // FCL-style: add-opens/add-exports for Java 17+
+        //add-opens/add-exports for Java 17+
         if (!isJava8) {
             addJavaModuleArgs(args, config)
         }
 
-        // FCL-style: beGesture injector
+        //beGesture injector
         if (config.beGesture) {
             val injectorArg = getInjectorArg(config)
             if (injectorArg != null) {
@@ -233,12 +233,12 @@ internal class JvmArgsBuilder(
             }
         }
 
-        // FCL-style: build classpath — 关键！LWJGL jar 排在最前面
+        //build classpath — 关键！LWJGL jar 排在最前面
         val classpath = classpathBuilder.buildFclClasspath(config, runtimeDir)
         args.add("-cp")
         args.add(classpath)
 
-        // V3.6: FCL-style — VerseBootstrap as main class, real main class as first arg
+        // V3.6: VerseBootstrap 作为主类，真实主类作为第一个参数
         val mcMainClass = if (config.version.mainClass.isNotEmpty()) config.version.mainClass
             else "net.minecraft.client.main.Main"
         val bootstrapAvailable = bootstrapJar != null && bootstrapJar.exists() && bootstrapJar.length() > 1024
@@ -250,10 +250,10 @@ internal class JvmArgsBuilder(
             args.add(mcMainClass)
         }
 
-        // FCL-style: game arguments
+        //game arguments
         args.addAll(gameArgsParser.buildFclGameArguments(config, gameVersion))
 
-        // FCL-style: 如果有自定义游戏参数，追加
+        //如果有自定义游戏参数，追加
         if (config.gameArguments.isNotBlank()) {
             args.addAll(config.gameArguments.split("\\s+".toRegex()).filter { it.isNotBlank() })
         }

@@ -13,7 +13,7 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
         private const val TAG = "MinecraftLauncher"
     }
 
-    /** 根据 RendererManager 的 RendererConfig 设置 FCL 式渲染器环境变量 */
+    /** 根据 RendererManager 的 RendererConfig 设置渲染器环境变量 */
     fun setupRendererEnvironment(
         config: LaunchConfiguration,
         rendererConfig: RendererManager.RendererConfig
@@ -26,14 +26,14 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
                 context.cacheDir.absolutePath,
                 File(context.cacheDir, ".virgl_test").absolutePath
             )
-            // SDL 需要独立的 GL/EGL 库绝对路径（对齐 FCL FCLauncher.addRendererEnv L274-300）：
+            // SDL 需要独立的 GL/EGL 库绝对路径：
             // MC 26.x RenderPearl 校验 SDL_GL_GetProcAddress("glGetError") 与 LWJGL provider
             // 同源，SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。
             val rendererLibPath = context.applicationInfo.nativeLibraryDir
             val egl = envMap["POJAVEXEC_EGL"]
             if (egl != null && !egl.startsWith("/")) {
                 // 仅当 EGL 库真实打包在 native 目录内才给 SDL 绝对路径（如 ANGLE/Mesa）；
-                // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析（与 FCL 一致）
+                // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析
                 val candidate = File(rendererLibPath, egl)
                 if (candidate.isFile()) {
                     envMap["SDL_EGL_LIBRARY"] = candidate.absolutePath
@@ -57,14 +57,14 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
         }
     }
 
-    /** FCL addCommonEnv() - 公共环境变量 */
+    /** 公共环境变量 */
     fun setupCommonEnvironment(config: LaunchConfiguration): Boolean {
         return try {
             val nativeLibDir = config.nativesDir.absolutePath
             val runtimeDir = context.getDir("runtime", 0).absolutePath
             val cacheDir = context.cacheDir.absolutePath
 
-            // FCL-style: core paths
+            // 核心路径
             JvmLauncherAPI.nativeSetenv("HOME", config.gameDir.absolutePath)
             JvmLauncherAPI.nativeSetenv("JAVA_HOME", config.javaHome.absolutePath)
             JvmLauncherAPI.nativeSetenv("FCL_NATIVEDIR", nativeLibDir)
@@ -73,7 +73,7 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
             val currentPath = System.getenv("PATH") ?: ""
             JvmLauncherAPI.nativeSetenv("PATH", "${config.javaHome.absolutePath}/bin:$currentPath")
 
-            // FCL-style: LD_LIBRARY_PATH - critical for native library loading
+            // LD_LIBRARY_PATH - 原生库加载关键
             val modRuntimeDir = context.getDir("runtime_mod", 0).absolutePath
             val ldLibPath = buildFclLibraryPath(
                 javaPath = config.javaHome.absolutePath,
@@ -85,7 +85,7 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
             )
             JvmLauncherAPI.nativeSetenv("LD_LIBRARY_PATH", ldLibPath)
 
-            // FCL-style: misc
+            // 其他
             JvmLauncherAPI.nativeSetenv("DRIVER_PATH", config.nativesDir.absolutePath)
             JvmLauncherAPI.nativeSetenv("MOD_ANDROID_RUNTIME", modRuntimeDir)
             JvmLauncherAPI.nativeSetenv("POJAV_BIG_CORE_AFFINITY", "1")
@@ -163,7 +163,7 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
         }
     }
 
-    /** FCL-style: CacioCavallo bootclasspath 与 AWT 配置参数 */
+    /** CacioCavallo bootclasspath 与 AWT 配置参数 */
     fun addCacioArgs(args: MutableList<String>, config: LaunchConfiguration, isJava8: Boolean, nativeLibDir: String) {
         val runtimeDir = context.getDir("runtime", 0)
 

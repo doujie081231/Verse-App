@@ -79,6 +79,16 @@ class GameInstaller(private val context: Context) {
         .dns(SmartDownloadClient.ipv4Only())
         .build()
 
+    // 版本信息（manifest / 版本 JSON）专用客户端：8s 连接/读取超时快速失败，逐镜像轮换不卡安装流程；
+    // IPv4-only DNS 避免部分手机 AAAA 优先时先挂满 connect 超时才回退
+    private val metaHttpClient = downloadManager.httpClient.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
+        .dns(SmartDownloadClient.ipv4Only())
+        .build()
+
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
 
@@ -145,13 +155,14 @@ class GameInstaller(private val context: Context) {
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                com.verse.explorer.core.log.DownloadLog.version(
+                    "开始安装版本: ${version.id} (实例=$installName, 加载器=${loaderType ?: "无"}${loaderVersion?.let { "/$it" } ?: ""})"
+                )
                 progressCallback(InstallProgress(InstallStage.PREPARING, "准备安装..."))
 
-                // Pojav 语义（.pojav-src modloaders/ForgeDownloadTask、FabriclikeDownloadTask 实证）：
                 // 原版基础版本永远落盘真实 MC 版本号目录，加载器版本由安装器生成独立 id。
                 // 带加载器安装时，基础原版固定写入 versions/<version.id>/（可跨实例复用，
                 // 已存在则整个下载阶段按文件级 SHA 校验跳过），加载器版本 id = 命名弹窗的
-                // 实例名（见 installFcl 的 newVersionId），经 inheritsFrom/jar 引用基础版本。
                 // 仅原版安装时实例名即版本目录名：json 的 id/jar 与 JAR 文件名同步写回，
                 // 否则 getVersion 会因目录名与 json id 不一致报 'xxx does not exist'。
                 val installId = installName.ifBlank { version.id }
@@ -179,7 +190,6 @@ class GameInstaller(private val context: Context) {
                             ))
                             versionJson = downloadVersionJson(version.id, mirrorIndex)
                             if (versionJson != null) {
-                                // 与 FCL 仓库语义一致：json 的 id/jar 必须与目录名一致，
                                 // 否则 getVersion(baseId) 找不到 '<baseId>.json' 报不存在
                                 // （原版自定义名安装时为实例名；带加载器时为真实 MC 版本号，值不变）。
                                 versionJson.addProperty("id", baseId)
@@ -200,6 +210,7 @@ class GameInstaller(private val context: Context) {
                     if (versionJson == null) {
                         val errorMsg = "下载版本信息失败: 所有镜像源均失败 (尝试了: ${failedMirrors.joinToString()})"
                         Log.e("GameInstaller", errorMsg)
+                        com.verse.explorer.core.log.DownloadLog.version(errorMsg)
                         progressCallback(InstallProgress(InstallStage.FAILED, errorMsg))
                         return@withContext false
                     }
@@ -371,7 +382,6 @@ class GameInstaller(private val context: Context) {
 
                             Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (sliding window, smart)")
 
-                            // 对齐 PC 端 download.js：滑动窗口并发调度。
                             // 始终保持 64 个活跃下载，一个完成立即补下一个（而非分批等待整批完成），
                             // 避免慢文件拖住整批导致"下一下卡一下"。
                             downloadAssetsSlidingWindow(missingAssets) { completed, total ->
@@ -392,7 +402,6 @@ class GameInstaller(private val context: Context) {
                 progressCallback(InstallProgress(InstallStage.EXTRACTING_NATIVES, "提取原生库...", 0.90f))
                 extractNatives(versionJson)
 
-                // 加载器安装（自 FCL fclcore/download 模块迁移：Forge 新/旧版、Fabric、NeoForge、OptiFine）
                 if (!loaderType.isNullOrBlank() && !loaderVersion.isNullOrBlank()) {
                     checkCancelled()
                     progressCallback(InstallProgress(
@@ -420,20 +429,24 @@ class GameInstaller(private val context: Context) {
                 }
 
                 progressCallback(InstallProgress(InstallStage.COMPLETED, "安装完成", 1f))
+                com.verse.explorer.core.log.DownloadLog.version("安装完成: $installName")
                 true
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // 协程取消必须原样抛出，交给上层（installJob.cancel）处理，不能被当成普通下载失败吞掉
                 throw e
             } catch (e: CancelledInstallException) {
                 Log.i("GameInstaller", "Install cancelled by user")
+                com.verse.explorer.core.log.DownloadLog.version("安装取消: ${version.id}")
                 progressCallback(InstallProgress(InstallStage.FAILED, "已取消下载"))
                 false
             } catch (e: Exception) {
                 if (cancelled) {
                     Log.i("GameInstaller", "Install cancelled (download aborted)")
+                    com.verse.explorer.core.log.DownloadLog.version("安装取消（下载中止）: ${version.id}")
                     progressCallback(InstallProgress(InstallStage.FAILED, "已取消下载"))
                 } else {
                     Log.e("GameInstaller", "Install failed: ${e.message}", e)
+                    com.verse.explorer.core.log.DownloadLog.version("安装失败: ${version.id} — ${e.javaClass.simpleName}: ${e.message}")
                     progressCallback(InstallProgress(InstallStage.FAILED, "安装失败: ${e.message}"))
                 }
                 false
@@ -459,7 +472,7 @@ class GameInstaller(private val context: Context) {
             .header("User-Agent", "VerseExplorerX/1.0")
             .build()
 
-        downloadManager.httpClient.newCall(request).execute().use { response ->
+        metaHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 Log.w("GameInstaller", "HTTP ${response.code} for: $url")
                 return null
@@ -482,7 +495,7 @@ class GameInstaller(private val context: Context) {
             .header("User-Agent", "VerseExplorerX/1.0")
             .build()
 
-        val manifestBody = downloadManager.httpClient.newCall(request).execute().use { response ->
+        val manifestBody = metaHttpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 Log.w("GameInstaller", "Manifest HTTP ${response.code}")
                 return null
@@ -514,7 +527,7 @@ class GameInstaller(private val context: Context) {
                         .header("User-Agent", "VerseExplorerX/1.0")
                         .build()
 
-                    return downloadManager.httpClient.newCall(versionRequest).execute().use { response ->
+                    return metaHttpClient.newCall(versionRequest).execute().use { response ->
                         if (!response.isSuccessful) {
                             Log.w("GameInstaller", "Version JSON HTTP ${response.code}")
                             return null
@@ -576,8 +589,6 @@ class GameInstaller(private val context: Context) {
     }
 
 /**
-     * 参考 PC 端 server.js evaluateRules — 正确迭代所有规则
-     * 对齐 FCL/PC端: 只匹配 OS 名称(linux)，其他 OS 视为不匹配
      */
     private fun evaluateRules(rules: List<JsonObject>): Boolean {
         if (rules.isEmpty()) return true
@@ -630,7 +641,6 @@ class GameInstaller(private val context: Context) {
     ) {
         targetFile.parentFile?.mkdirs()
 
-        // FCL-style: 下载到临时文件，成功后原子移动到目标位置
         val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
 
         val request = okhttp3.Request.Builder().url(url)
@@ -665,13 +675,11 @@ class GameInstaller(private val context: Context) {
                 }
             }
 
-            // FCL-style: Content-Length 校验
             if (totalSize >= 0 && downloaded != totalSize) {
                 tempFile.delete()
                 throw Exception("文件大小不匹配: 已下载 $downloaded, 期望 $totalSize")
             }
 
-            // FCL-style: SHA1 校验
             if (expectedSha1 != null) {
                 val actualSha1 = calculateSHA1(tempFile)
                 if (actualSha1.lowercase() != expectedSha1.lowercase()) {
@@ -680,7 +688,6 @@ class GameInstaller(private val context: Context) {
                 }
             }
 
-            // FCL-style: 原子移动临时文件到目标位置
             targetFile.delete()
             if (!tempFile.renameTo(targetFile)) {
                 // renameTo 可能因跨挂载点失败，用拷贝回退
@@ -723,7 +730,6 @@ class GameInstaller(private val context: Context) {
         }
     }
 
-    // 对齐 PC 端：assets 小文件使用专用快速客户端（10s 连接超时 + 30s 读取超时）
     private suspend fun downloadAssetFile(
         url: String,
         targetFile: File,
@@ -773,7 +779,6 @@ class GameInstaller(private val context: Context) {
     }
 
     /**
-     * 对齐 PC 端 download.js 的滑动窗口并发调度：
      * 始终保持 [concurrentAssets] 个活跃下载，一个完成立即补下一个，
      * 而非分批等待整批完成（避免慢文件拖住整批导致"下一下卡一下"）。
      *

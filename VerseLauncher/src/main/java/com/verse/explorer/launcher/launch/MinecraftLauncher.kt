@@ -79,7 +79,7 @@ class MinecraftLauncher(private val context: Context, private val zlBridge: ZLBr
             Log.i(TAG, "Debug log: $logPath")
             Log.i(TAG, "[launch] nativeSetLogPath done (${System.currentTimeMillis()-t0}ms)")
 
-            // FCL-style: 在 launchJVM 之前设置渲染器相关的 env vars
+            // 在 launchJVM 之前设置渲染器相关的 env vars
             val rendererConfig = RendererManager.resolveRendererWithFallback(context, config.renderer)
 
             Log.i(TAG, "[launch] setupCommonEnvironment...")

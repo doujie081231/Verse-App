@@ -11,7 +11,6 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * 反馈提交仓库（对齐 PC 端 feedback.js sendFeedbackToSite）：
  * 加载验证码 SVG、下发签名密钥、扫描日志附件、multipart 提交 + HMAC 防伪签名。
  */
 object FeedbackRepository {

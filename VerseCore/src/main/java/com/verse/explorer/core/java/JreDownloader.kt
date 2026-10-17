@@ -98,7 +98,6 @@ internal object JreDownloader {
                 "正在解压 Java $versionNum..."
             ))
 
-            // 与 FCL 原版 RuntimeUtils.installJava 一致：删除旧目录后，
             // 直接把两个 tar.xz 解压到目标目录（顶层即标准 JRE 结构），
             // 不再使用 findJreRootDir/moveDirReliably 等自研猜测逻辑。
             if (targetDir.exists()) targetDir.deleteRecursively()

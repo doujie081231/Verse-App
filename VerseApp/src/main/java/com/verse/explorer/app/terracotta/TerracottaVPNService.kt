@@ -18,7 +18,6 @@ import java.io.IOException
 /**
  * 陶瓦联机 VPN 服务
  *
- * 与 FCL 的 TerracottaVPNService 对应：向 Terracotta 后端提交 VPN 接口，
  * 并以前台通知展示联机身份与状态；通知被用户划掉后重新发出（REPOST）。
  */
 @SuppressLint("VpnServicePolicy")

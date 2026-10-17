@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.domain.model.setup.ComponentState
 import com.verse.explorer.app.setup.RuntimeSetupManager
 import com.verse.explorer.app.setup.RuntimeSetupManager.RuntimeComponent
@@ -30,16 +31,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * FCL 风格的前置运行时环境安装界面
  *
- * 照搬 FCL RuntimeFragment 的 UI 逻辑：
  * - 显示 10 个运行时组件的安装状态（含可选组件）
  * - 一键安装所有缺失组件
  * - 实时进度反馈
  * - 安装完毕后自动进入启动器
  *
- * 与 FCL 一致的可选组件：JAVA_25
- * （LWJGL_BOAT 已移除：FCL 上游无此目录，且 boat/pojav 启动方式共用同一份 lwjgl.jar）
  * （JAVA_11 已移除：MC 1.16-1.17 实际使用 Java 8/17 兼容，无需单独 JRE 11）
  */
 @Composable
@@ -208,18 +205,18 @@ fun RuntimeSetupScreen(
                     )
                 ) {
                     if (isChecking) {
-                        CircularProgressIndicator(
+                        RoseLoader(
                             modifier = Modifier.size(18.dp),
-                            color = VerseColors.PcTextMuted,
-                            strokeWidth = 2.dp
+                            size = 18.dp,
+                            color = VerseColors.PcTextMuted
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text("正在检查运行环境...", fontSize = 13.sp)
                     } else if (isInstallingAll) {
-                        CircularProgressIndicator(
+                        RoseLoader(
                             modifier = Modifier.size(18.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
+                            size = 18.dp,
+                            color = Color.White
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text("正在安装中...", fontSize = 13.sp)
@@ -243,10 +240,10 @@ fun RuntimeSetupScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        CircularProgressIndicator(
+                        RoseLoader(
                             modifier = Modifier.size(18.dp),
-                            color = VerseColors.PcAccent,
-                            strokeWidth = 2.dp
+                            size = 18.dp,
+                            color = VerseColors.PcAccent
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
@@ -301,10 +298,10 @@ private fun RuntimeComponentRow(
                 contentAlignment = Alignment.Center
             ) {
                 if (state.isInstalling) {
-                    CircularProgressIndicator(
+                    RoseLoader(
                         modifier = Modifier.size(16.dp),
-                        color = VerseColors.PcAccent,
-                        strokeWidth = 2.dp
+                        size = 16.dp,
+                        color = VerseColors.PcAccent
                     )
                 } else {
                     Icon(

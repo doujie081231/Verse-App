@@ -39,7 +39,6 @@ class ResourceViewModel(
     private val _results = MutableStateFlow<List<ModrinthSearchHit>>(emptyList())
     val results: StateFlow<List<ModrinthSearchHit>> = _results.asStateFlow()
 
-    // 对齐 PC searchMods：单页 15 条，offset = page * 15，上一页/下一页替换结果
     private val pageSize = 15
 
     init {
@@ -62,7 +61,6 @@ class ResourceViewModel(
         }
     }
 
-    /** 翻页：替换结果（对齐 PC 上一页/下一页，不做累积） */
     fun goToPage(page: Int) {
         val current = _uiState.value
         if (current.isLoading) return
@@ -84,7 +82,6 @@ class ResourceViewModel(
         }
     }
 
-    /** 下一页（兼容旧调用点；翻页语义与 goToPage 一致，对齐 PC 下一页） */
     fun loadMore() {
         goToPage(_uiState.value.currentPage + 1)
     }

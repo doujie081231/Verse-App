@@ -41,7 +41,6 @@ class GameStatusOverlay(
     private var repairSection: LinearLayout? = null
 
     fun createOverlay(): View {
-        // 遮罩根容器（轻微暗化，ZL2 ProgressDialog 样式；不加滤镜避免画面过暗）
         val root = FrameLayout(activity).apply {
             setBackgroundColor(0x40000000.toInt())
             layoutParams = FrameLayout.LayoutParams(
@@ -80,7 +79,6 @@ class GameStatusOverlay(
         contentRoot = inner
         card.addView(inner)
 
-        // rose 加载动画（versepc2 玫瑰曲线）——容器留足边距避免粒子被裁剪
         inner.addView(FrameLayout(activity).apply {
             clipChildren = false
             val sizePx = (120 * resources.displayMetrics.density).toInt()

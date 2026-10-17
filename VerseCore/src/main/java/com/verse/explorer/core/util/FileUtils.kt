@@ -322,7 +322,6 @@ object FileUtils {
     }
 
     /**
-     * 校验文件是否为完好的 JAR/ZIP（对齐 VersePC isJarIntactDeep）：
      * 用 ZipFile 验证 ZIP 结构并将所有条目读取一遍，能检测出损坏/截断的文件。
      * 用于下载后的 JAR 完整性校验，避免损坏的 mod/库导致启动崩溃。
      */
@@ -344,7 +343,6 @@ object FileUtils {
     }
 
     /**
-     * 计算文件 SHA1（对齐 VersePC calculateSHA1）。
      */
     fun calculateSha1(file: File): String {
         val md = MessageDigest.getInstance("SHA-1")

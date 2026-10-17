@@ -14,7 +14,6 @@ import java.io.IOException
 /**
  * 统一的资源仓库：整合 Modrinth + CurseForge 双源，提供搜索、详情、版本、下载。
  *
- * 与 VersePC `server/api/routes/resources.js` 对齐：
  *  - [search]：双源搜索并合并（按下载量排序）
  *  - [getDetail]：双源详情
  *  - [getVersions]：双源版本列表
@@ -46,7 +45,6 @@ class ResourceRepository(
         val allHits = mutableListOf<ModrinthSearchHit>()
         var total = 0
 
-        // CurseForge 与 Modrinth 并行请求（对齐 versepc2 tokio::join!），
         // 避免 source=全部 时串行等待两个慢源（旧实现先 CF 后 MR，最坏 2 倍超时）。
         coroutineScope {
             val cfDeferred = if (source.isBlank() || source == "curseforge") {
@@ -183,7 +181,8 @@ class ResourceRepository(
                                 projectId = it.projectId ?: "",
                                 versionId = it.versionId ?: "",
                                 fileName = it.fileName ?: "",
-                                type = it.dependencyType ?: "required"
+                                type = it.dependencyType ?: "required",
+                                source = "modrinth"
                             )
                         },
                         source = "modrinth"
@@ -196,11 +195,13 @@ class ResourceRepository(
     /**
      * 下载指定版本到游戏对应目录。
      *
+     * @param isCancelled 取消轮询：返回 true 时下载尽快终止（半截 .part 保留供续传）
      * @return 下载完成后的文件路径
      */
     suspend fun downloadVersion(
         projectType: String,
         version: ResourceVersion,
+        isCancelled: () -> Boolean = { false },
         onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
     ): Result<File> = withContext(Dispatchers.IO) {
         val primaryFile = version.primaryFile ?: version.files.firstOrNull()
@@ -224,7 +225,6 @@ class ResourceRepository(
             .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
         val destFile = File(destDir, safeName)
 
-        // mod 复用（对齐 VersePC _findExistingModInVersions）：下载 mod 前，
         // 若其他版本目录的 mods 已存在同名同 sha1 的文件，直接复制，避免重复下载
         if (projectType == "mod" && destFile.name.endsWith(".jar") && primaryFile.sha1.isNotBlank()) {
             val versionsDir = GameConfig.getVersionsDir(gameDir)
@@ -241,16 +241,16 @@ class ResourceRepository(
             }
         }
 
-        // 下载走 .part 临时文件，成功后改名到位：取消/失败不残留半截文件
-        // （残留坏 zip 会让下次重试 readModpack 识别失败，造成"无法正常下载"）
+        // 下载走 .part 临时文件，成功后改名到位：失败/取消保留 .part 供下次续传
+        // （目标文件只有校验通过后才会生成，不会有坏文件混入游戏目录）
         val partFile = File(destDir, "$safeName.part")
         try {
-            partFile.delete()
             smartClient.download(
                 originalUrl = primaryFile.url,
                 targetFile = partFile,
                 expectedSha1 = primaryFile.sha1.ifBlank { null },
                 knownSize = primaryFile.size,
+                isCancelled = isCancelled,
                 onProgress = {
                     onProgress(it.downloaded, it.total, it.speed)
                 }
@@ -261,7 +261,7 @@ class ResourceRepository(
             }
             Result.success(destFile)
         } catch (e: Throwable) {
-            partFile.delete()
+            // 取消不删除 .part（续传）；其余失败也保留半截文件，重试时从断点继续
             throw e
         }
     }
@@ -269,7 +269,16 @@ class ResourceRepository(
     /** 获取游戏 mods 目录（供 UI 展示下载落点） */
     fun getModsDir(): File = GameConfig.getModsDir(GameConfig.getGameDir(context))
 
-    /** 资源类型对应的版本内文件夹（与 ZL2 的 VersionFolders 对应） */
+    /**
+     * 查询某资源文件是否已安装在任一版本的 [folder]（mods/resourcepacks 等）目录：
+     * 文件名 + SHA1 双重匹配，命中返回已有文件（用于前置模组等批量下载的本地去重）。
+     */
+    fun findInstalledFile(folder: String, fileName: String, expectedSha1: String): File? =
+        findExistingFileInVersions(
+            GameConfig.getVersionsDir(GameConfig.getGameDir(context)),
+            folder, fileName, expectedSha1
+        )
+
     fun versionFolderFor(projectType: String): String? = when (projectType) {
         "resourcepack" -> "resourcepacks"
         "shader" -> "shaderpacks"
@@ -279,7 +288,6 @@ class ResourceRepository(
     }
 
     /**
-     * 下载资源并安装到多个游戏版本的对应文件夹（与 ZL2 的 downloadSingleForVersions 对应）：
      * 先下载到应用缓存，再复制到每个选中版本的 versions/<id>/<folder> 内，目标同名文件先删除。
      * 隔离安装：不写入全局目录。
      *
@@ -290,6 +298,7 @@ class ResourceRepository(
         projectType: String,
         version: ResourceVersion,
         targetVersionIds: List<String>,
+        isCancelled: () -> Boolean = { false },
         onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         runCatching {
@@ -305,13 +314,12 @@ class ResourceRepository(
                 .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
             val gameDir = GameConfig.getGameDir(context)
 
-            // 与 ZL2 一致：先下载到缓存目录，再分发到各版本
             val cacheDir = File(context.cacheDir, "assets")
             cacheDir.mkdirs()
             val cacheFile = File(cacheDir, primaryFile.sha1.ifBlank { safeName })
 
             try {
-                // 版本内复用（对齐 _findExistingModInVersions）：任一版本的对应文件夹里
+                // 版本内复用：任一版本的对应文件夹里
                 // 已有同名同 SHA1 的文件时直接复制，避免重复下载
                 var reused = false
                 if (primaryFile.sha1.isNotBlank()) {
@@ -332,6 +340,7 @@ class ResourceRepository(
                         targetFile = cacheFile,
                         expectedSha1 = primaryFile.sha1.ifBlank { null },
                         knownSize = primaryFile.size,
+                        isCancelled = isCancelled,
                         onProgress = {
                             onProgress(it.downloaded, it.total, it.speed)
                         }
@@ -352,7 +361,6 @@ class ResourceRepository(
                 }
                 installed
             } finally {
-                // 与 ZL2 一致：分发完成后清理缓存
                 cacheFile.delete()
             }
         }
@@ -360,7 +368,6 @@ class ResourceRepository(
 
     /**
      * 在 VERSIONS_DIR 下所有版本目录的 mods 子目录中查找同名且同 SHA1 的 mod 文件
-     * （对齐 VersePC _findExistingModInVersions），找到则返回复用的文件，否则返回 null。
      */
     private fun findExistingMod(versionsDir: File, fileName: String, expectedSha1: String): File? =
         findExistingFileInVersions(versionsDir, "mods", fileName, expectedSha1)

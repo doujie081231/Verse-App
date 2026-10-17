@@ -4,7 +4,6 @@ import android.view.KeyEvent
 
 /**
  * Maps Android KeyEvent keycodes to GLFW/LWJGL keycodes.
- * Based on FCL's AndroidKeycodeMap and PojavLauncher's keycode conversion.
  */
 object AndroidKeycodeMap {
 

@@ -32,7 +32,6 @@ object AvatarRepository {
      * - 离线/外置：优先本地皮肤文件，否则网络皮肤 URL
      * - 微软/外置网络皮肤：下载完整皮肤后裁剪头部
      * - 外置若为 mc-heads 头像服务返回的已是头部，则直接使用
-     * @param outputSize 头部裁剪输出边长，默认 256（对齐 PC home-avatar `min(128, 宽)` 的高清输出，
      *   避免 64px 小图被放大后模糊）
      * @return 头像 Bitmap，失败返回 null
      */
@@ -50,7 +49,6 @@ object AvatarRepository {
     }
 
     private fun loadAvatar(context: Context, account: Account, outputSize: Int): Bitmap? {
-        // 对齐 accounts.js：offline = (type==='offline' && !serverUrl)
         val offline = account.type == AccountType.OFFLINE && account.serverUrl.isNullOrBlank()
         val accUuid = account.uuid.replace("-", "")
 
@@ -79,7 +77,6 @@ object AvatarRepository {
         }
 
         // 网络皮肤 URL（微软正版 / 外置网络纹理）：
-        // 整张皮肤才裁剪头部（对齐 PC resolveFinal isFullSkin 判定），否则原图即头像
         val skinUrl = account.skinUrl
         if (!skinUrl.isNullOrBlank()) {
             val skin = downloadBitmap(skinUrl)
@@ -93,7 +90,6 @@ object AvatarRepository {
         }
 
         // 有 UUID（离线自动生成 / 正版无皮肤）→ 默认皮肤头：
-        // 对齐 PC 头像接口行为（离线无 uuid / 无皮肤账号均回退 Steve 头）
         if (accUuid.isNotEmpty() || offline) {
             val defaultFile = if (account.skinModel == "slim") "alex.png" else "steve.png"
             return try {
@@ -106,7 +102,6 @@ object AvatarRepository {
             }
         }
 
-        // 非离线且无 UUID：PC 显示启动器占位图标（img/icon.png），Android 由调用方回退首字符
         return null
     }
 

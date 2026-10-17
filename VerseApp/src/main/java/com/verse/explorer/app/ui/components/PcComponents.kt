@@ -75,12 +75,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.verse.explorer.app.R
+import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.launch.LaunchState
+import com.verse.explorer.app.ui.backgroundGlass
+import com.verse.explorer.app.ui.influencedByBackgroundColor
 import com.verse.explorer.app.ui.theme.VerseColors
 
 /**
- * PC 端对齐的统一页面头部：左侧标题 + 右侧操作按钮组
  */
 @Composable
 fun PageHeader(
@@ -112,7 +114,8 @@ fun PageHeader(
 }
 
 /**
- * PC 端对齐的卡片：12dp 圆角、20dp 内边距、1dp 边框
+ * 自定义背景有效时容器色按背景不透明度设置降低 alpha 透出背景；
+ * 前景毛玻璃模式下在内容下方对齐绘制背景的模糊切片。
  */
 @Composable
 fun PcCard(
@@ -120,13 +123,18 @@ fun PcCard(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val containerColor = influencedByBackgroundColor(VerseColors.PcBgCard)
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        color = VerseColors.PcBgCard,
+        color = containerColor,
         border = BorderStroke(1.dp, VerseColors.PcBorder)
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(
+            modifier = Modifier
+                .backgroundGlass(VersePersonalization.backgroundBlur, containerColor)
+                .padding(20.dp)
+        ) {
             if (title != null) {
                 Text(
                     text = title,
@@ -142,7 +150,6 @@ fun PcCard(
 }
 
 /**
- * PC 端对齐的 Tab 按钮组：PcBgTertiary 容器、2dp padding、6dp 圆角
  */
 @Composable
 fun PcTabGroup(
@@ -184,7 +191,6 @@ fun PcTabGroup(
 }
 
 /**
- * PC 端对齐的按钮变体
  */
 enum class PcButtonVariant {
     PRIMARY,      // 主按钮：PcAccent 背景 + 白字
@@ -196,7 +202,6 @@ enum class PcButtonVariant {
 }
 
 /**
- * PC 端对齐的按钮组件
  */
 @Composable
 fun PcButton(
@@ -265,7 +270,6 @@ fun PcButton(
 }
 
 /**
- * PC 端对齐的统一 OutlinedTextField 颜色配置
  * 可选参数允许调用方覆盖 label / placeholder 颜色以保留各自的视觉细节
  */
 @Composable
@@ -289,7 +293,6 @@ fun pcTextFieldColors(
 )
 
 /**
- * PC 端对齐的文本输入框
  */
 @Composable
 fun PcTextInput(
@@ -328,7 +331,6 @@ fun PcTextInput(
 }
 
 /**
- * PC 端对齐的开关行：左侧标签 + 描述，右侧 Switch
  */
 @Composable
 fun PcSwitchRow(
@@ -368,7 +370,6 @@ fun PcSwitchRow(
 }
 
 /**
- * PC 端对齐的文本输入行：顶部标签 + 下方输入框
  */
 @Composable
 fun PcTextInputRow(
@@ -395,7 +396,6 @@ fun PcTextInputRow(
 }
 
 /**
- * PC 端对齐的下拉选择行：顶部标签 + 下方下拉框。
  * 选项列表内联展开（AnimatedVisibility 插在触发框正下方）：浮层 Popup 在
  * LazyColumn 滚动容器中相对父锚的定位会漂移（展开项与触发框错位），内联
  * 展开天然与触发框左对齐、同宽，且随页面滚动保持对位。
@@ -484,7 +484,6 @@ data class PcFilterSelect(
 )
 
 /**
- * PC 端对齐的紧凑筛选下拉组（对齐 versepc2 `.custom-select-sm`：6×10dp padding、12sp 值文本）。
  * 触发框与 leading（搜索框等）并排一行；点击触发框时选项列表内联展开在整行下方，
  * 把底部内容顶下去（不使用浮层，规避 Popup 在滚动容器中的锚定漂移与无限约束崩溃）。
  */
@@ -569,7 +568,6 @@ fun PcCompactFilterBar(
 }
 
 /**
- * PC 端对齐的紧凑搜索框（40dp，对齐资源页布局）：
  * BasicTextField 自绘装饰，图标与文本严格垂直居中，避免 Material3 OutlinedTextField
  * 高度压到 40dp 时文本被 48dp 图标按钮顶到下方的问题。
  */
@@ -682,8 +680,6 @@ fun PcLaunchOverlay(
     val showRepair = isFailed
     val showLog = launchState.phase == LaunchPhase.LAUNCHING
 
-    // ZL2 样式加载窗口：Dialog 遮罩 + 居中圆角卡片（对齐 ZalithLauncher2 ProgressDialog：
-    // onDismissRequest={} 不可取消、Surface 圆角卡片 + 阴影、加载动画用 versepc2 玫瑰曲线）。
     Dialog(
         onDismissRequest = {},
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -704,7 +700,6 @@ fun PcLaunchOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 启动图标：玫瑰曲线加载动画（等价迁移自 versepc2 rose-loader.js）
                 Box(modifier = Modifier.size(96.dp)) {
                 RoseCurveLoader(
                     modifier = Modifier.fillMaxSize(),

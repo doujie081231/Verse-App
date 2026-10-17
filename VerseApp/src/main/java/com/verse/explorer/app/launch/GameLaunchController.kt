@@ -68,11 +68,9 @@ class GameLaunchController(private val context: Context) {
                 val phaseSteps = launchCheck(versionId) ?: return@launch
                 val (account, version, bestRuntime, javaVersion, javaHome, steps) = phaseSteps
 
-                // 版本级设置（FCL VersionSetting 语义）：未启用独立设置时全部读全局
                 val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
                 val verIndependent = !verSettings.usesGlobal
 
-                // 内存：版本级手动分配时用版本设定值，否则走全局 + FCL 自动分配算法
                 val maxMemory = if (verIndependent && !verSettings.autoMemory && verSettings.maxMemory > 0) {
                     verSettings.maxMemory
                 } else {
@@ -125,7 +123,6 @@ class GameLaunchController(private val context: Context) {
                     putExtra("renderer", renderer)
                     putExtra("launchMethod", launchMethod)
                     putExtra("username", account.username)
-                    // 与 FCL 的 LauncherHelper 对应：把账户名作为联机身份传给游戏内联机菜单
                     putExtra("TERRACOTTA_PLAYER", account.username)
                     putExtra("uuid", account.uuid)
                     putExtra("accessToken", account.accessToken)
@@ -165,9 +162,7 @@ class GameLaunchController(private val context: Context) {
     }
 
     /**
-     * 启动内存分配（照搬 FCL FCLGameRepository.getAllocatedMemory + MemoryUtils.getFreeDeviceMemory）：
-     * autoMemory 模式下按启动时实时可用内存计算建议值，与用户设定的下限取大。
-     * 可用内存充足时自动加大（对齐 FCL 默认 autoMemory=true），避免固定 -Xmx 与设备可用内存不匹配。
+     * 启动内存分配：autoMemory 模式下按启动时实时可用内存计算建议值，与用户设定的下限取大。
      */
     private fun resolveLaunchMaxMemory(userMax: Int, userMin: Int): Int {
         return try {
@@ -175,7 +170,6 @@ class GameLaunchController(private val context: Context) {
             val memInfo = ActivityManager.MemoryInfo()
             am.getMemoryInfo(memInfo)
             val freeM = (memInfo.availMem / 1048576L).toInt()
-            // FCL getAllocatedMemory(minimum, available, auto=true)：available 扣 384MiB 预留后取 80%（≤8GB 时）
             val availableM = freeM - 384
             if (availableM <= 0) {
                 userMax
@@ -188,7 +182,7 @@ class GameLaunchController(private val context: Context) {
                 }.coerceAtMost(16384)
                 val allocated = maxOf(userMax, suggested)
                 VerseLogger.info(
-                    "内存分配（FCL autoMemory 算法）: 用户设定=${userMax}M, 可用=${freeM}M, 建议=${suggested}M, 实际=$allocated M",
+                    "内存分配: 用户设定=${userMax}M, 可用=${freeM}M, 建议=${suggested}M, 实际=$allocated M",
                     "LaunchController"
                 )
                 allocated
@@ -223,7 +217,6 @@ class GameLaunchController(private val context: Context) {
             steps[stepIdx] = LaunchStep("账户验证", "自动创建离线账户", "check")
         } else {
             val currentAccount = account!!
-            // 微软账号：启动前用 refresh token 自动刷新访问令牌（对齐 FCL）
             if (currentAccount.type == com.verse.explorer.core.account.AccountType.MICROSOFT &&
                 currentAccount.refreshToken.isNotBlank()
             ) {
@@ -278,7 +271,6 @@ class GameLaunchController(private val context: Context) {
         } else {
             val rawJsonJavaVer = resolveVersionJsonJavaVersion(cachedVersion.id)
             // 26.2 需要 java-runtime-epsilon (Java 25)；arm64 真机直接使用 JSON 要求的版本。
-            // 模拟器时代针对 x86_64 的降级 hack 不适用于真机 arm64，迁移 Pojav/FCL 行为：
             // 严格采用版本 JSON 声明的 Java 版本（26.2 -> Java 25 -> jre25）。
             val jsonJavaVer = rawJsonJavaVer
             val recommendedJava = jsonJavaVer?.let { JavaVersion.fromMajorVersion(it) }
@@ -287,7 +279,6 @@ class GameLaunchController(private val context: Context) {
             VerseLogger.info("需要 Java: ${recommendedJava.displayName}", "Launch")
 
             val installedRuntimes = JavaRuntimeManager.getInstalledRuntimes(context)
-            // 版本级定向 Java（FCL VersionSetting.java）：指定了具体运行时则优先使用，
             // 找不到时回退自动选择并告警
             val verSettingsForJava = versionId?.let {
                 VersionSettingsRepository(context).getVersionSettings(it)
@@ -346,7 +337,6 @@ class GameLaunchController(private val context: Context) {
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在验证游戏文件...")
         delay(200)
 
-        // FCL isNotCheckGame：跳过游戏文件完整性检查以加快启动（版本级设置优先）
         val notCheckGame = versionId?.let {
             val vs = VersionSettingsRepository(context).getVersionSettings(it)
             if (!vs.usesGlobal) vs.notCheckGame else null
@@ -381,7 +371,6 @@ class GameLaunchController(private val context: Context) {
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
         // ========== Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）==========
-        // 迁移自 FCL MainActivity.checkVulkanThenLaunch + VulkanCheckManager：
         // 启动前判定设备 Vulkan 能力是否满足该版本依赖，缺失项警告后允许继续；
         // 同时刷新 needsVulkanShim 门控（仅设备缺口可被 vkshim 补齐时才启用包装层）
         if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(cachedVersion.id)) {
@@ -397,7 +386,6 @@ class GameLaunchController(private val context: Context) {
             } else {
                 settingsRepo.getVkDriverSystem()
             }
-            // FCL 语义：useTurnip = !isVKDriverSystem；检测经 liblinkerhook 加载 Turnip
             val useTurnip = !vkDriverSystem
             val driverPath = if (useTurnip) {
                 (context.applicationInfo.nativeLibraryDir)
@@ -418,12 +406,15 @@ class GameLaunchController(private val context: Context) {
                     steps[stepIdx] = LaunchStep("Vulkan 检查", "警告", "warning")
                     warnings.add("设备缺失本版本必需的 Vulkan 依赖: $missing（FCL 同款判定，可继续但渲染后端可能初始化失败）")
                     VerseLogger.warn("Vulkan 检查: 设备缺失 $missing", "LaunchController")
-                    // FCL 同款用户告知：判定不支持时立即弹提示（不被启动界面吞掉）
-                    android.widget.Toast.makeText(
-                        context,
-                        "设备缺失本版本必需的 Vulkan 依赖：$missing，该版本可能无法启动",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
+                    // launchCheck 运行在 Dispatchers.IO，Toast 必须切主线程（否则
+                    // Can't toast on a thread that has not called Looper.prepare()）
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        android.widget.Toast.makeText(
+                            context,
+                            "设备缺失本版本必需的 Vulkan 依赖：$missing，该版本可能无法启动",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
                 } else if (capabilities == null) {
                     steps[stepIdx] = LaunchStep("Vulkan 检查", "跳过 (检测失败)", "skip")
                     VerseLogger.warn("Vulkan 检测失败，按无信息继续", "LaunchController")
@@ -480,7 +471,6 @@ class GameLaunchController(private val context: Context) {
         scope.cancel()
     }
 
-    // ========== FCL-style: 辅助方法 ==========
 
     /**
      * 根据游戏版本自动选择渲染器。
@@ -516,9 +506,7 @@ class GameLaunchController(private val context: Context) {
     }
 
     private fun resolveRendererForVersion(versionId: String, selectedRenderer: String): String {
-        // FCL 标准：26.x 及更高版本引入 ES3 API（glMapBufferRange/持久化缓冲映射），
         // gl4es（ES2，libgl4es_114.so）无法提供，主菜单渲染即 "Failed to map buffer" 崩溃。
-        // FCL 对 >1.21.4 版本使用 NGGL4ES（libng_gl4es.so，Krypton Wrapper），
         // 其配套 EGL 必须为 ANGLE（libEGL_angle.so/libGLESv2_angle.so），否则落到系统 Mali EGL SIGSEGV。
         // APK 已打包 libng_gl4es.so/libspirv-cross-c-shared.so/libEGL_angle.so/libGLESv2_angle.so。
         if (selectedRenderer.isBlank() || selectedRenderer.equals("gl4es", ignoreCase = true)) {

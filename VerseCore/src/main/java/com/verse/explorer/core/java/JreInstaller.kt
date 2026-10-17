@@ -118,15 +118,8 @@ internal object JreInstaller {
     }
 
     /**
-     * 按 FCL 原版 RuntimeUtils.installJava 语义从 assets 安装 JRE：
-     * 1. 删除目标目录并重建（FCL: FileUtils.deleteDirectory + mkdirs）
-     * 2. 直接把 universal.tar.xz 解压到目标目录（FCL: uncompressTarXZ(universal)）
-     * 3. 直接把 bin-<arch>.tar.xz 解压到目标目录（FCL: uncompressTarXZ(bin-arch)）
-     * 4. 写入 version 文件（FCL: writeText(version)）
-     * 5. patchJava（FCL: Pack200Utils.unpack + libfreetype/libawt 修正）
      *
      * assets 归档的顶层就是标准 JRE 根（bin/ lib/ conf/ legal/ release），
-     * 与 FCL 原版一致，无需任何 findJreRootDir/moveDirReliably/mergeStrayJreSubdir
      * 之类的猜测逻辑——那些自研步骤正是反复安装时污染 JRE 目录的根源。
      */
     fun extractFclJreFromAssets(
@@ -156,11 +149,9 @@ internal object JreInstaller {
                 "正在解压 Java $versionNum 通用文件..."
             ))
 
-            // FCL 原版：先清空旧目录，直接解压到目标目录
             if (targetDir.exists()) deleteRecursivelySafe(targetDir)
             targetDir.mkdirs()
 
-            // 第一步：universal.tar.xz -> targetDir（FCL uncompressTarXZ 1）
             uncompressTarXZ(universalStream, targetDir) { index, total ->
                 val progress = 5 + (if (total > 0) ((index * 40) / total).toInt() else 0)
                 onProgress(JavaInstallProgress(
@@ -170,7 +161,6 @@ internal object JreInstaller {
             }
             universalStream.close()
 
-            // 第二步：bin-<arch>.tar.xz -> targetDir（FCL uncompressTarXZ 2）
             var archStream: InputStream?
             try {
                 archStream = context.assets.open(archPath)
@@ -205,7 +195,6 @@ internal object JreInstaller {
 
             JrePatcher.patchJava(context, targetDir)
 
-            // FCL 原版：写入 assets 里的 version 文件内容
             try {
                 val versionAssetPath = "app_runtime/java/jre$versionNum/version"
                 val versionStream = context.assets.open(versionAssetPath)
@@ -217,7 +206,6 @@ internal object JreInstaller {
                 File(targetDir, "version").writeText(versionNum.toString())
             }
 
-            // 写 release 文件（若不存在），供 FCL JavaManager 扫描识别
             val releaseFile = File(targetDir, "release")
             if (!releaseFile.exists()) {
                 try {
@@ -250,7 +238,6 @@ internal object JreInstaller {
      * 安全删除目录：`File.deleteRecursively()` 在目标被并发修改 / 已变为非目录 /
      * 符号链接时抛 `AssertionError: rootDir must be verified to be directory beforehand`。
      * 多 JRE 并行初始化时多个协程可能同时清理同一目录，删除前校验 + 捕获所有异常
-     * 防止应用崩溃（对齐 FCL/Pojav 的稳健性）。
      */
     private fun deleteRecursivelySafe(dir: File) {
         try {
@@ -265,7 +252,6 @@ internal object JreInstaller {
     }
 
     /**
-     * 解压 .tar.xz 到目标目录，保留符号链接（对应 FCL 原版 RuntimeUtils.uncompressTarXZ，
      * 由 JreExtractor.extractTarXz 提供实现）。
      */
     private fun uncompressTarXZ(
@@ -277,8 +263,6 @@ internal object JreInstaller {
     }
 
     /**
-     * Pojav jre zip 归档安装（FCL/Pojav 的 jre<ver>-pojav.zip 形式）。
-     * 与 FCL 原版一致：解包 zip 后把内部 .tar.xz 直接解压到目标目录。
      */
     fun extractPojavJreFromAssets(
         context: Context,
@@ -341,7 +325,6 @@ internal object JreInstaller {
             if (targetDir.exists()) deleteRecursivelySafe(targetDir)
             targetDir.mkdirs()
 
-            // pojav zip 内部为 universal.tar.xz + bin-<arch>.tar.xz，直接解到目标目录
             val universalTar = JreExtractor.findFileInDir(tempExtractDir, "universal.tar.xz")
             val archTar = JreExtractor.findFileInDir(tempExtractDir, "bin-$pojavArch.tar.xz")
 

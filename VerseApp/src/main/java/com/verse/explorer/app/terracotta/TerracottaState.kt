@@ -11,7 +11,6 @@ import com.google.gson.stream.JsonWriter
 /**
  * 陶瓦联机状态模型
  *
- * 与 FCL 的 TerracottaState 对应，基于 JSON 的 "state" 字段进行多态分派。
  */
 sealed class TerracottaState {
     abstract val index: Int
@@ -41,7 +40,6 @@ sealed class TerracottaState {
         override val stateName: String = "host-ok"
 
         /**
-         * 与 FCL 的 HostOK.isForkOf 对应：房间内玩家档案发生了更新，
          * 界面只需刷新玩家列表，不必整体切换状态视图。
          */
         fun isForkOf(other: TerracottaState): Boolean =
@@ -68,7 +66,6 @@ sealed class TerracottaState {
         override val stateName: String = "guest-ok"
 
         /**
-         * 与 FCL 的 GuestOK.isForkOf 对应：房间内玩家档案发生了更新，
          * 界面只需刷新玩家列表，不必整体切换状态视图。
          */
         fun isForkOf(other: TerracottaState): Boolean =

@@ -12,7 +12,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * 镜像源熔断状态（对齐 versepc2 download/mirror.rs）：
  * 连续 3 次失败熔断 60 秒，熔断期间跳过镜像源，避免镜像异常拖慢列表加载。
  */
 internal object MirrorCircuitBreaker {
@@ -45,7 +44,6 @@ internal object MirrorCircuitBreaker {
 }
 
 /**
- * 60 秒 TTL 内存缓存（对齐 versepc2 api/resources.rs 的 api_cache）：
  * URL → body，超 2000 项清理过期项，命中缓存直接返回避免重复请求。
  */
 internal object ApiUrlCache {
@@ -218,11 +216,9 @@ data class ModrinthCategory(
 )
 
 object ModrinthApi {
-    // 官方 API 与国内镜像（与 versepc2 src-tauri/src/api/resources.rs 完全一致；
     // Modrinth 官方 API 国内 TTFB 慢，镜像 mod.mcimirror.top 优先）
     private const val MODRINTH_API = "https://api.modrinth.com/v2"
     private const val MODRINTH_API_MIRROR = "https://mod.mcimirror.top/modrinth/v2"
-    /** CDN 图片镜像 host：cdn.modrinth.com / cdn-alt.modrinth.com 替换为该 host（versepc2 to_modrinth_cdn_mirror） */
     private const val CDN_MIRROR_HOST = "mod.mcimirror.top"
 
     private val client = OkHttpClient.Builder()
@@ -235,12 +231,10 @@ object ModrinthApi {
         .create()
 
     /**
-     * 带镜像回退 + 60s 缓存的 JSON 请求（对齐 versepc2 fetch_json_with_mirror + cached_fetch_json）：
      *   - 镜像可用时：镜像(8s) → 官方(10s) → 官方(20s)
      *   - 镜像不可用（熔断）时：官方(10s) → 官方(20s)
      *   - 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
      *   - 镜像连续失败 3 次熔断 60s，期间只走官方，避免镜像异常拖慢列表
-     *   - [cacheTtlMs] 为 null 时不缓存（对齐 versepc2：仅 search 接口走 60s 缓存）
      */
     private suspend fun fetchWithMirror(path: String, useMirror: Boolean, cacheTtlMs: Long? = 60_000): String =
         withContext(Dispatchers.IO) {
@@ -261,7 +255,6 @@ object ModrinthApi {
             for ((stepUrl, timeoutMs) in steps) {
                 val isMirror = stepUrl.startsWith(MODRINTH_API_MIRROR)
                 try {
-                    // 每步用独立 callTimeout 的 client（共享连接池），对齐 versepc2 分步超时
                     val httpClient = client.newBuilder()
                         .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                         .build()
@@ -293,7 +286,6 @@ object ModrinthApi {
         }
 
     /**
-     * 将 Modrinth CDN 图片地址替换为国内镜像（对齐 versepc2 to_modrinth_cdn_mirror），
      * 避免 cdn.modrinth.com / cdn-alt.modrinth.com 在国内加载缓慢/失败。
      */
     private fun toCdnMirror(url: String): String {
@@ -353,7 +345,6 @@ object ModrinthApi {
 
         val body = fetchWithMirror("/search?${params.joinToString("&")}", useMirror, 60_000)
         val result = gson.fromJson(body, ModrinthSearchResult::class.java)
-        // 替换 CDN 图片为国内镜像（对齐 versepc2：图片不再走国外代理）
         result.hits.forEach { hit ->
             hit.iconUrl?.let { url -> hit.iconUrl = toCdnMirror(url) }
         }
@@ -364,7 +355,6 @@ object ModrinthApi {
         val body = fetchWithMirror("/project/$projectId", useMirror, null)
         val project = gson.fromJson(body, ModrinthProject::class.java)
         project.iconUrl?.let { url -> project.iconUrl = toCdnMirror(url) }
-        // body 与画廊图片同样走 CDN 镜像（对齐 versepc2 handle_detail 的 to_modrinth_cdn_mirror）
         if (project.body.isNotEmpty() || !project.gallery.isNullOrEmpty()) {
             project.copy(
                 body = applyCdnMirror(project.body),

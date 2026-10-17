@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.PcCompactSearchField
@@ -52,17 +53,18 @@ fun ResourcePacksScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 54.dp)
+                .padding(top = 8.dp)
         ) {
 
             // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            // 筛选栏上移贴顶，start 缩进避开左上角悬浮导航钮，给列表腾出更多展示空间
             PcCompactFilterBar(
                 selects = listOf(
                     PcFilterSelect(uiState.selectedVersion, versions.map { it to it }) { viewModel.setSelectedVersion(it) },
                     PcFilterSelect(selectedResolution, resolutions.map { it to it }) { selectedResolution = it },
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(start = 56.dp)
             ) {
                 PcCompactSearchField(
                     value = searchQuery,
@@ -158,10 +160,10 @@ fun ResourcePacksScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
+                        RoseLoader(
                             modifier = Modifier.size(36.dp),
-                            color = VerseColors.PcAccent,
-                            strokeWidth = 3.dp
+                            size = 36.dp,
+                            color = VerseColors.PcAccent
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
@@ -188,10 +190,10 @@ fun ResourcePacksScreen(
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator(
+                                RoseLoader(
                                     modifier = Modifier.size(24.dp),
-                                    color = VerseColors.PcAccent,
-                                    strokeWidth = 2.dp
+                                    size = 24.dp,
+                                    color = VerseColors.PcAccent
                                 )
                             }
                         }
@@ -219,7 +221,6 @@ fun ResourcePacksScreen(
                             }
                         }
                     }
-                    // 分页控件并入列表末尾，避免固定占据列表空间（对齐 PC .pagination：上一页/页码/下一页）
                     item {
                         PcPagination(
                             currentPage = uiState.currentPage,

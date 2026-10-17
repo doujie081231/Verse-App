@@ -1,5 +1,6 @@
 package com.verse.explorer.app.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -30,171 +32,106 @@ import com.verse.explorer.core.resource.ModrinthProject
 import com.verse.explorer.core.resource.ModrinthSearchHit
 import com.verse.explorer.core.resource.ModrinthVersion
 
+/**
+ * 资源搜索结果卡片（对齐版本下载页列表行的密度：单行紧凑布局），
+ * 图标 + 标题 + 徽章/元信息行 + 右侧箭头，不展示描述与分类标签行。
+ */
 @Composable
-internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp)
+internal fun ResourceSearchCard(
+    hit: ModrinthSearchHit,
+    onClick: () -> Unit = {}
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(8.dp),
+        color = VerseColors.PcBgCard,
+        border = BorderStroke(1.dp, VerseColors.PcBorder)
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp, horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                verticalAlignment = Alignment.Top
+            // 图标未加载/无图标时显示灰色底图
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(VerseColors.PcBgActive),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(VerseColors.PcBgTertiary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 始终显示占位图标（加载失败时透出来）
-                    Icon(
-                        imageVector = Icons.Filled.Inventory2,
+                if (!hit.iconUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = hit.iconUrl,
                         contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    // 有图标 URL 时叠加 AsyncImage 在上层
-                    val iconUrl = hit.iconUrl
-                    if (iconUrl != null && iconUrl.isNotEmpty()) {
-                        AsyncImage(
-                            model = iconUrl,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = hit.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = VerseColors.PcTextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "作者: ${hit.author}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 11.sp
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = hit.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = VerseColors.PcTextSecondary,
-                fontSize = 11.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 15.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    LabelWithIcon(
-                        icon = Icons.Outlined.Download,
-                        text = formatDownloadCount(hit.downloads),
-                        color = VerseColors.PcTextSecondary
-                    )
-
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = hit.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     hit.loaders.firstOrNull()?.let { loader ->
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.PcAccent.copy(alpha = 0.08f)
+                            shape = RoundedCornerShape(3.dp),
+                            color = VerseColors.PcAccent.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = loader.replaceFirstChar { it.uppercase() },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.PcAccent,
                                 fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                color = VerseColors.PcAccent,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
-
                     hit.gameVersions.firstOrNull()?.let { version ->
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.PcAccent.copy(alpha = 0.08f)
+                            shape = RoundedCornerShape(3.dp),
+                            color = VerseColors.PcAccent.copy(alpha = 0.15f)
                         ) {
                             Text(
                                 text = version,
-                                style = MaterialTheme.typography.labelSmall,
+                                fontSize = 9.sp,
                                 color = VerseColors.PcAccent,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                             )
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
                     }
-                }
-
-                FilledTonalButton(
-                    onClick = {},
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = VerseColors.PcAccent.copy(alpha = 0.15f),
-                        contentColor = VerseColors.PcAccent
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "安装",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
+                        text = "${formatDownloadCount(hit.downloads)} 下载 · ${hit.author}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
-
-            if (hit.categories.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    hit.categories.take(4).forEach { cat ->
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.PcTextMuted.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = cat,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.PcTextMuted,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
+            Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
         }
     }
+}
+
+@Composable
+internal fun ModpackCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
+    ResourceSearchCard(hit, onClick = onClick)
 }
 
 @Composable
@@ -259,7 +196,11 @@ internal fun ResourceDetailDialog(
             Column {
                 if (isLoading) {
                     Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(Modifier.size(24.dp), VerseColors.PcAccent, strokeWidth = 2.dp)
+                        RoseLoader(
+                            modifier = Modifier.size(24.dp),
+                            size = 24.dp,
+                            color = VerseColors.PcAccent
+                        )
                     }
                 } else if (error != null) {
                     Text("加载失败: $error", color = VerseColors.PcRed, fontSize = 13.sp)

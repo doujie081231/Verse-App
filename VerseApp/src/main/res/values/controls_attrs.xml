@@ -1,5 +1,4 @@
 <resources>
-    <!-- Pojav 触控模块迁移：CustomSeekbar 的自定义增量属性 -->
     <declare-styleable name="CustomSeekbar">
         <attr name="seekBarIncrement" />
         <!-- Redefine to be able to fetch the value -->

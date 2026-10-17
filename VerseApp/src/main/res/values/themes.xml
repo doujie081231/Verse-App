@@ -8,7 +8,7 @@
         <item name="android:windowBackground">@color/background</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <!-- AppCompat 属性：Pojav 触控编辑对话框（dialog_control_button_setting 等）与
+        <!-- AppCompat 属性：触控编辑对话框（dialog_control_button_setting 等）与
              appcompat AlertDialog（openSaveDialog/openSetDefaultDialog/openLoadDialog）必需，
              原生 Theme.Material 不提供这些非 android: 前缀属性，缺则 InflateException/主题崩溃 -->
         <item name="colorPrimary">@color/primary</item>

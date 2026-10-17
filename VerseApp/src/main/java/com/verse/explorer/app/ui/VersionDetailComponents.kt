@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.verse.explorer.app.domain.model.version.DetailLoaderOption
 import com.verse.explorer.app.domain.model.version.LoaderVersion
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.verse.explorer.app.ui.components.RoseLoader
 
 @Composable
 fun VersionTypeIcon(versionType: String, modifier: Modifier = Modifier) {
@@ -87,7 +88,7 @@ fun DownloadSourceOption(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
-            Modifier.padding(12.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             RadioButton(
@@ -131,35 +132,35 @@ fun LoaderCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
-            Modifier.padding(12.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(32.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(VerseColors.PcBgHover),
                 contentAlignment = Alignment.Center
             ) {
                 if (loading) {
-                    CircularProgressIndicator(
-                        Modifier.size(18.dp),
-                        color = VerseColors.PcAccent,
-                        strokeWidth = 2.dp
+                    RoseLoader(
+                        modifier = Modifier.size(18.dp),
+                        size = 18.dp,
+                        color = VerseColors.PcAccent
                     )
                 } else if (iconBitmap != null) {
                     Image(
                         bitmap = iconBitmap,
                         contentDescription = null,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(24.dp),
                         contentScale = ContentScale.Fit
                     )
                 }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(loader.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = VerseColors.PcTextPrimary)
-                Text(loader.desc, fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                Text(loader.name, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = VerseColors.PcTextPrimary, maxLines = 1)
+                Text(loader.desc, fontSize = 11.sp, color = VerseColors.PcTextMuted, maxLines = 1)
             }
             if (selected) {
                 Icon(Icons.Filled.CheckCircle, null, Modifier.size(20.dp), VerseColors.PcAccent)
@@ -199,7 +200,7 @@ fun LoaderVersionCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
     ) {
         Row(
-            Modifier.padding(10.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(

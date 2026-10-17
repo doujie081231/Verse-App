@@ -74,7 +74,6 @@ private const val MSA_LOG_TAG = "MsaLogin"
 /**
  * 内置浏览器页（微软登录验证用）
  *
- * 与 ZL2 的 WebViewScreen 对应：全屏 WebView 打开验证网址，
  * 顶部显示加载进度与当前网址（点击可用外部浏览器打开）；
  * 退出时销毁 WebView 并清理 Cookie 与 WebView 缓存。
  *
@@ -401,7 +400,6 @@ fun MicrosoftLoginScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            // 与 ZL2 一致：退出时销毁 WebView 并清理 Cookie 与缓存
             VerseLogger.info("浏览器页：销毁 WebView 并清理 Cookie（用户退出登录页）", MSA_LOG_TAG)
             webViewHolder.value?.apply {
                 stopLoading()

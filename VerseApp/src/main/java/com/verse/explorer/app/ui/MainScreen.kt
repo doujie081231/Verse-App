@@ -3,8 +3,6 @@ package com.verse.explorer.app.ui
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,7 +23,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
@@ -39,9 +41,16 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.ModpackImportFlow
+import com.verse.explorer.app.ui.theme.ActionMenuSide
 import com.verse.explorer.app.ui.theme.VerseColors
+import soup.compose.material.motion.animation.materialFadeThroughIn
+import soup.compose.material.motion.animation.materialFadeThroughOut
+import soup.compose.material.motion.animation.materialSharedAxisXIn
+import soup.compose.material.motion.animation.materialSharedAxisXOut
+import soup.compose.material.motion.animation.rememberSlideDistance
 import android.net.Uri
 import android.os.Build
 
@@ -104,28 +113,41 @@ private val submenuRoutes = mainNavItems
     .flatMap { it.submenuItems.map { s -> s.route } }
     .toSet()
 
-// ==================== 页面转场动画(Material Motion System)====================
-// 页签切换:FadeThrough 效果(淡入淡出 + 轻微缩放,方向无关)
-private val TabEnterTransition: EnterTransition =
-    fadeIn(animationSpec = tween(260, easing = LinearOutSlowInEasing)) +
-        scaleIn(initialScale = 0.97f, animationSpec = tween(260, easing = LinearOutSlowInEasing))
-private val TabExitTransition: ExitTransition =
-    fadeOut(animationSpec = tween(200, easing = FastOutLinearInEasing)) +
-        scaleOut(targetScale = 0.97f, animationSpec = tween(200, easing = FastOutLinearInEasing))
+// ==================== 页面切换动画（Material 动效规范，fornewid/material-motion-compose）====================
+// 顶层页签之间无强关联 → FadeThrough；详情/深入页面有层级关系 → SharedAxis X；
+// 返回（pop）方向取反，时长为库内 Material 标准值（300ms），低配机不再受长动画拖累
 
-// 进/退层级:Shared X-Axis(滑入约 1/3 宽 + 淡入淡出,方向相反),用于详情页进退
-private val DetailEnterTransition: EnterTransition =
-    fadeIn(animationSpec = tween(260, delayMillis = 80, easing = LinearOutSlowInEasing)) +
-        slideInHorizontally(animationSpec = tween(340, easing = FastOutSlowInEasing)) { it / 3 }
-private val DetailExitTransition: ExitTransition =
-    fadeOut(animationSpec = tween(160, easing = FastOutLinearInEasing)) +
-        slideOutHorizontally(animationSpec = tween(260, easing = FastOutSlowInEasing)) { -it / 3 }
-private val DetailPopEnterTransition: EnterTransition =
-    fadeIn(animationSpec = tween(260, delayMillis = 80, easing = LinearOutSlowInEasing)) +
-        slideInHorizontally(animationSpec = tween(340, easing = FastOutSlowInEasing)) { -it / 3 }
-private val DetailPopExitTransition: ExitTransition =
-    fadeOut(animationSpec = tween(160, easing = FastOutLinearInEasing)) +
-        slideOutHorizontally(animationSpec = tween(260, easing = FastOutSlowInEasing)) { it / 3 }
+/** 深入型页面路由：与来源页存在层级关系，使用 SharedAxis X 过渡 */
+private val detailRoutes = setOf(
+    "installed_versions",
+    "version_settings/{versionId}",
+    "installed_mods/{versionId}",
+    "version_detail/{versionId}?type={versionType}&url={versionUrl}",
+    "mod_detail/{projectId}?source={source}",
+    "modpack_detail/{projectId}?source={source}",
+    "resourcepack_detail/{projectId}?source={source}",
+    "shader_detail/{projectId}?source={source}"
+)
+
+private fun navEnterTransition(
+    detail: Boolean,
+    pop: Boolean,
+    slideDistance: Int
+): EnterTransition = if (detail) {
+    materialSharedAxisXIn(forward = !pop, slideDistance = slideDistance)
+} else {
+    materialFadeThroughIn()
+}
+
+private fun navExitTransition(
+    detail: Boolean,
+    pop: Boolean,
+    slideDistance: Int
+): ExitTransition = if (detail) {
+    materialSharedAxisXOut(forward = !pop, slideDistance = slideDistance)
+} else {
+    materialFadeThroughOut()
+}
 
 @Composable
 fun MainScreen(
@@ -146,7 +168,9 @@ fun MainScreen(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = VerseColors.PcAccent)
+                RoseLoader(
+    color = VerseColors.PcAccent
+)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text("正在初始化Java运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
                 Text("首次解压JRE,请稍候", color = VerseColors.PcTextMuted, fontSize = 12.sp)
@@ -157,8 +181,15 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    // 启用自定义背景时叠加 scrim 遮罩,保证前景内容可读性(仅自定义背景时生效)
+    // Material 动效库的 SharedAxis 滑动距离（组合层解析一次，过渡 lambda 内不可调用组合函数）
+    val navSlideDistance = rememberSlideDistance()
+
+    // 启用自定义背景时叠加 scrim 遮罩保证前景内容可读性(仅自定义背景时生效)；
+    // 不透明度语义作用于卡片容器色：不透明度越低卡片遮蔽越弱，scrim 相应增强，
+    // 不透明度接近 100% 时卡片自身足够遮挡，scrim 趋近于零
     val customBgActive = VersePersonalization.backgroundStyle != "none"
+    val customBgScrimAlpha =
+        0.60f * (100 - VersePersonalization.backgroundOpacity) / 100f
 
     // 悬浮导航液态玻璃(Kyant0/AndroidLiquidGlass backdrop-android 2.0.0):
     // RuntimeShader 实现仅支持 Android 13+,低版本自动降级为普通面板;
@@ -173,19 +204,43 @@ fun MainScreen(
         )) {
         // 背景:自定义背景(渐变/图片)
         AppBackground(Modifier.fillMaxSize())
-        // 玻璃半透明遮罩(保证前景内容可读性,自定义背景时减弱)
+        // 玻璃半透明遮罩(保证前景内容可读性,自定义背景时随不透明度减弱)
         Box(modifier = Modifier.fillMaxSize().background(
-            if (customBgActive) VerseColors.PcGlassBg.copy(alpha = 0.60f)
+            if (customBgActive) VerseColors.PcGlassBg.copy(alpha = customBgScrimAlpha)
             else VerseColors.PcGlassBg
         )) {
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
             modifier = Modifier.fillMaxSize(),
-            enterTransition = { TabEnterTransition },
-            exitTransition = { TabExitTransition },
-            popEnterTransition = { TabEnterTransition },
-            popExitTransition = { TabExitTransition }
+            enterTransition = {
+                navEnterTransition(
+                    detail = targetState.destination.route in detailRoutes,
+                    pop = false,
+                    slideDistance = navSlideDistance
+                )
+            },
+            exitTransition = {
+                navExitTransition(
+                    detail = initialState.destination.route in detailRoutes,
+                    pop = false,
+                    slideDistance = navSlideDistance
+                )
+            },
+            popEnterTransition = {
+                navEnterTransition(
+                    detail = targetState.destination.route in detailRoutes,
+                    pop = true,
+                    slideDistance = navSlideDistance
+                )
+            },
+            popExitTransition = {
+                navExitTransition(
+                    detail = initialState.destination.route in detailRoutes,
+                    pop = true,
+                    slideDistance = navSlideDistance
+                )
+            }
         ) {
             composable(Screen.Home.route) { HomeScreen(navController, onLaunchGame) }
             composable(Screen.Versions.route) { VersionsScreen(navController) }
@@ -197,95 +252,41 @@ fun MainScreen(
             composable(Screen.Accounts.route) { AccountsScreen(navController) }
             composable(Screen.Lan.route) { LanScreen(navController) }
             composable(Screen.Transfer.route) { TransferScreen() }
-            composable(
-                Screen.Java.route,
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { JavaScreen(navController) }
+            composable(Screen.Java.route) { JavaScreen(navController) }
             composable(Screen.Console.route) { ConsoleScreen(navController) }
-            composable(
-                "installed_versions",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) {
+            composable("installed_versions") {
                 InstalledVersionsScreen(navController = navController)
             }
-            composable(
-                "version_settings/{versionId}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("version_settings/{versionId}") { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 VersionSettingsScreen(versionId = versionId, navController = navController)
             }
-            composable(
-                "installed_mods/{versionId}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("installed_mods/{versionId}") { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 InstalledModsScreen(versionId = versionId, navController = navController)
             }
-            composable(
-                "version_detail/{versionId}?type={versionType}&url={versionUrl}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("version_detail/{versionId}?type={versionType}&url={versionUrl}") { backStackEntry ->
                 val versionId = backStackEntry.arguments?.getString("versionId") ?: ""
                 val versionType = backStackEntry.arguments?.getString("versionType") ?: "release"
                 val versionUrl = backStackEntry.arguments?.getString("versionUrl") ?: ""
                 VersionDetailScreen(versionId, versionType, versionUrl, navController)
             }
-            composable(
-                "mod_detail/{projectId}?source={source}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("mod_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "mod", source)
             }
-            composable(
-                "modpack_detail/{projectId}?source={source}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("modpack_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "modpack", source)
             }
-            composable(
-                "resourcepack_detail/{projectId}?source={source}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("resourcepack_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "resourcepack", source)
             }
-            composable(
-                "shader_detail/{projectId}?source={source}",
-                enterTransition = { DetailEnterTransition },
-                exitTransition = { DetailExitTransition },
-                popEnterTransition = { DetailPopEnterTransition },
-                popExitTransition = { DetailPopExitTransition }
-            ) { backStackEntry ->
+            composable("shader_detail/{projectId}?source={source}") { backStackEntry ->
                 val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
                 val source = backStackEntry.arguments?.getString("source") ?: "modrinth"
                 ModDetailScreen(navController, projectId, "shader", source)
@@ -303,7 +304,6 @@ fun MainScreen(
                 glassEnabled = glassSupported
             )
         }
-        // 分享导入整合包(接收 ACTION_SEND 事件,兼容 FCL 分享格式),
         // 挂在导航外层:无论当前处于哪个页面,分享导入弹窗都能弹出
         ModpackImportFlow(
             importSource = shareImportUri,
@@ -333,6 +333,11 @@ private fun FloatingNavOverlay(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val openSubmenus = remember { mutableStateMapOf<String, Boolean>() }
+
+    // 操作菜单停靠侧：START=阅读方向起始侧（左），END=末尾侧（右），默认右侧；
+    // 布局整体镜像（按钮与胶囊面板的锚点/边距对调），毛玻璃层为 backdrop 采样、与位置无关不受影响
+    val dockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
+    val dockAlignment = if (dockEnd) Alignment.TopEnd else Alignment.TopStart
 
     // 子页激活时自动展开对应父级菜单(进入子页时)
     LaunchedEffect(currentRoute) {
@@ -379,11 +384,14 @@ private fun FloatingNavOverlay(
             )
         }
 
-        // 导航开关按钮:悬浮最上层、避开状态栏、不占页面布局
+        // 导航开关按钮:悬浮最上层、避开状态栏与刘海打孔（忽略刘海时画面仍铺满，仅控件避让）、
+        // 不占页面布局（停靠侧按设置镜像）
         Box(
             modifier = Modifier
+                .align(dockAlignment)
+                .windowInsetsPadding(WindowInsets.displayCutout)
                 .statusBarsPadding()
-                .padding(start = 12.dp, top = 8.dp)
+                .padding(top = 8.dp, start = if (dockEnd) 0.dp else 12.dp, end = if (dockEnd) 12.dp else 0.dp)
                 .size(40.dp)
                 .then(circleGlass)
                 .then(
@@ -405,13 +413,14 @@ private fun FloatingNavOverlay(
         }
 
         // 展开容器:竖着的整个胶囊容器(两端半圆),图标按钮放里面,从按钮处向下划出
-        // 胶囊宽 56dp、按钮宽 40dp,胶囊左偏移取 4dp 使两者水平中心对齐(按钮中心 x=12+20=32=4+28)
+        // 胶囊宽 56dp、按钮宽 40dp,胶囊侧偏移取 4dp 使两者水平中心对齐（停靠侧按设置镜像）
         AnimatedVisibility(
             visible = expanded,
             modifier = Modifier
-                .align(Alignment.TopStart)
+                .align(dockAlignment)
+                .windowInsetsPadding(WindowInsets.displayCutout)
                 .statusBarsPadding()
-                .padding(start = 4.dp, top = 56.dp),
+                .padding(top = 56.dp, start = if (dockEnd) 0.dp else 4.dp, end = if (dockEnd) 4.dp else 0.dp),
             enter = expandVertically(
                 animationSpec = tween(220, easing = FastOutSlowInEasing),
                 expandFrom = Alignment.Top

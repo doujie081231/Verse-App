@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.PcCompactSearchField
@@ -54,7 +55,6 @@ fun ModsScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
 
-    // 收藏筛选（对齐 PC mod-favorites 页）
     var favOnly by remember { mutableStateOf(false) }
     val favHits = remember(favOnly) {
         com.verse.explorer.app.data.FavoritesRepository.list(context).map { f ->
@@ -83,17 +83,18 @@ fun ModsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 54.dp)
+                .padding(top = 8.dp)
         ) {
 
             // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            // 筛选栏上移贴顶，start 缩进避开左上角悬浮导航钮，给列表腾出更多展示空间
             PcCompactFilterBar(
                 selects = listOf(
                     PcFilterSelect(uiState.selectedLoader, loaders.map { it to it }) { viewModel.setSelectedLoader(it) },
                     PcFilterSelect(uiState.selectedVersion, gameVersions.map { it to it }) { viewModel.setSelectedVersion(it) },
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(start = 56.dp)
             ) {
                 PcCompactSearchField(
                     value = searchQuery,
@@ -119,7 +120,6 @@ fun ModsScreen(
                     color = VerseColors.PcTextMuted,
                     fontSize = 11.sp
                 )
-                // 收藏筛选（对齐 PC mod-favorites 页的入口）
                 Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = if (favOnly) VerseColors.PcOrange.copy(alpha = 0.16f) else VerseColors.PcBgCard,
@@ -144,10 +144,10 @@ fun ModsScreen(
             when {
                 uiState.isLoading && results.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = VerseColors.PcAccent,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(32.dp)
+                        RoseLoader(
+                            modifier = Modifier.size(32.dp),
+                            size = 32.dp,
+                            color = VerseColors.PcAccent
                         )
                     }
                 }
@@ -200,15 +200,14 @@ fun ModsScreen(
                         if (uiState.isLoading) {
                             item {
                                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(
-                                        color = VerseColors.PcAccent,
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.size(24.dp)
+                                    RoseLoader(
+                                        modifier = Modifier.size(24.dp),
+                                        size = 24.dp,
+                                        color = VerseColors.PcAccent
                                     )
                                 }
                             }
                         }
-                        // 收藏筛选无分页；普通列表按 PC .pagination 翻页
                         if (!favOnly) {
                             item {
                                 PcPagination(
@@ -232,95 +231,10 @@ private fun ModListItem(
     hit: ModrinthSearchHit,
     onClick: () -> Unit
 ) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(VerseColors.PcBgTertiary),
-                contentAlignment = Alignment.Center
-            ) {
-                // 始终显示占位文字（加载失败时透出来）
-                Text(
-                    text = (hit.loaders.firstOrNull()?.first()?.uppercase() ?: "?"),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                // 有图标 URL 时叠加 AsyncImage 在上层（加载失败时透出底层占位）
-                if (!hit.iconUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = hit.iconUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = hit.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = VerseColors.PcTextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    if (hit.loaders.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.PcTextMuted.copy(alpha = 0.3f)
-                        ) {
-                            Text(
-                                text = hit.loaders.joinToString(", "),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.PcTextSecondary,
-                                fontSize = 10.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(hit.author, fontSize = 11.sp, color = VerseColors.PcTextMuted)
-                    Spacer(Modifier.width(8.dp))
-                    Text("·", fontSize = 11.sp, color = VerseColors.PcTextMuted)
-                    Spacer(Modifier.width(8.dp))
-                    if (hit.gameVersions.isNotEmpty()) {
-                        Text(hit.gameVersions.first(), fontSize = 11.sp, color = VerseColors.PcTextMuted)
-                        Spacer(Modifier.width(8.dp))
-                        Text("·", fontSize = 11.sp, color = VerseColors.PcTextMuted)
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    Text(formatDownloadCount(hit.downloads), fontSize = 11.sp, color = VerseColors.PcTextMuted)
-                }
-                if (hit.description.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        hit.description,
-                        fontSize = 11.sp,
-                        color = VerseColors.PcTextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
+    ResourceSearchCard(
+        hit = hit,
+        onClick = onClick
+    )
 }
 
 internal fun formatDownloadCount(count: Long): String {

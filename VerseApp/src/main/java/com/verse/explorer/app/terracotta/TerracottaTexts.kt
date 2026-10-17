@@ -3,8 +3,6 @@ package com.verse.explorer.app.terracotta
 /**
  * 陶瓦联机文案
  *
- * 与 FCL 的 values-zh/strings.xml 中 terracotta 相关条目一一对应
- * （仅将提及「FCL 菜单」的教程语句替换为本启动器的实际入口）。
  */
 object TerracottaTexts {
 

@@ -31,12 +31,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.lan.LanNetworkScanner
-import com.verse.explorer.app.redstone.RedStoneTunnelManager
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
 import com.verse.explorer.app.terracotta.TerracottaTexts
@@ -288,7 +285,6 @@ private fun LazyContentFill(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** 陶瓦联机主设置（原 FCL ui_multiplayer 布局；外层 LazyContentFill 已滚动，内部不设滚动） */
 @Composable
 private fun TerracottaMainSettings(
     multiplayerEnabled: Boolean,
@@ -328,7 +324,14 @@ private fun TerracottaMainSettings(
                     checked = multiplayerEnabled,
                     onCheckedChange = onSwitchChanged,
                     colors = SwitchDefaults.colors(
-                        checkedTrackColor = VerseColors.PcAccent
+                        checkedTrackColor = VerseColors.PcGreen,
+                        checkedThumbColor = VerseColors.PcAccentText,
+                        checkedBorderColor = VerseColors.PcGreen,
+                        checkedIconColor = VerseColors.PcAccentText,
+                        // 未启用态：浅色轨道 + 深色圆球，避免白球在浅色模式下不可见
+                        uncheckedThumbColor = VerseColors.PcTextSecondary,
+                        uncheckedTrackColor = VerseColors.PcBgTertiary,
+                        uncheckedBorderColor = VerseColors.PcBorder
                     )
                 )
             }
@@ -435,26 +438,11 @@ private fun TutorialTextView(content: String) {
 }
 
 /**
- * 红石联机内容（RedStone 中转隧道，按《RedStone 内核接入文档》对接）：
- * 房主拉起 hongshi 内核创建隧道 → 状态文件 open 后展示联机地址；
- * 访客无需任何内核，在多人游戏中直接连接该地址。
+ * 红石联机（RedStone 中转隧道）：启动器侧仅作引导，隧道创建/管理在
+ * 游戏内控制面板右栏完成（进游戏后可用）；此处不再提供启动器侧创建入口。
  */
 @Composable
 private fun RedStoneContent() {
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val available = remember { RedStoneTunnelManager.isAvailable(context) }
-    val state by RedStoneTunnelManager.state.collectAsState()
-    val logs by RedStoneTunnelManager.logs.collectAsState()
-    val nodes by RedStoneTunnelManager.nodes.collectAsState()
-
-    // 进入页面刷新节点注册表（https://hongshi.site/newserver.json）
-    LaunchedEffect(Unit) { RedStoneTunnelManager.refreshNodes() }
-
-    var node by remember { mutableStateOf(RedStoneTunnelManager.DEFAULT_NODE.address) }
-    var port by remember { mutableStateOf("25565") }
-    val selectedNodeName = nodes.find { it.address == node }?.name ?: node
-
     LazyContentFill {
         Text(
             "红石联机",
@@ -463,250 +451,48 @@ private fun RedStoneContent() {
             color = VerseColors.PcTextPrimary
         )
 
-        if (!available) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = VerseColors.PcOrange.copy(alpha = 0.10f)
-            ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            color = VerseColors.PcBgCard
+        ) {
+            Column(Modifier.padding(16.dp)) {
                 Text(
-                    "当前设备不支持红石联机（缺少 arm64 内核，仅支持 arm64 设备）",
-                    fontSize = 12.sp,
-                    color = VerseColors.PcOrange,
-                    modifier = Modifier.padding(14.dp)
+                    "请在进入游戏后使用",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = VerseColors.PcAccent
                 )
-            }
-        } else {
-            // ===== 状态展示 =====
-            when (val s = state) {
-                is RedStoneTunnelManager.State.Starting -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = VerseColors.PcBgCard
-                    ) {
-                        Row(
-                            Modifier.padding(14.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(Modifier.size(18.dp), VerseColors.PcAccent, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                "正在连接节点 ${s.node}...",
-                                fontSize = 13.sp,
-                                color = VerseColors.PcTextSecondary
-                            )
-                        }
-                    }
-                }
-                is RedStoneTunnelManager.State.Reconnecting -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = VerseColors.PcBgCard
-                    ) {
-                        Row(
-                            Modifier.padding(14.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(Modifier.size(18.dp), VerseColors.PcOrange, strokeWidth = 2.dp)
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                "${s.reason}（${s.attempt}/${s.maxAttempts}）",
-                                fontSize = 13.sp,
-                                color = VerseColors.PcOrange
-                            )
-                        }
-                    }
-                }
-                is RedStoneTunnelManager.State.Open -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = VerseColors.PcGreen.copy(alpha = 0.10f)
-                    ) {
-                        Column(Modifier.padding(14.dp)) {
-                            Text(
-                                "隧道已建立，联机地址",
-                                fontSize = 11.sp,
-                                color = VerseColors.PcTextSecondary
-                            )
-                            Text(
-                                s.address,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = VerseColors.PcGreen,
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .clickable {
-                                        clipboard.setText(AnnotatedString(s.address))
-                                    }
-                            )
-                            Text(
-                                "点击复制。好友无需任何安装，在 Java 版多人游戏中直接连接该地址；房主先在存档暂停菜单中「对局域网开放」。",
-                                fontSize = 11.sp,
-                                color = VerseColors.PcTextSecondary,
-                                modifier = Modifier.padding(top = 6.dp)
-                            )
-                        }
-                    }
-                }
-                is RedStoneTunnelManager.State.Closed -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = VerseColors.PcOrange.copy(alpha = 0.10f)
-                    ) {
-                        Text(
-                            s.message,
-                            fontSize = 12.sp,
-                            color = VerseColors.PcOrange,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
-                is RedStoneTunnelManager.State.Failed -> {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = VerseColors.PcRed.copy(alpha = 0.08f)
-                    ) {
-                        Text(
-                            s.message,
-                            fontSize = 12.sp,
-                            color = VerseColors.PcRed,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
-                RedStoneTunnelManager.State.Idle -> {}
-            }
-
-            // ===== 创建/关闭控制 =====
-            val canConfigure = state is RedStoneTunnelManager.State.Idle ||
-                state is RedStoneTunnelManager.State.Closed ||
-                state is RedStoneTunnelManager.State.Failed
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = VerseColors.PcBgCard
-            ) {
-                Column(Modifier.padding(14.dp)) {
-                    if (canConfigure) {
-                        Text(
-                            "创建隧道",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = VerseColors.PcTextPrimary
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = node,
-                            onValueChange = { node = it },
-                            label = {
-                                Text(
-                                    if (selectedNodeName != node) "中转节点（$selectedNodeName）" else "中转节点",
-                                    fontSize = 12.sp
-                                )
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            nodes.forEach { n ->
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (node == n.address) {
-                                        VerseColors.PcAccent.copy(alpha = 0.12f)
-                                    } else {
-                                        VerseColors.PcBgTertiary
-                                    },
-                                    modifier = Modifier.clickable { node = n.address }
-                                ) {
-                                    Text(
-                                        n.name,
-                                        fontSize = 11.sp,
-                                        color = if (node == n.address) VerseColors.PcAccent else VerseColors.PcTextSecondary,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = port,
-                            onValueChange = { port = it.filter { c -> c.isDigit() } },
-                            label = { Text("本地 MC 端口", fontSize = 12.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Text(
-                            "先在游戏内存档暂停菜单中「对局域网开放」，再把游戏显示的端口填到这里（默认 25565）。中转走 TCP，仅支持 Java 版。",
-                            fontSize = 11.sp,
-                            color = VerseColors.PcTextMuted,
-                            modifier = Modifier.padding(top = 6.dp)
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        PcButton(
-                            text = "创建隧道",
-                            onClick = {
-                                RedStoneTunnelManager.start(context, node.trim(), port.toIntOrNull() ?: 25565)
-                            },
-                            variant = PcButtonVariant.PRIMARY
-                        )
-                    } else {
-                        Text(
-                            "隧道运行中",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = VerseColors.PcTextPrimary
-                        )
-                        Text(
-                            "关闭后地址立即失效；好友连接会断开。",
-                            fontSize = 11.sp,
-                            color = VerseColors.PcTextMuted,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                        Spacer(Modifier.height(10.dp))
-                        PcButton(
-                            text = "关闭隧道",
-                            onClick = { RedStoneTunnelManager.stop() },
-                            variant = PcButtonVariant.OUTLINE
-                        )
-                    }
-                }
-            }
-
-            // ===== 最近日志 =====
-            if (logs.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = VerseColors.PcBgCard
-                ) {
-                    Column(Modifier.padding(14.dp)) {
-                        Text(
-                            "最近日志",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = VerseColors.PcTextSecondary
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        logs.takeLast(20).forEach { line ->
-                            Text(
-                                line,
-                                fontSize = 10.sp,
-                                lineHeight = 14.sp,
-                                color = VerseColors.PcTextMuted,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "红石联机隧道在游戏内创建与管理：进入游戏后打开右侧控制面板，在「红石联机」中创建隧道并获取联机地址。",
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                    color = VerseColors.PcTextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "使用步骤：",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = VerseColors.PcTextPrimary
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "1. 进入游戏，在存档暂停菜单中「对局域网开放」；\n" +
+                        "2. 打开控制面板右栏的「红石联机」；\n" +
+                        "3. 选择中转节点并创建隧道，得到联机地址；\n" +
+                        "4. 好友在多人游戏中直接连接该地址（无需安装任何东西）。",
+                    fontSize = 12.sp,
+                    lineHeight = 19.sp,
+                    color = VerseColors.PcTextSecondary
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "仅支持 Java 版，中转走 TCP。",
+                    fontSize = 11.sp,
+                    color = VerseColors.PcTextMuted
+                )
             }
         }
     }

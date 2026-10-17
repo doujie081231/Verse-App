@@ -6,7 +6,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * 收藏仓库（Android 本地收藏体系，对齐 PC `_favorites`：按项目 id 收藏，跨启动保持）。
  * 收藏内容保存项目快照（id/title/icon/source/downloads），供列表页"收藏"筛选直接展示。
  */
 data class FavProject(

@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -30,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcButton
@@ -58,7 +61,8 @@ internal fun AddAccountSheet(
     onMicrosoftWeb: (url: String, userCode: String) -> Unit = { _, _ -> },
     onProfilesAvailable: (serverUrl: String, username: String, password: String, profiles: List<AuthlibProfile>) -> Unit
 ) {
-    var step by remember { mutableStateOf(1) }
+    // 方式选择卡片优先：initialType 为空时先进登录方式选择步骤（step 0），由用户挑选登录方式
+    var step by remember { mutableStateOf(if (initialType.isBlank()) 0 else 1) }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val msaLoginState by viewModel.microsoftLoginState.collectAsState()
@@ -78,7 +82,6 @@ internal fun AddAccountSheet(
     var serverInfo by remember { mutableStateOf<ServerInfo?>(null) }
     var isVerifying by remember { mutableStateOf(false) }
 
-    // 微软登录流程状态（与 ZL2 的任务编排对应）：驱动进度文案与终态处理
     LaunchedEffect(msaLoginState) {
         when (val state = msaLoginState) {
             is MicrosoftLoginState.Polling -> {
@@ -116,7 +119,6 @@ internal fun AddAccountSheet(
                 viewModel.resetMicrosoftLogin()
             }
             is MicrosoftLoginState.Cancelled -> {
-                // 与 ZL2 一致：离开浏览器页视为取消登录
                 authStatus = "您离开了浏览器页面，已取消微软登录流程"
                 isAuthenticating = false
                 deviceCodeResult = null
@@ -151,7 +153,11 @@ internal fun AddAccountSheet(
             )
         },
         text = {
-            when (step) {
+            // 整体可滚动：横屏小屏下对话框高度受限，避免方式卡片被压扁、登录表单被挤出可视区
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                when (step) {
                 0 -> {
                     Column {
                         val types = listOf(
@@ -170,11 +176,11 @@ internal fun AddAccountSheet(
                                     .clickable { selectedType = type }
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(14.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Box(
-                                        Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(
+                                        Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(
                                             when (type) {
                                                 "microsoft" -> VerseColors.PcAccent.copy(alpha = 0.12f)
                                                 "authlib" -> VerseColors.PcPurple.copy(alpha = 0.12f)
@@ -302,10 +308,10 @@ internal fun AddAccountSheet(
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            CircularProgressIndicator(
-                                                Modifier.size(14.dp),
-                                                VerseColors.PcAccent,
-                                                strokeWidth = 2.dp
+                                            RoseLoader(
+                                                modifier = Modifier.size(14.dp),
+                                                size = 14.dp,
+                                                color = VerseColors.PcAccent
                                             )
                                             Spacer(Modifier.width(8.dp))
                                             Text(
@@ -495,7 +501,6 @@ internal fun AddAccountSheet(
                 }
                 2 -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // 与 ZL2 一致：轮询阶段醒目展示设备验证码
                         val msaState = msaLoginState
                         if (msaState is MicrosoftLoginState.Polling) {
                             Text(
@@ -524,10 +529,10 @@ internal fun AddAccountSheet(
                                 color = VerseColors.PcTextMuted
                             )
                         } else {
-                            CircularProgressIndicator(
-                                Modifier.size(24.dp),
-                                VerseColors.PcAccent,
-                                strokeWidth = 2.dp
+                            RoseLoader(
+                                modifier = Modifier.size(24.dp),
+                                size = 24.dp,
+                                color = VerseColors.PcAccent
                             )
                         }
                         Spacer(Modifier.height(12.dp))
@@ -552,6 +557,7 @@ internal fun AddAccountSheet(
                         }
                     }
                 }
+            }
             }
         },
         confirmButton = {
@@ -586,7 +592,6 @@ internal fun AddAccountSheet(
                                                 VerseLogger.info("账号弹窗：点击获取设备码，开始请求", "MsaLogin")
                                                 val code = viewModel.getDeviceCode()
                                                 deviceCodeResult = code
-                                                // 与 ZL2 一致：设备码自动复制到剪贴板
                                                 clipboardManager.setText(AnnotatedString(code.userCode))
                                                 VerseLogger.info("账号弹窗：设备码已获取并复制到剪贴板，启动轮询 + 打开发浏览器页", "MsaLogin")
                                                 // 启动后台轮询 + 认证流程，并打开内置浏览器验证页（优先预填验证码的完整链接）
@@ -699,7 +704,6 @@ internal fun AddAccountSheet(
 }
 
 private fun formatMicrosoftError(result: AuthResult): String {
-    // 自 ZL2 迁移后，认证模块已针对各类失败（XErr 细分、频繁、IP 封禁、未购买等）
     // 返回精确的中文错误文本，优先直接展示
     return result.error
         ?: if (result.needPurchase) {

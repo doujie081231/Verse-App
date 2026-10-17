@@ -40,7 +40,6 @@ import com.verse.explorer.app.ui.theme.VerseColors
 /**
  * 资源安装的版本选择弹窗
  *
- * 与 ZL2 的 DownloadDialog 对应：以复选框卡片列出已安装的游戏版本
  * （多选，默认选中当前版本），确认后资源安装到所选版本的对应文件夹。
  */
 @Composable
@@ -187,7 +186,6 @@ data class VerseVersionItem(
     val iconBg: Color? = null
 )
 
-/** 无已安装版本时的警告（与 ZL2 的 download_assets_no_installed_versions 对应） */
 @Composable
 fun NoInstalledVersionsDialog(onDismiss: () -> Unit) {
     AlertDialog(

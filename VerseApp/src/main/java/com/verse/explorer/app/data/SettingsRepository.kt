@@ -76,10 +76,28 @@ object SettingsRepository {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_BACKGROUND_OPACITY = "background_opacity"
         private const val KEY_SIDEBAR_GLASS = "sidebar_liquid_glass"
+        // 背景模糊半径（0..40，单位 Dp，0=关闭）与模糊类型（background=背景模糊 / foreground=前景毛玻璃）
+        private const val KEY_BACKGROUND_BLUR = "background_blur"
+        private const val KEY_BACKGROUND_BLUR_TYPE = "background_blur_type"
+        // 视频背景音量（0..100）
+        private const val KEY_VIDEO_VOLUME = "video_volume"
         private const val KEY_GAME_WIDTH = "game_width"
         private const val KEY_GAME_HEIGHT = "game_height"
         private const val KEY_FULLSCREEN = "fullscreen"
         private const val KEY_IGNORE_NOTCH = "ignore_notch"
+
+        // 颜色主题（LIGHT/深浅黑白两项 + 七套命名色板 + DYNAMIC 动态取色 + CUSTOM 自定义取色）
+        private const val KEY_THEME_SELECTION = "theme_selection"
+        // 自定义取色的种子颜色（ARGB 整数）
+        private const val KEY_THEME_CUSTOM_COLOR = "theme_custom_color"
+        // 自定义取色的配色风格（materialkolor PaletteStyle 名称）
+        private const val KEY_THEME_PALETTE_STYLE = "theme_palette_style"
+        // 主题明暗三态（enable=深色 / disable=浅色 / follow_system=跟随系统）
+        private const val KEY_DARK_MODE = "dark_mode"
+        // 主界面操作菜单停靠侧（START=左 / END=右）
+        private const val KEY_ACTION_MENU_SIDE = "action_menu_side"
+        // 启动器部分屏幕全屏（默认开=沉浸式全屏并延伸到刘海区域）
+        private const val KEY_LAUNCHER_FULL_SCREEN = "launcher_full_screen"
 
         private const val DEFAULT_GAME_DIR = "/storage/emulated/0/VerseExplorerX"
         private const val DEFAULT_MAX_MEMORY = 2048
@@ -133,11 +151,20 @@ object SettingsRepository {
         private const val DEFAULT_VERSION_ISOLATION = "all"
         private const val DEFAULT_FONT_SIZE = 14
         private const val DEFAULT_BACKGROUND_OPACITY = 95
+        private const val DEFAULT_BACKGROUND_BLUR = 0
+        private const val DEFAULT_BACKGROUND_BLUR_TYPE = "background"
+        private const val DEFAULT_VIDEO_VOLUME = 0
         private const val DEFAULT_GAME_WIDTH = 854
         private const val DEFAULT_GAME_HEIGHT = 480
         private const val DEFAULT_FULLSCREEN = false
-        // FCL ThemePreference.fullscreen 默认 false：默认避让屏幕刘海区域（缩小）
         private const val DEFAULT_IGNORE_NOTCH = false
+        // 颜色主题默认浅色（沿用历史黑白主题默认行为），动态取色需 Android 12+ 系统支持
+        private const val DEFAULT_THEME_SELECTION = "LIGHT"
+        private const val DEFAULT_THEME_CUSTOM_COLOR = 0xFF0000FF.toInt()
+        private const val DEFAULT_THEME_PALETTE_STYLE = "TonalSpot"
+        private const val DEFAULT_DARK_MODE = "FOLLOW_SYSTEM"
+        private const val DEFAULT_ACTION_MENU_SIDE = "START"
+        private const val DEFAULT_LAUNCHER_FULL_SCREEN = true
         // VerseX 渲染器（vkshim 兼容层之上的性能优化层）：pipeline 对象级缓存（M1）
         private const val KEY_VERSERX_RENDERER = "versex_renderer"
         private const val KEY_VERSERX_PIPELINE_CACHE = "versex_pipeline_cache"
@@ -156,7 +183,6 @@ object SettingsRepository {
         prefs().edit().putBoolean(KEY_VERSERX_PIPELINE_CACHE, on).apply()
     }
 
-    // 图形 API（FCL VersionSetting.graphicsBackend：default/opengl/vulkan，
     // 启动时写 MC options.txt 的 preferredGraphicsBackend）
     private const val KEY_GRAPHICS_BACKEND = "graphics_backend"
     private const val DEFAULT_GRAPHICS_BACKEND = "default"
@@ -168,7 +194,6 @@ object SettingsRepository {
         prefs().edit().putString(KEY_GRAPHICS_BACKEND, value).apply()
     }
 
-    // FCL LauncherHelper isNotCheckGame：跳过启动前游戏文件完整性检查以加快启动
     private const val KEY_NOT_CHECK_GAME = "not_check_game"
     private const val DEFAULT_NOT_CHECK_GAME = false
 
@@ -178,7 +203,6 @@ object SettingsRepository {
         prefs().edit().putBoolean(KEY_NOT_CHECK_GAME, on).apply()
     }
 
-    // FCL LaunchOptions.debugLog：游戏内 log4j2 输出详细调试日志（log4j2-1.12-debug.xml）
     private const val KEY_DEBUG_LOG = "debug_log"
     private const val DEFAULT_DEBUG_LOG = false
 
@@ -188,7 +212,6 @@ object SettingsRepository {
         prefs().edit().putBoolean(KEY_DEBUG_LOG, on).apply()
     }
 
-    // FCL LauncherSettingPage：启动游戏前请求 RECORD_AUDIO（语音聊天模组用）
     private const val KEY_REQUEST_MIC_PERMISSION = "request_mic_permission"
     private const val DEFAULT_REQUEST_MIC_PERMISSION = false
 
@@ -199,7 +222,6 @@ object SettingsRepository {
         prefs().edit().putBoolean(KEY_REQUEST_MIC_PERMISSION, on).apply()
     }
 
-    // Vulkan 驱动器（FCL VersionSetting.isVKDriverSystem）：true=系统驱动，
     // false=Turnip（内置 libvulkan_freedreno.so，仅 Adreno 6xx-8xx 有效，其余设备自动回落）
     // setter 见 setVkDriverSystem(enabled)
 
@@ -461,7 +483,6 @@ object SettingsRepository {
         prefs().edit().putString(KEY_THEME_COLOR, color).apply()
     }
 
-    /** 背景风格（对齐 PC `versepc_wallpaper`：none / panorama / image / solid） */
     fun getBackgroundStyle(): String = prefs().getString(KEY_BACKGROUND_STYLE, "none") ?: "none"
 
     fun setBackgroundStyle(style: String) {
@@ -523,6 +544,28 @@ object SettingsRepository {
         prefs().edit().putInt(KEY_BACKGROUND_OPACITY, opacity).apply()
     }
 
+    /** 背景模糊半径（0..40，单位 Dp，0=关闭） */
+    fun getBackgroundBlur(): Int = prefs().getInt(KEY_BACKGROUND_BLUR, DEFAULT_BACKGROUND_BLUR)
+
+    fun setBackgroundBlur(blur: Int) {
+        prefs().edit().putInt(KEY_BACKGROUND_BLUR, blur).apply()
+    }
+
+    /** 背景模糊类型（background=背景模糊 / foreground=前景毛玻璃） */
+    fun getBackgroundBlurType(): String =
+        prefs().getString(KEY_BACKGROUND_BLUR_TYPE, DEFAULT_BACKGROUND_BLUR_TYPE) ?: DEFAULT_BACKGROUND_BLUR_TYPE
+
+    fun setBackgroundBlurType(type: String) {
+        prefs().edit().putString(KEY_BACKGROUND_BLUR_TYPE, type).apply()
+    }
+
+    /** 视频背景音量（0..100） */
+    fun getVideoVolume(): Int = prefs().getInt(KEY_VIDEO_VOLUME, DEFAULT_VIDEO_VOLUME)
+
+    fun setVideoVolume(volume: Int) {
+        prefs().edit().putInt(KEY_VIDEO_VOLUME, volume).apply()
+    }
+
     /** 侧边栏液态玻璃效果开关（默认关：低端机实时着色器开销大，可在设置开启） */
     fun getSidebarGlass(): Boolean = prefs().getBoolean(KEY_SIDEBAR_GLASS, false)
 
@@ -553,6 +596,52 @@ object SettingsRepository {
 
     fun setIgnoreNotch(ignoreNotch: Boolean) {
         prefs().edit().putBoolean(KEY_IGNORE_NOTCH, ignoreNotch).apply()
+    }
+
+    /** 颜色主题选择（ColorThemeType 枚举名） */
+    fun getThemeSelection(): String =
+        prefs().getString(KEY_THEME_SELECTION, DEFAULT_THEME_SELECTION) ?: DEFAULT_THEME_SELECTION
+
+    fun setThemeSelection(selection: String) {
+        prefs().edit().putString(KEY_THEME_SELECTION, selection).apply()
+    }
+
+    /** 自定义取色种子颜色（ARGB 整数） */
+    fun getThemeCustomColor(): Int = prefs().getInt(KEY_THEME_CUSTOM_COLOR, DEFAULT_THEME_CUSTOM_COLOR)
+
+    fun setThemeCustomColor(argb: Int) {
+        prefs().edit().putInt(KEY_THEME_CUSTOM_COLOR, argb).apply()
+    }
+
+    /** 自定义取色配色风格（PaletteStyle 名称） */
+    fun getThemePaletteStyle(): String =
+        prefs().getString(KEY_THEME_PALETTE_STYLE, DEFAULT_THEME_PALETTE_STYLE) ?: DEFAULT_THEME_PALETTE_STYLE
+
+    fun setThemePaletteStyle(style: String) {
+        prefs().edit().putString(KEY_THEME_PALETTE_STYLE, style).apply()
+    }
+
+    /** 主题明暗三态（DarkMode 枚举名） */
+    fun getDarkMode(): String = prefs().getString(KEY_DARK_MODE, DEFAULT_DARK_MODE) ?: DEFAULT_DARK_MODE
+
+    fun setDarkMode(mode: String) {
+        prefs().edit().putString(KEY_DARK_MODE, mode).apply()
+    }
+
+    /** 主界面操作菜单停靠侧（ActionMenuSide 枚举名） */
+    fun getActionMenuSide(): String =
+        prefs().getString(KEY_ACTION_MENU_SIDE, DEFAULT_ACTION_MENU_SIDE) ?: DEFAULT_ACTION_MENU_SIDE
+
+    fun setActionMenuSide(side: String) {
+        prefs().edit().putString(KEY_ACTION_MENU_SIDE, side).apply()
+    }
+
+    /** 启动器部分屏幕全屏（默认开=沉浸式全屏） */
+    fun getLauncherFullScreen(): Boolean =
+        prefs().getBoolean(KEY_LAUNCHER_FULL_SCREEN, DEFAULT_LAUNCHER_FULL_SCREEN)
+
+    fun setLauncherFullScreen(fullScreen: Boolean) {
+        prefs().edit().putBoolean(KEY_LAUNCHER_FULL_SCREEN, fullScreen).apply()
     }
 
     fun resetToDefaults() {

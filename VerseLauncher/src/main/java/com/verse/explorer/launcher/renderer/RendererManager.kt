@@ -69,14 +69,12 @@ object RendererManager {
         maxMcVersion = "1.21.4"
     )
 
-    // 完全对齐 FCL 1.3.3.5 Renderer.ID_NGGL4ES + FCLauncher.addRendererEnv：
-    //   Renderer.java: eglName="libEGL.so"（系统 Mali EGL），glName="libng_gl4es.so"
-    //   pojavEnv: LIBGL_USE_MC_COLOR=1, LIBGL_GL=31, LIBGL_ES=3, LIBGL_NORMALIZE=1, LIBGL_NOERROR=1,
-    //             LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so
-    //   FCLauncher: POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so
-    // 之前误用 ANGLE（libEGL_angle.so + libGLESv2_angle.so）作为 EGL/GLES，与 FCL 的系统 Mali 驱动不同，
-    // 且 libng_gl4es.so 是 2026-04 旧构建；FCL 1.3.3.5 用 2026-08 新构建。水面贴图错乱与滑动卡顿
-    // 的对照差异即在此（FCL 同机正常）。
+    // NGGL4ES：eglName="libEGL.so"（系统 Mali EGL），glName="libng_gl4es.so"。
+    // 环境变量：LIBGL_USE_MC_COLOR=1, LIBGL_GL=31, LIBGL_ES=3, LIBGL_NORMALIZE=1, LIBGL_NOERROR=1,
+    //           LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so,
+    //           POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so。
+    // 之前误用 ANGLE（libEGL_angle.so + libGLESv2_angle.so）作为 EGL/GLES，与系统 Mali 驱动不同；
+    // libng_gl4es.so 必须使用较新构建，旧构建存在水面贴图错乱与滑动卡顿问题。
     val NGGL4ES = RendererConfig(
         displayName = "NGGL4ES/Krypton Wrapper",
         id = ID_NGGL4ES,
@@ -197,8 +195,8 @@ object RendererManager {
         maxMcVersion = "1.16.5"
     )
 
-    // 对齐 MobileGlues 官方插件 V2.0.0（MobileGL-Dev/MobileGlues-release）AndroidManifest 的
-    //   FCL 插件元数据：renderer="MobileGlues:libmobileglues.so:libmobileglues.so"（glName 与
+    // MobileGlues 官方插件 V2.0.0（MobileGL-Dev/MobileGlues-release）AndroidManifest 的
+    //   插件元数据：renderer="MobileGlues:libmobileglues.so:libmobileglues.so"（glName 与
     //   eglName 均为 libmobileglues.so，MobileGlues 自带 EGL 实现），pojavEnv="LIBGL_ES=3:
     //   POJAV_RENDERER=opengles3:POJAVEXEC_EGL=libmobileglues.so:LIBGL_EGL=libmobileglues.so:
     //   MG_COUNT_LAUNCH=1"，des="MobileGlues (OpenGL 4.0, 1.17+)"，minMCver=1.17。

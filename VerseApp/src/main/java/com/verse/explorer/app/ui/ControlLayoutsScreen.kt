@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard
@@ -46,15 +47,11 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
- * 触控布局管理页（设置子页）。结构对照 FCL 的 ControllerManagePage + ControllerRepoPage：
- * - 本地布局：CTRLMAP_PATH 下的布局 json 列表，支持设为默认（Pojav defaultCtrl 偏好）、
  *   删除（Default 出厂布局保护）、SAF 导入；
- * - 布局仓库：FCL 布局仓库（FCL-Team/FCL-Controllers）index.json 索引 + 分类过滤 +
  *   名称搜索，按选中源（GitHub 直连 / 国内镜像）拉取 version.json 详情并下载
  *   versions/<versionCode>.json 到本地布局目录。
  */
 
-// ===== 布局仓库数据模型（字段与 FCL 布局仓库 json 一致） =====
 
 private data class RepoIndexItem(
     val id: String = "",
@@ -86,7 +83,6 @@ private data class RepoVersion(
     val history: List<RepoVersionInfo> = emptyList()
 )
 
-/** 布局仓库双源（与 FCL ControllerRepoPage 的 CONTROLLER_GITHUB / CONTROLLER_GIT_CN 一致） */
 private const val REPO_GITHUB = "https://raw.githubusercontent.com/FCL-Team/FCL-Controllers/main/"
 private const val REPO_MIRROR = "https://repo.miawa.cn/fcl_controllers/"
 
@@ -418,10 +414,10 @@ fun ControlLayoutsContent() {
             when {
                 repoLoading -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            Modifier.size(16.dp),
-                            VerseColors.PcAccent,
-                            strokeWidth = 2.dp
+                        RoseLoader(
+                            modifier = Modifier.size(16.dp),
+                            size = 16.dp,
+                            color = VerseColors.PcAccent
                         )
                         Spacer(Modifier.width(8.dp))
                         Text("正在加载布局仓库…", fontSize = 12.sp, color = VerseColors.PcTextSecondary)
@@ -519,10 +515,10 @@ fun ControlLayoutsContent() {
                                 when {
                                     versionLoadingId == item.id -> {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            CircularProgressIndicator(
-                                                Modifier.size(14.dp),
-                                                VerseColors.PcAccent,
-                                                strokeWidth = 2.dp
+                                            RoseLoader(
+                                                modifier = Modifier.size(14.dp),
+                                                size = 14.dp,
+                                                color = VerseColors.PcAccent
                                             )
                                             Spacer(Modifier.width(8.dp))
                                             Text("加载详情…", fontSize = 11.sp, color = VerseColors.PcTextMuted)

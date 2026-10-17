@@ -6,16 +6,17 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalContext
+import com.verse.explorer.app.data.VersePersonalization
 
 /**
- * 全局色板（对齐 versepc2 themes.css 的 dark/light 两套 CSS 变量）。
- * `Pc*` 系列是响应式 getter：组合期间读取会订阅内部主题状态，
- * 切换黑白主题（VerseColors.applyTheme）时全 UI 自动重组，与 PC 即时换肤一致。
  */
 object VerseColors {
 
@@ -57,7 +58,8 @@ object VerseColors {
             isDarkState.value = value
         }
 
-    // 自定义强调色（null=跟随黑白主题默认），设置页取色器/启动加载写入
+    // 自定义强调色（null=跟随黑白主题默认），设置页取色器/启动加载写入；
+    // 仅在黑白主题（深色/浅色两项）选择下生效，彩色主题下强调色由主题配色方案提供
     private var customAccentState = mutableStateOf<Color?>(null)
 
     /** 自定义强调色（null=使用当前黑白主题的默认强调色） */
@@ -67,12 +69,60 @@ object VerseColors {
             customAccentState.value = value
         }
 
-    /** 应用个性化主题颜色（"black" / "white"），对齐 PC data-theme 切换即时生效 */
+    // ==================== 彩色主题强调色（非黑白主题选择时由主题层写入）====================
+    // primary/secondary/tertiary 分别映射 PcAccent/PcOrange/PcPurple 系列；黑白主题时为 null
+    private var themedPrimaryState = mutableStateOf<Color?>(null)
+    private var themedSecondaryState = mutableStateOf<Color?>(null)
+    private var themedTertiaryState = mutableStateOf<Color?>(null)
+
+    /** 主题层写入彩色主题的强调色三元组（黑白主题时传 null 全部回落原行为） */
+    fun applySchemeAccents(primary: Color?, secondary: Color?, tertiary: Color?) {
+        themedPrimaryState.value = primary
+        themedSecondaryState.value = secondary
+        themedTertiaryState.value = tertiary
+    }
+
+    // ==================== 自定义主题表面色（仅自定义取色时由主题层写入）====================
+    // 自定义取色的配色方案同时驱动背景与 UI 组件容器色：背景取 scheme.background，
+    // 组件容器取 surfaceContainer 阶梯（比背景浅一档），深浅由当前深浅模式对应方案决定
+    private data class SchemeSurfaces(
+        val bgPrimary: Color,
+        val bgSecondary: Color,
+        val bgTertiary: Color,
+        val bgCard: Color,
+        val bgHover: Color,
+        val bgActive: Color,
+        val glassBg: Color,
+        val glassCardBg: Color
+    )
+
+    private var themedSurfacesState = mutableStateOf<SchemeSurfaces?>(null)
+
+    /** 应用自定义主题表面色（非自定义取色时由 clearSchemeSurfaces 回落黑白主题原色） */
+    fun applySchemeSurfaces(
+        bgPrimary: Color,
+        bgSecondary: Color,
+        bgTertiary: Color,
+        bgCard: Color,
+        bgHover: Color,
+        bgActive: Color,
+        glassBg: Color,
+        glassCardBg: Color
+    ) {
+        themedSurfacesState.value = SchemeSurfaces(
+            bgPrimary, bgSecondary, bgTertiary, bgCard, bgHover, bgActive, glassBg, glassCardBg
+        )
+    }
+
+    /** 清除自定义主题表面色（回落黑白主题原色） */
+    fun clearSchemeSurfaces() {
+        themedSurfacesState.value = null
+    }
+
     fun applyTheme(color: String) {
         isDark = color != "white"
     }
 
-    // ==================== PC dark（对齐 [data-theme="dark"]）====================
     private object Dark {
         val bgPrimary = Color(0xFF0A0A0A)
         val bgSecondary = Color(0xFF141414)
@@ -102,7 +152,6 @@ object VerseColors {
         val launchGradientEnd = Color(0xFFD0D0D0)
     }
 
-    // ==================== PC light（对齐 [data-theme="light"]）====================
     private object Light {
         val bgPrimary = Color(0xFFFFFFFF)
         val bgSecondary = Color(0xFFF5F5F7)
@@ -134,49 +183,86 @@ object VerseColors {
 
     private val isDarkTheme: Boolean get() = isDark
 
-    // ==================== PC 端主题色（响应式，对齐 VersePC 黑白主题）====================
-    val PcBgPrimary: Color get() = if (isDarkTheme) Dark.bgPrimary else Light.bgPrimary
-    val PcBgSecondary: Color get() = if (isDarkTheme) Dark.bgSecondary else Light.bgSecondary
-    val PcBgTertiary: Color get() = if (isDarkTheme) Dark.bgTertiary else Light.bgTertiary
-    val PcBgCard: Color get() = if (isDarkTheme) Dark.bgCard else Light.bgCard
-    val PcBgHover: Color get() = if (isDarkTheme) Dark.bgHover else Light.bgHover
-    val PcBgActive: Color get() = if (isDarkTheme) Dark.bgActive else Light.bgActive
+    // 自定义取色主题激活时，背景与容器色改由配色方案的表面色阶梯提供（比黑白主题浅一档的组件色）
+    val PcBgPrimary: Color
+        get() = themedSurfacesState.value?.bgPrimary ?: if (isDarkTheme) Dark.bgPrimary else Light.bgPrimary
+    val PcBgSecondary: Color
+        get() = themedSurfacesState.value?.bgSecondary ?: if (isDarkTheme) Dark.bgSecondary else Light.bgSecondary
+    val PcBgTertiary: Color
+        get() = themedSurfacesState.value?.bgTertiary ?: if (isDarkTheme) Dark.bgTertiary else Light.bgTertiary
+    val PcBgCard: Color
+        get() = themedSurfacesState.value?.bgCard ?: if (isDarkTheme) Dark.bgCard else Light.bgCard
+    val PcBgHover: Color
+        get() = themedSurfacesState.value?.bgHover ?: if (isDarkTheme) Dark.bgHover else Light.bgHover
+    val PcBgActive: Color
+        get() = themedSurfacesState.value?.bgActive ?: if (isDarkTheme) Dark.bgActive else Light.bgActive
 
     val PcTextPrimary: Color get() = if (isDarkTheme) Dark.textPrimary else Light.textPrimary
     val PcTextSecondary: Color get() = if (isDarkTheme) Dark.textSecondary else Light.textSecondary
     val PcTextMuted: Color get() = if (isDarkTheme) Dark.textMuted else Light.textMuted
 
-    val PcAccent: Color get() = customAccent ?: if (isDarkTheme) Dark.accent else Light.accent
-    val PcAccentHover: Color get() = customAccent?.let {
-        if (isDarkTheme) lerp(it, Color.White, 0.20f) else lerp(it, Color.Black, 0.20f)
-    } ?: if (isDarkTheme) Dark.accentHover else Light.accentHover
-    val PcAccentText: Color get() = customAccent?.let {
-        if (it.luminance() > 0.5f) Color(0xFF0A0A0A) else Color.White
-    } ?: if (isDarkTheme) Dark.accentText else Light.accentText
-    val PcAccentGlow: Color get() = customAccent?.copy(alpha = 0.15f)
-        ?: if (isDarkTheme) Dark.accentGlow else Light.accentGlow
+    val PcAccent: Color
+        get() {
+            // 彩色主题：强调色取主题配色方案的 primary；黑白主题：保留自定义强调色覆盖行为
+            val themed = themedPrimaryState.value
+            if (themed != null) return themed
+            return customAccent ?: if (isDarkTheme) Dark.accent else Light.accent
+        }
+    val PcAccentHover: Color
+        get() {
+            val themed = themedPrimaryState.value
+            if (themed != null) {
+                return if (isDarkTheme) lerp(themed, Color.White, 0.20f) else lerp(themed, Color.Black, 0.20f)
+            }
+            return customAccent?.let {
+                if (isDarkTheme) lerp(it, Color.White, 0.20f) else lerp(it, Color.Black, 0.20f)
+            } ?: if (isDarkTheme) Dark.accentHover else Light.accentHover
+        }
+    val PcAccentText: Color
+        get() {
+            // 彩色主题：按主题 primary 的亮度决定文字深浅，保证对比可读
+            val themed = themedPrimaryState.value
+            if (themed != null) {
+                return if (themed.luminance() > 0.5f) Color(0xFF0A0A0A) else Color.White
+            }
+            return customAccent?.let {
+                if (it.luminance() > 0.5f) Color(0xFF0A0A0A) else Color.White
+            } ?: if (isDarkTheme) Dark.accentText else Light.accentText
+        }
+    val PcAccentGlow: Color
+        get() = PcAccent.copy(alpha = 0.15f)
 
     val PcBorder: Color get() = if (isDarkTheme) Dark.border else Light.border
     val PcBorderSubtle: Color get() = if (isDarkTheme) Dark.borderSubtle else Light.borderSubtle
 
     val PcGreen: Color get() = if (isDarkTheme) Dark.green else Light.green
     val PcRed: Color get() = if (isDarkTheme) Dark.red else Light.red
-    val PcOrange: Color get() = if (isDarkTheme) Dark.orange else Light.orange
-    val PcPurple: Color get() = if (isDarkTheme) Dark.purple else Light.purple
+    // 彩色主题下 Orange/Purple 取主题配色方案的 secondary/tertiary；黑白主题保持原色
+    val PcOrange: Color get() = themedSecondaryState.value ?: if (isDarkTheme) Dark.orange else Light.orange
+    val PcPurple: Color get() = themedTertiaryState.value ?: if (isDarkTheme) Dark.purple else Light.purple
     val PcYellow: Color get() = if (isDarkTheme) Dark.yellow else Light.yellow
 
     val PcShadow: Color get() = if (isDarkTheme) Dark.shadow else Light.shadow
     val PcShadowLarge: Color get() = if (isDarkTheme) Dark.shadowLarge else Light.shadowLarge
 
-    val PcGlassBg: Color get() = if (isDarkTheme) Dark.glassBg else Light.glassBg
-    val PcGlassCardBg: Color get() = if (isDarkTheme) Dark.glassCardBg else Light.glassCardBg
+    val PcGlassBg: Color
+        get() = themedSurfacesState.value?.glassBg ?: if (isDarkTheme) Dark.glassBg else Light.glassBg
+    val PcGlassCardBg: Color
+        get() = themedSurfacesState.value?.glassCardBg ?: if (isDarkTheme) Dark.glassCardBg else Light.glassCardBg
 
-    // 启动按钮渐变（对齐 .btn-primary background: var(--accent)：dark 白渐变黑字 / light 深渐变白字；
-    // 自定义强调色时按亮度决定渐变方向，保证与 PcAccentText 对比可读）
-    val PcLaunchGradientStart: Color get() = customAccent ?: if (isDarkTheme) Dark.launchGradientStart else Light.launchGradientStart
-    val PcLaunchGradientEnd: Color get() = customAccent?.let {
-        if (it.luminance() > 0.5f) lerp(it, Color.White, 0.20f) else lerp(it, Color.Black, 0.20f)
-    } ?: if (isDarkTheme) Dark.launchGradientEnd else Light.launchGradientEnd
+    // 启动按钮渐变：dark 白渐变黑字 / light 深渐变白字；
+    // 彩色主题/自定义强调色时按亮度决定渐变方向，保证与 PcAccentText 对比可读
+    val PcLaunchGradientStart: Color
+        get() = themedPrimaryState.value ?: customAccent
+            ?: if (isDarkTheme) Dark.launchGradientStart else Light.launchGradientStart
+    val PcLaunchGradientEnd: Color
+        get() {
+            val base = themedPrimaryState.value ?: customAccent
+            if (base != null) {
+                return if (base.luminance() > 0.5f) lerp(base, Color.White, 0.20f) else lerp(base, Color.Black, 0.20f)
+            }
+            return if (isDarkTheme) Dark.launchGradientEnd else Light.launchGradientEnd
+        }
 }
 
 val LightColorScheme = lightColorScheme(
@@ -241,12 +327,78 @@ val DarkColorScheme = darkColorScheme(
     surfaceTint = Color(0xFFB9B9F9),
 )
 
+/**
+ * 主题明暗三态解析：深色 / 浅色 / 跟随系统（key 包裹保证切换设置时强制重组）。
+ * 黑白主题（深色/浅色两项）保留各自固有的明暗倾向：
+ * 三态强制深/浅时覆盖该倾向，跟随系统时按倾向取值（与历史行为一致）；
+ * 彩色主题按三态在自身 light/dark 色板间切换（跟随系统即 isSystemInDarkTheme()）。
+ */
+@Composable
+fun isVerseInDarkTheme(): Boolean {
+    val mode = VersePersonalization.darkMode
+    val selection = colorThemeTypeFrom(VersePersonalization.colorTheme)
+    return key(mode to selection) {
+        when (mode) {
+            DarkMode.ENABLE.name -> true
+            DarkMode.DISABLE.name -> false
+            else -> when (selection) {
+                ColorThemeType.DARK -> true
+                ColorThemeType.LIGHT -> false
+                else -> isSystemInDarkTheme()
+            }
+        }
+    }
+}
+
 @Composable
 fun VerseExplorerTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val darkTheme = isVerseInDarkTheme()
+    val context = LocalContext.current
+    val selection = colorThemeTypeFrom(VersePersonalization.colorTheme)
+    val customSeed = Color(VersePersonalization.themeCustomColor)
+    val customStyle = paletteStyleFrom(VersePersonalization.paletteStyle)
+
+    // 按选择组装配色方案：黑白两项沿用原有配色，命名色板/动态/自定义按深浅取对应方案
+    val colorScheme = remember(darkTheme, selection, customSeed, customStyle, context) {
+        when (selection) {
+            ColorThemeType.DARK, ColorThemeType.LIGHT -> if (darkTheme) DarkColorScheme else LightColorScheme
+            ColorThemeType.DYNAMIC -> dynamicColorSchemeCompat(context, darkTheme)
+            ColorThemeType.CUSTOM -> customColorScheme(customSeed, customStyle, darkTheme)
+            else -> paletteColorScheme(selection, darkTheme)
+        }
+    }
+
+    // 彩色主题的强调色/次色/三色取自配色方案的 primary/secondary/tertiary；
+    // 自定义取色额外把背景与组件容器色切换到配色方案的表面色阶梯
+    // （背景=scheme.background，组件取 surfaceContainer 阶梯，深浅随当前深浅模式自动适配）
+    val isMonochrome = selection == ColorThemeType.DARK || selection == ColorThemeType.LIGHT
+    VerseColors.isDark = darkTheme
+    if (isMonochrome) {
+        VerseColors.applySchemeAccents(primary = null, secondary = null, tertiary = null)
+        VerseColors.clearSchemeSurfaces()
+    } else {
+        VerseColors.applySchemeAccents(
+            primary = colorScheme.primary,
+            secondary = colorScheme.secondary,
+            tertiary = colorScheme.tertiary
+        )
+        if (selection == ColorThemeType.CUSTOM) {
+            VerseColors.applySchemeSurfaces(
+                bgPrimary = colorScheme.background,
+                bgSecondary = colorScheme.surfaceContainerLowest,
+                bgTertiary = colorScheme.surfaceContainerLow,
+                bgCard = colorScheme.surfaceContainerLow,
+                bgHover = colorScheme.surfaceContainer,
+                bgActive = colorScheme.surfaceContainerHigh,
+                glassBg = colorScheme.surfaceContainerLow.copy(alpha = 0.85f),
+                glassCardBg = colorScheme.surfaceContainerLow.copy(alpha = 0.70f)
+            )
+        } else {
+            VerseColors.clearSchemeSurfaces()
+        }
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,

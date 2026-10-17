@@ -20,17 +20,12 @@ import java.io.IOException
 import java.time.Instant
 
 /**
- * 加载器安装（Fabric / Forge / NeoForge / OptiFine）——全量使用 FCL（fclcore）的
  * download 模块任务：ForgeInstallTask(新/旧版分派) / NeoForgeInstallTask /
  * FabricInstallTask / OptiFineInstallTask。
  *
- * 与 FCL 的差异仅为宿主适配：
- * - 处理器由 FCL 原版 InstallTask 经 SocketServer + ProcessService(:jvm) 执行
- *   （Forge/NeoForge/OptiFine 的 processors 链路，与 FCL 一致）；
  * - 安装器下载源用 BMCLAPI（BMCLAPIDownloadProvider）；
  * - 完成后把安装任务产出的补丁版本原样写回 versions/<id>/<id>.json（仅 id 改实命名、
  *   inheritsFrom 指向基础原版），库/参数/游戏JAR沿继承链由启动侧 resolve 合并——
- *   与 FCL 仓库自身的版本写盘语义（saveAsync）一致。
  */
 object FclLoaderInstaller {
 
@@ -47,6 +42,9 @@ object FclLoaderInstaller {
         progress: (String, Float) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            com.verse.explorer.core.log.DownloadLog.loader(
+                "开始安装加载器: $loaderType $loaderVersion (版本=$versionId)"
+            )
             progress("安装 $loaderType $loaderVersion...", 0.93f)
 
             val repo = DefaultGameRepository(gameDir)
@@ -79,7 +77,6 @@ object FclLoaderInstaller {
                 )
                 "optifine" -> {
                     // 版本串 = type + "_" + patch（如 HD_U_I7 → type=HD_U, patch=I7），
-                    // 与 FCL OptiFineBMCLVersionList 的 versionlist 字段定义一致；
                     // 拆分必须按最后一个下划线，否则拼成 /optifine/{mc}/HD/U_I7 404。
                     val type = loaderVersion.substringBeforeLast("_")
                     val patch = loaderVersion.substringAfterLast("_")
@@ -106,18 +103,13 @@ object FclLoaderInstaller {
             // 关键：本 fork 的 AsyncTaskExecutor.test() 内部会无条件 start()（重跑整个任务图），
             // 绝不能像旧实现那样 start() 后轮询 test()——那会让每条安装链路被并发重跑 N 次，
             // 处理器重复执行、安装器并发下载互相截断为 0 字节（zip END header not found）。
-            // FCL 原版只对 TaskExecutor 调一次 start()，然后由 TaskListener 驱动进度。
             executor.test()
             executor.getException()?.let { throw it }
 
-            // FCL 语义写盘（对齐 FCL 仓库 saveAsync）：安装任务产出的补丁版本原样落盘——
             // 仅把 id 改为实命名（命名弹窗结果）、inheritsFrom 指向基础原版版本目录
             // （如官方 Forge/NeoForge 安装器内嵌 JSON 已带 inheritsFrom 则原样保留，
-            // 与 FCL 对官方安装器 JSON 原样保留的行为一致）。
             //
             // 不再在此预合并库列表/参数/游戏JAR：全部沿继承链由启动侧 resolve() 合并
-            // （VerseLauncher DefaultGameRepository.refreshVersions 已按 FCL resolve 语义
-            // 递归合并父版本库并按 group:artifact 去重），写盘 JSON 与 FCL 官方产物一致：
             //   { id, inheritsFrom: <原版>, libraries: [仅加载器库], arguments, mainClass, ... }
             //
             // 注意：安装任务返回的补丁 id 是 patch id（如 "forge"/"fabric-loader"），
@@ -135,9 +127,14 @@ object FclLoaderInstaller {
             File(dir, "$newId.json").writeText(JsonUtils.GSON.toJson(written))
             // Forge 安装器已把所有加载器库放进 libraries/ 公共目录，无需复制 JAR；
             // 游戏 JAR 沿 inheritsFrom 继承链由启动器 resolve 后定位。
-            Log.i("FclLoaderInstaller", "加载器版本已写入(FCL继承式): $newId (inheritsFrom=${written.inheritsFrom ?: "无"}, libraries=${(written.libraries ?: emptyList()).size})")
+            Log.i("FclLoaderInstaller", "加载器版本已写入(继承式): $newId (inheritsFrom=${written.inheritsFrom ?: "无"}, libraries=${(written.libraries ?: emptyList()).size})")
+            com.verse.explorer.core.log.DownloadLog.loader("加载器安装完成: $newId")
 
             progress("$loaderType 安装完成", 0.98f)
+        }.onFailure { e ->
+            com.verse.explorer.core.log.DownloadLog.loader(
+                "加载器安装失败: $loaderType $loaderVersion — ${e.javaClass.simpleName}: ${e.message}"
+            )
         }
     }
 }

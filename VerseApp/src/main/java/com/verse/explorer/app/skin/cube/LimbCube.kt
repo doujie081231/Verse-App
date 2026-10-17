@@ -90,6 +90,19 @@ open class LimbCube(
     /** 摆动速度倍数（区别走路/跑步等） */
     var swingSpeed: Float = 1.0f
 
+    /** 外部姿态驱动：true 时 draw 直接使用外部写入的 mainAngle/subAngle，不做三角波推进 */
+    var externalPose: Boolean = false
+
+    /** 外部写入的主轴角度（呼吸关键帧驱动） */
+    fun setExternalMainAngle(angle: Float) {
+        this.mainAngle = angle
+    }
+
+    /** 外部写入的副轴角度（呼吸关键帧驱动） */
+    fun setExternalSubAngle(angle: Float) {
+        this.subAngle = angle
+    }
+
     protected lateinit var vertexBuffer: FloatBuffer
     protected lateinit var normalVertexBuffer: FloatBuffer
     protected var textureBuffers = ArrayList<FloatBuffer>()
@@ -157,6 +170,13 @@ open class LimbCube(
                 this.mainStepValue *= -1.0f
                 this.mainAngle = minAngle
             }
+        }
+        if (externalPose) {
+            // 外部姿态（呼吸关键帧）：主轴 + 副轴绕关节点旋转，角度已由外部写好
+            gl10.glTranslatef(0.0f, this.scale[1] / 4.0f * 3.0f, 0.0f)
+            gl10.glRotatef(this.mainAngle, this.mainAngleAxis[0], this.mainAngleAxis[1], this.mainAngleAxis[2])
+            gl10.glRotatef(this.subAngle, this.subAngleAxis[0], this.subAngleAxis[1], this.subAngleAxis[2])
+            gl10.glTranslatef(0.0f, -this.scale[1] / 4.0f * 3.0f, 0.0f)
         }
         for (i in 0 until this.textureBuffers.size) {
             gl10.glTexCoordPointer(2, GL10.GL_FLOAT, 0, this.textureBuffers[i])

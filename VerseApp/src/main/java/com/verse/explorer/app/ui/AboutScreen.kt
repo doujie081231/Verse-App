@@ -27,7 +27,6 @@ import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.theme.VerseColors
 
 /**
- * 关于页：版本信息、开源项目致谢（PCL2 / FCL / PojavLauncher / Zalith Launcher 2 / VersePC 2）
  * 与 GPLv3 许可证卡片。
  */
 
@@ -38,7 +37,6 @@ private data class CreditItem(
     val link: String
 )
 
-// 致谢条目（与 PC 端「致谢」卡片同风格：项目图标 + 名称 + 一句感谢语，点击打开项目主页）
 private val creditItems = listOf(
     CreditItem(
         R.drawable.credit_pcl,
@@ -86,7 +84,7 @@ fun AboutContent() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "Verse Explorer X",
+                "Verse",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 color = VerseColors.PcTextPrimary,
@@ -123,7 +121,6 @@ fun AboutContent() {
                     .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 项目图标（44dp 圆角，对齐 PC 端项目图标块）
                 Image(
                     painter = painterResource(item.iconRes),
                     contentDescription = item.displayName,

@@ -13,9 +13,12 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.WindowCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +32,7 @@ import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.ui.MainScreen
 import com.verse.explorer.app.ui.RuntimeSetupScreen
 import com.verse.explorer.app.ui.VerseLogger
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersePersonalization
@@ -76,23 +80,11 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_FULLSCREEN,
-            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        // 启动器部分屏幕全屏/忽略刘海：按设置组合应用窗口显示模式（设置变更即时生效）
+        applyWindowDisplayMode(
+            SettingsRepository.getLauncherFullScreen(),
+            SettingsRepository.getIgnoreNotch()
         )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
-        } else {
-            window.decorView.systemUiVisibility = (
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    or View.SYSTEM_UI_FLAG_FULLSCREEN
-                    or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                    or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                    or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            )
-        }
 
         val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
         eulaAgreed.value = prefs.getBoolean("isAgree", false)
@@ -103,10 +95,13 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            // 启动时应用已保存的个性化黑白主题 + 自定义强调色 + 自定义背景（对齐 PC data-theme）
+            // 观察启动器全屏与忽略刘海设置变化：变更即时应用到窗口
+            LaunchedEffect(VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch) {
+                applyWindowDisplayMode(VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch)
+            }
+            // 启动时应用已保存的个性化设置（颜色主题/深浅三态/背景等由主题层响应式读取）+ 自定义强调色
             LaunchedEffect(Unit) {
                 DisplayNotch.load()
-                VerseColors.applyTheme(SettingsRepository.getThemeColor())
                 VersePersonalization.load(applicationContext)
                 VerseColors.customAccent = SettingsRepository.getThemeAccent()
                     .takeIf { it.isNotEmpty() }
@@ -136,7 +131,6 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // EULA 协议对话框 (FCL-style: 首次启动必须同意)
                     if (showEula) {
                         EulaAgreementDialog(
                             onAgree = {
@@ -148,7 +142,6 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
 
-                    // 权限请求对话框 (FCL-style)
                     if (showPermission) {
                         PermissionRequestDialog(
                             onRequest = { requestStoragePermissionCompat() },
@@ -157,7 +150,6 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
 
-                    // 前置运行时环境安装界面 (FCL-style: RuntimeFragment)
                     if (showSetup) {
                         RuntimeSetupScreen(
                             onSetupComplete = {
@@ -173,7 +165,7 @@ class MainActivity : ComponentActivity() {
                         Box(modifier = Modifier.fillMaxSize().background(VerseColors.PcBgPrimary),
                             contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = VerseColors.PcAccent, modifier = Modifier.size(40.dp))
+                                RoseLoader(modifier = Modifier.size(40.dp), size = 40.dp)
                                 Spacer(Modifier.height(16.dp))
                                 Text("正在检查运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
                             }
@@ -202,6 +194,74 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // singleTask 热启动：分享/打开方式到达时更新待导入 Uri
         handleShareIntent(intent)
+    }
+
+    /**
+     * 应用「启动器部分屏幕全屏」与「忽略刘海」组合后的窗口显示模式：
+     *  - 全屏开=沉浸式全屏（隐藏系统栏）并延伸到刘海区域（SHORT_EDGES/ALWAYS）；
+     *  - 全屏关但忽略刘海开=系统栏保留悬浮，内容仍延伸到刘海/系统栏区域（edge-to-edge）；
+     *  - 两者都关=退出沉浸、内容避让系统栏与刘海。
+     */
+    private fun applyWindowDisplayMode(fullScreen: Boolean, ignoreNotch: Boolean) {
+        if (fullScreen) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
+            )
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        or View.SYSTEM_UI_FLAG_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                )
+            }
+            setDisplayCutoutMode(extendToCutout = true)
+        } else if (ignoreNotch) {
+            // 不隐藏系统栏，但内容延伸到刘海/系统栏后方（时间悬浮显示在画面上）
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                )
+            }
+            setDisplayCutoutMode(extendToCutout = true)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
+            }
+            setDisplayCutoutMode(extendToCutout = false)
+        }
+    }
+
+    /** 刘海显示模式：延伸=ALWAYS（API 30+ 全朝向）/SHORT_EDGES；避让=NEVER */
+    private fun setDisplayCutoutMode(extendToCutout: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val mode = if (extendToCutout) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else {
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+            }
+            val params = window.attributes
+            if (params.layoutInDisplayCutoutMode != mode) {
+                params.layoutInDisplayCutoutMode = mode
+                window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                window.attributes = params
+            }
+        }
     }
 
     /** 解析外部分享/打开进来的整合包 Uri：
@@ -409,8 +469,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        // 恢复前台时重申窗口显示模式（系统栏可能已被系统重置）
+        applyWindowDisplayMode(
+            VersePersonalization.launcherFullScreen,
+            DisplayNotch.ignoreNotch
+        )
 
-        // 当从设置页面返回时，重新检查权限状态 (FCL-style)
         if (eulaAgreed.value && !setupComplete.value) {
             val hasPerm = hasStoragePermission()
             if (hasPerm != permissionGranted.value) {
@@ -421,7 +485,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ==================== EULA 协议对话框 (FCL-style) ====================
 
 @Composable
 private fun EulaAgreementDialog(
@@ -463,10 +526,11 @@ private fun EulaAgreementDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 协议内容
+                // 协议内容（可滑动：竖屏小屏下内容可能超出容器高度）
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .verticalScroll(rememberScrollState())
                         .background(
                             VerseColors.PcBgHover,
                             RoundedCornerShape(12.dp)
@@ -528,7 +592,6 @@ private fun EulaAgreementDialog(
     }
 }
 
-// ==================== 权限请求对话框 (FCL-style) ====================
 
 @Composable
 private fun PermissionRequestDialog(
@@ -560,7 +623,7 @@ private fun PermissionRequestDialog(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = """
-Verse Explorer X 需要存储权限来：
+Verse 需要存储权限来：
 
 • 保存 Minecraft 游戏文件和存档
 • 管理模组、光影和资源包

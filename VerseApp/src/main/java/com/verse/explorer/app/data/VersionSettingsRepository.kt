@@ -8,7 +8,6 @@ import org.json.JSONObject
  * 版本级设置存取。
  *
  * 每个 Minecraft 版本可拥有独立设置（usesGlobal=false），未开启独立设置时
- * 启动链读取全局设置（SettingsRepository）。存储键与取值语义对齐 FCL 的
  * version_settings 条目，便于日后互换。
  */
 class VersionSettingsRepository(context: Context) {
@@ -40,7 +39,6 @@ class VersionSettingsRepository(context: Context) {
         prefs.edit().putString(KEY_VERSION_PREFIX + versionId, settings.toJson()).apply()
     }
 
-    /** 开启版本独立设置：以当前全局值初始化一份版本私有设置（对齐 FCL specialize） */
     fun specialize(versionId: String): VersionSettings {
         val fromGlobal = VersionSettings(
             usesGlobal = false,
@@ -54,7 +52,6 @@ class VersionSettingsRepository(context: Context) {
         return fromGlobal
     }
 
-    /** 关闭版本独立设置：回到全局设置（对齐 FCL globalize） */
     fun globalize(versionId: String) {
         deleteVersionSettings(versionId)
     }
@@ -78,8 +75,6 @@ class VersionSettingsRepository(context: Context) {
     }
 
     /**
-     * 版本设置数据模型（字段语义对齐 FCL VersionSetting）。
-     * JSON 键名与 FCL 的序列化格式一致。
      */
     data class VersionSettings(
         /** false = 该版本使用独立设置；true = 跟随全局启动设置 */

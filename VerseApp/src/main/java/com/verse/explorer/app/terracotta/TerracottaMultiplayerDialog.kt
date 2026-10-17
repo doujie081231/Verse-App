@@ -37,7 +37,6 @@ import java.io.File
 /**
  * 游戏内联机菜单
  *
- * 与 FCL 的 MultiplayerDialog 对应：按陶瓦后端状态切换
  * 等待 / 扫描 / 启动 / 房间就绪（邀请码或联机地址 + 玩家列表）/ 异常 等视图，
  * 支持邀请码实时校验、邀请码自动复制、玩家列表刷新与联机核心日志导出。
  */
@@ -690,7 +689,6 @@ class TerracottaMultiplayerDialog(private val activity: android.app.Activity) :
                 else -> {}
             }
             refreshProfiles()
-            // 与 FCL 一致：房主视图展示时自动复制邀请码
             if (isHost && state is TerracottaState.HostOK) {
                 copyToClipboard("invite_code", state.code, TerracottaTexts.HOST_OK_CODE_COPY_TOAST)
             }
@@ -758,7 +756,6 @@ class TerracottaMultiplayerDialog(private val activity: android.app.Activity) :
         }
     }
 
-    /** 玩家列表适配器，与 FCL 的 MultiPlayerProfileAdapter/item_terracotta_profile 对应 */
     private inner class ProfileAdapter : BaseAdapter() {
         private var profiles: List<TerracottaProfile> = emptyList()
 

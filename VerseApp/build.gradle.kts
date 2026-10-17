@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 200
-        versionName = "2.4.64"
+        versionCode = 2
+        versionName = "0.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -142,6 +142,15 @@ kotlin {
     }
 }
 
+// MaterialKolor 传递引入的 JB Compose Multiplatform material3 会抬高 androidx material3 的解析版本，
+// 强制回 Compose BOM 2025.12.00 锚定的 1.4.0，避免既有 UI 代码（AlertDialog 等 API）漂移
+configurations.all {
+    resolutionStrategy {
+        force("androidx.compose.material3:material3:1.4.0")
+        force("androidx.compose.material3:material3-android:1.4.0")
+    }
+}
+
 tasks.named("preBuild") {
     dependsOn(":VerseLauncher:copyBootstrapJarToAssets")
 }
@@ -174,6 +183,17 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // 背景视频播放（ExoPlayer + PlayerView：裁剪铺满、循环、音量调节）
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
+    // 背景图片支持 GIF 动图（Coil GIF 解码器）
+    implementation("io.coil-kt:coil-gif:2.7.0")
+    // 自定义取色主题：按种子颜色与配色风格生成完整 Material 配色方案
+    // （4.1.1 与本工程 AGP 8.13.2 / Compose BOM 2025.12.00 兼容；5.x 需 AGP 9.1+）
+    implementation("com.materialkolor:material-kolor:4.1.1")
+    // 页面切换动效库（fornewid/material-motion-compose，Apache 2.0）：
+    // Material 动效规范的 Compose 实现（FadeThrough/SharedAxis），用于导航过渡
+    implementation("io.github.fornewid:material-motion-compose-core:1.2.1")
     // SVG 渲染支持(用于矢量图标):coil-svg 与 androidsvg 均在运行时解析,无需预转换资源
     implementation("io.coil-kt:coil-svg:2.7.0")
     implementation("com.caverock:androidsvg-aar:1.4")

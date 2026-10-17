@@ -73,8 +73,6 @@
             </intent-filter>
         </activity>
 
-        <!-- 「Verse 导入整合包」入口：文件管理器点击 zip/mrpack → 打开方式 → Verse 导入
-             （对齐 FCL 的导入 activity-alias：独立标签、复用 MainActivity 处理 ACTION_VIEW） -->
         <activity-alias
             android:name=".ModpackImportAlias"
             android:label="Verse 导入整合包"
@@ -113,7 +111,6 @@
             android:launchMode="singleTop"
             android:hardwareAccelerated="true" />
 
-        <!-- 崩溃分析页（ZL2 风格）：游戏崩溃与应用自身崩溃共用，任务独立可跨进程恢复 -->
         <activity
             android:name=".ui.game.CrashReportActivity"
             android:exported="false"
@@ -143,13 +140,19 @@
             </intent-filter>
         </service>
 
-        <!-- FCL 原版安装器进程（Forge/OptiFine processors 需要全新 JVM 进程，对应 FCL 的 ProcessService(:jvm)） -->
         <service
             android:name="com.tungsten.fclcore.download.ProcessService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:process=":jvm" />
+
+        <!-- 下载中心前台服务：仅承载进度通知与进程优先级，任务全部结束后自停 -->
+        <service
+            android:name=".download.DownloadService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

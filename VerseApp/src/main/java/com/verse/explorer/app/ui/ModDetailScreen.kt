@@ -39,14 +39,19 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.verse.explorer.app.ui.components.RoseLoader
+import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.FavoritesRepository
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.download.DownloadCenter
+import com.verse.explorer.app.download.DownloadCenterState
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.ModpackInstallDialog
 import com.verse.explorer.app.ui.components.ModpackInstallPhase
 import com.verse.explorer.app.ui.components.ModpackInstallUiState
 import com.verse.explorer.app.ui.components.NoInstalledVersionsDialog
 import com.verse.explorer.app.ui.components.applyTaskEvent
+import com.verse.explorer.app.ui.components.withFixedStageRows
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.VerseVersionItem
@@ -60,9 +65,12 @@ import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceVersion
+import com.verse.explorer.core.util.FileUtils
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
 import com.verse.explorer.core.version.VersionType
+import com.tungsten.fclcore.game.DefaultGameRepository
+import com.tungsten.fclcore.task.Schedulers
 import io.noties.markwon.Markwon
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,6 +79,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,37 +103,61 @@ fun ModDetailScreen(
     var selectedVersion by remember { mutableStateOf<ResourceVersion?>(null) }
     var retryCount by remember { mutableStateOf(0) }
 
-    // PC 详情页 tabs：描述 / 版本 / 画廊
+    // 前置依赖：从版本列表聚合（描述 tab 内嵌展示），名称/图标按依赖自身来源解析
+    val deps = remember(versions) {
+        versions.flatMap { it.dependencies }
+            .distinctBy { it.projectId }
+            .filter { it.projectId.isNotBlank() }
+    }
+    var depDetails by remember { mutableStateOf<Map<String, ResourceDetail>>(emptyMap()) }
+    LaunchedEffect(deps) {
+        val map = mutableMapOf<String, ResourceDetail>()
+        deps.forEach { d ->
+            if (d.projectId !in map) {
+                runCatching { repository.getDetail(d.projectId, d.source) }
+                    .onSuccess { map[d.projectId] = it }
+            }
+        }
+        depDetails = map
+    }
+
     var detailTab by remember { mutableStateOf("description") }
-    // 版本筛选标签（对齐 PC md-vtab："" = 全部，否则分组名）
     var versionFilter by remember { mutableStateOf("") }
     var versionTabMode by remember { mutableStateOf("exact") }
     var versionTabKeys by remember { mutableStateOf<List<String>>(emptyList()) }
 
-    // 下载状态
-    var downloading by remember { mutableStateOf(false) }
-    var downloadProgress by remember { mutableStateOf(0f) }
+    // 下载状态：下载任务全部提交到下载中心（应用级协程，退出页面不中断），
+    // 本页只订阅队列展示进度
+    val centerItems by DownloadCenter.items.collectAsState()
     var downloadText by remember { mutableStateOf("") }
     var downloadDone by remember { mutableStateOf(false) }
     var downloadError by remember { mutableStateOf<String?>(null) }
 
-    // 版本选择（与 ZL2 的 DownloadSingleOperation.SelectVersion 对应）
+    // 本页提交的下载 key 前缀（整合包 zip / 单资源 / 前置模组）
+    val modpackKeyPrefix = "modpack:$projectId:"
+    val resourceKeyPrefix = "resource:$projectType:"
+    val depKeyPrefix = "dep:$projectId:"
+    val hasRunningDownload = centerItems.any { item ->
+        (item.key.startsWith(modpackKeyPrefix) || item.key.startsWith(resourceKeyPrefix) || item.key.startsWith(depKeyPrefix)) &&
+            item.state == DownloadCenterState.RUNNING
+    }
+    // 安装阶段不走下载中心（本地任务链），单独标记
+    var installInProgress by remember { mutableStateOf(false) }
+    val downloading = hasRunningDownload || installInProgress
+
     var showVersionPicker by remember { mutableStateOf(false) }
     var showNoVersionsWarning by remember { mutableStateOf(false) }
     var installedVersions by remember { mutableStateOf<List<MinecraftVersion>>(emptyList()) }
 
-    /** 选择器目标：main = 安装当前资源，deps = 一键安装前置模组（对应 ZL2 的依赖安装流程） */
     var pickerMode by remember { mutableStateOf("main") }
 
     // ===== 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流） =====
-    // FCL 任务事件经 Channel（线程安全）汇总到主线程，归并成阶段行
     val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
     var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
     var modpackJob by remember { mutableStateOf<Job?>(null) }
     /** 本次已下载的整合包 zip（安装完成/失败/取消后删除，避免介质残留） */
     var modpackZip by remember { mutableStateOf<File?>(null) }
 
-    // 整合包安装前的版本命名弹窗（复刻 FCL RemoteModpackPage 命名逻辑）
     var showModpackNamingDialog by remember { mutableStateOf(false) }
     var modpackConfirmName by remember { mutableStateOf<String?>(null) }
 
@@ -134,10 +167,30 @@ fun ModDetailScreen(
         }
     }
 
+    // 整合包文件下载进度（订阅下载中心条目，任务在应用级协程中执行）
+    LaunchedEffect(centerItems, selectedVersion) {
+        val item = centerItems.firstOrNull { it.key.startsWith(modpackKeyPrefix) } ?: return@LaunchedEffect
+        if (modpackState.visible && modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE) {
+            val text = if (item.progress >= 0) "${(item.progress * 100).toInt()}%" else ""
+            modpackState = modpackState.copy(
+                fileProgress = item.progress.coerceAtLeast(0f),
+                downloadSpeed = item.speed,
+                fileText = if (item.speed > 0) "$text · ${formatSpeed(item.speed)}" else text
+            )
+        }
+    }
+
+    // "待安装"整合包自动续接安装（沿用下载完成即安装的交互；页面重新进入也续接）
+    LaunchedEffect(centerItems) {
+        val ready = centerItems.firstOrNull {
+            it.key.startsWith(modpackKeyPrefix) && it.state == DownloadCenterState.WAIT_INSTALL
+        }
+        if (ready != null) DownloadCenter.install(ready)
+    }
+
     // 画廊大图
     var galleryView by remember { mutableStateOf<String?>(null) }
 
-    // 对齐 PC renderMdVersionTabs：exact 精确版本 / major 大版本分组，超过 9 个标签降级 major
     fun computeVersionTabs(vers: List<ResourceVersion>) {
         val exactMap = linkedMapOf<String, Int>()
         val majorMap = linkedMapOf<String, Int>()
@@ -152,7 +205,7 @@ fun ModDetailScreen(
         val mode = if (exactMap.size > 9) "major" else "exact"
         val map = if (mode == "exact") exactMap else majorMap
         val keys = map.keys.sortedWith(versionKeyComparator())
-        // 快照版放最前（对齐 sortFn：'快照版' 排最前）
+        // 快照版放最前
         val sorted = ArrayList<String>()
         if (hasSnapshot) sorted.add("快照版")
         sorted.addAll(keys)
@@ -170,9 +223,8 @@ fun ModDetailScreen(
                 versions = vers
                 versionsError = null
                 selectedVersion = vers.firstOrNull()
-                // 对齐 PC renderMdVersionTabs：按 gameVersions 分组生成筛选标签（exact 超 9 个降级 major）
                 computeVersionTabs(vers)
-                VerseLogger.info("Versions loaded: ${vers.size}, tabs: ${versionTabKeys.size}", "ModDetail")
+                VerseLogger.info("Versions loaded: ${vers.size}, tabs: ${versionTabKeys.size}, depsTotal: ${vers.sumOf { it.dependencies.size }}, requiredDeps: ${vers.flatMap { it.dependencies }.count { it.type == "required" && it.projectId.isNotBlank() }}", "ModDetail")
             } catch (e: Exception) {
                 // 版本列表失败要给用户可见反馈，不能静默显示"该筛选下暂无版本"
                 versionsError = "版本列表加载失败: ${e.message}"
@@ -187,7 +239,6 @@ fun ModDetailScreen(
         }
     }
 
-    // 对齐 PC renderMdVersionTabs 后的 LaunchedEffect
     LaunchedEffect(projectId, source, retryCount) {
         if (projectId.isBlank()) {
             error = "项目ID为空"
@@ -207,74 +258,46 @@ fun ModDetailScreen(
         scope.launch { fetchData() }
     }
 
-    /**
-     * 整合包下载 + 安装（像下载版本一样弹出下载弹窗）：
-     * 1. 下载 .mrpack 文件（弹窗第一阶段"下载整合包文件"）
-     * 2. 走 FCL 原版整合包安装链路（ModrinthInstallTask = 安装游戏本体 + 加载器
-     *    + 解压 overrides + 依赖模组），每个阶段的下载任务以 FCL 任务事件形式
-     *    逐阶段展示在弹窗中；下载源由 FCL 引擎（BMCLAPI）负责，不自研。
-     *
-     * @param name 版本名（命名弹窗确认值；为 null 时默认取整合包标题，
-     *            与 FCL RemoteModpackPage 一致）
-     */
-    fun startModpackInstall(ver: ResourceVersion, name: String?) {
-        if (downloading) return
-        downloading = true
-        downloadDone = false
-        downloadError = null
-        downloadProgress = 0f
-        downloadText = "准备下载整合包..."
-        modpackState = ModpackInstallUiState(
-            visible = true,
-            title = project?.title ?: ver.versionNumber,
-            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-            phase = ModpackInstallPhase.DOWNLOAD_FILE
-        )
-        modpackJob = scope.launch {
-            val fileResult = repository.downloadVersion(
-                projectType = "modpack",
-                version = ver,
-                onProgress = { downloaded, total, speed ->
-                    val p = if (total > 0) downloaded.toFloat() / total else 0f
-                    val text = buildString {
-                        append("${formatFileSize(downloaded)}")
-                        if (total > 0) append(" / ${formatFileSize(total)}")
-                        if (speed > 0) append("  · ${formatSpeed(speed)}")
-                    }
-                    modpackState = modpackState.copy(fileProgress = p, fileText = text)
-                }
-            )
-            fileResult.onSuccess { file ->
-                modpackZip = file
-                modpackState = modpackState.copy(phase = ModpackInstallPhase.INSTALLING)
-                val gameDir = GameConfig.getGameDir(context.applicationContext)
-                val result = ModpackInstaller.installModpack(
-                    gameDir = gameDir,
-                    zipFile = file,
-                    // 与 FCL RemoteModpackPage 一致：默认取 manifest.name（标题），
-                    // 命名弹窗确认后按用户输入
-                    name = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
-                ) { ev ->
-                    modpackChannel.trySend(ev)
-                }
+    fun runModpackInstall(appContext: android.content.Context, file: File?, name: String?, ver: ResourceVersion?) {
+        if (file == null || !file.exists()) return
+        Schedulers.androidUIThread().execute {
+            modpackZip = file
+            installInProgress = true
+            modpackState = ModpackInstallUiState(
+                visible = true,
+                title = project?.title ?: ver?.versionNumber ?: file.nameWithoutExtension,
+                iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
+                phase = ModpackInstallPhase.DOWNLOAD_FILE
+            ).withFixedStageRows()
+        }
+        VerseApplication.instance.appScope.launch {
+            val gameDir = GameConfig.getGameDir(appContext)
+            val result = ModpackInstaller.installModpack(
+                gameDir = gameDir,
+                zipFile = file,
+                // 与版本命名弹窗一致：默认取 manifest.name（标题），命名后按用户输入
+                name = name
+            ) { ev ->
+                modpackChannel.trySend(ev)
+            }
+            Schedulers.androidUIThread().execute {
                 result.fold(
                     onSuccess = {
                         modpackZip?.delete()
                         modpackZip = null
-                        downloading = false
+                        installInProgress = false
                         downloadDone = true
                         downloadText = "整合包安装完成"
                         modpackState = modpackState.copy(phase = ModpackInstallPhase.DONE)
                     },
                     onFailure = { e ->
+                        modpackZip?.delete()
+                        modpackZip = null
                         if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
-                            modpackZip?.delete()
-                            modpackZip = null
+                            installInProgress = false
                             modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
                         } else {
-                            modpackZip?.delete()
-                            modpackZip = null
-                            downloading = false
+                            installInProgress = false
                             downloadError = e.message ?: "整合包安装失败"
                             downloadText = downloadError ?: "整合包安装失败"
                             modpackState = modpackState.copy(
@@ -284,45 +307,120 @@ fun ModDetailScreen(
                         }
                     }
                 )
-            }.onFailure { e ->
-                val cancelled = e is kotlinx.coroutines.CancellationException || e is ModpackInstallCancelledException
-                if (cancelled) {
-                    modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
-                } else {
-                    downloading = false
-                    downloadError = e.message ?: "整合包下载失败"
-                    downloadText = downloadError ?: "整合包下载失败"
-                    modpackState = modpackState.copy(
-                        phase = ModpackInstallPhase.FAILED,
-                        error = e.message ?: "整合包下载失败"
-                    )
-                }
             }
         }
     }
 
-    /** 取消整合包下载/安装 */
+    /**
+     * 整合包下载 + 安装（像下载版本一样弹出下载弹窗）：
+     * 1. 整合包 .mrpack 文件提交到下载中心下载（应用级协程，退出页面不中断），
+     *    弹窗第一阶段"下载整合包文件"订阅队列条目进度；
+     * 2. 下载完成后走安装链路（见 runModpackInstall），每个阶段以任务事件形式
+     *    逐阶段展示在弹窗中；下载源由引擎（BMCLAPI）负责，不自研。
+     *
+     * @param name 版本名（命名弹窗确认值；为 null 时默认取整合包标题）
+     */
+    fun startModpackInstall(ver: ResourceVersion, name: String?) {
+        if (downloading) return
+        val itemKey = "$modpackKeyPrefix${ver.id}"
+        // 同一整合包已在队列中：待安装则续接安装，下载中则恢复弹窗进度
+        when (DownloadCenter.findByKey(itemKey)?.state) {
+            DownloadCenterState.WAIT_INSTALL -> {
+                DownloadCenter.findByKey(itemKey)?.let { DownloadCenter.install(it) }
+                return
+            }
+            DownloadCenterState.RUNNING -> {
+                modpackState = ModpackInstallUiState(
+                    visible = true,
+                    title = project?.title ?: ver.versionNumber,
+                    iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
+                    phase = ModpackInstallPhase.DOWNLOAD_FILE
+                )
+                return
+            }
+            else -> {}
+        }
+        downloadDone = false
+        downloadError = null
+        downloadText = "准备下载整合包..."
+        modpackState = ModpackInstallUiState(
+            visible = true,
+            title = project?.title ?: ver.versionNumber,
+            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
+            phase = ModpackInstallPhase.DOWNLOAD_FILE
+        )
+        val appContext = context.applicationContext
+        val runName = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
+        val zipRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
+        DownloadCenter.submit(
+            key = itemKey,
+            title = project?.title ?: ver.versionNumber,
+            // 待安装动作：下载完成后（本页自动续接或重新进入本页时）执行安装
+            installAction = Runnable { runModpackInstall(appContext, zipRef.get(), runName, ver) },
+            cleanupAction = Runnable { runCatching { zipRef.get()?.delete() } },
+            onComplete = { success, error ->
+                Schedulers.androidUIThread().execute {
+                    if (success) {
+                        downloadText = "整合包下载完成"
+                    } else {
+                        modpackZip = null
+                        downloadError = error ?: "整合包下载失败"
+                        downloadText = downloadError ?: "整合包下载失败"
+                        modpackState = modpackState.copy(
+                            phase = if (error == "已取消") ModpackInstallPhase.CANCELLED else ModpackInstallPhase.FAILED,
+                            error = error ?: "整合包下载失败"
+                        )
+                    }
+                }
+            },
+            task = { onProgress, isCancelled ->
+                val result = repository.downloadVersion("modpack", ver, isCancelled, onProgress)
+                result.getOrNull()?.let { zipRef.set(it) }
+                result.isSuccess
+            }
+        )
+    }
+
+    /** 取消整合包下载/安装：下载中取消队列任务；安装中取消安装器 */
     fun cancelModpackInstall() {
-        ModpackInstaller.cancel()
-        modpackJob?.cancel()
-        modpackJob = null
-        modpackZip?.delete()
-        modpackZip = null
-        val ph = modpackState.phase
-        if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
-            modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
+        val item = centerItems.firstOrNull { it.key.startsWith(modpackKeyPrefix) }
+        if (item != null && item.state == DownloadCenterState.RUNNING) {
+            DownloadCenter.cancel(item)
+        } else {
+            ModpackInstaller.cancel()
+            modpackJob?.cancel()
+            modpackJob = null
+            modpackZip?.delete()
+            modpackZip = null
+            val ph = modpackState.phase
+            if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
+                modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
+                installInProgress = false
+            }
         }
     }
 
-    /** 重试整合包下载/安装 */
+    /** 重试整合包下载/安装：先清理上次中断的半成品版本目录，真已装版本则重新命名 */
     fun retryModpackInstall() {
         val ver = selectedVersion ?: return
-        startModpackInstall(ver, modpackConfirmName ?: project?.title?.trim()?.takeIf { it.isNotBlank() })
+        val name = modpackConfirmName ?: project?.title?.trim()?.takeIf { it.isNotBlank() } ?: ver.versionNumber
+        val gameDir = GameConfig.getGameDir(context.applicationContext)
+        if (VersionManager(gameDir).versionIdConflicts(name)) {
+            val repo = DefaultGameRepository(gameDir)
+            runCatching { repo.refreshVersions() }
+            if (repo.isModpack(name)) {
+                // 真已装（安装完整落盘）：换名重装，重新走命名弹窗
+                modpackConfirmName = null
+                showModpackNamingDialog = true
+                return
+            }
+            // 半成品版本目录（modpack.json 缺失）：清理后用旧名重试
+            runCatching { repo.removeVersionFromDisk(name) }
+        }
+        startModpackInstall(ver, name)
     }
 
     /**
-     * 安装入口（与 ZL2 的 DownloadSingleOperation 流程对应）：
-     * 整合包先弹版本命名弹窗（复刻 FCL RemoteModpackPage）再下载；
      * 模组/材质包/光影包等先弹出版本选择卡片，
      * 确认后安装到所选版本的对应文件夹（隔离安装，不写全局目录）。
      */
@@ -330,7 +428,6 @@ fun ModDetailScreen(
         if (downloading) return
         if (selectedVersion == null) return
         if (projectType == "modpack") {
-            // 安装前先弹版本命名弹窗（复刻 FCL RemoteModpackPage），确认后再下载
             showModpackNamingDialog = true
             return
         }
@@ -348,7 +445,6 @@ fun ModDetailScreen(
     }
 
     /**
-     * 一键安装前置模组（与 ZL2 的依赖处理对应）：
      * 先弹出版本选择卡片，再把全部必需前置安装到所选版本的 mods 文件夹。
      */
     fun beginInstallDeps() {
@@ -373,79 +469,170 @@ fun ModDetailScreen(
         }
     }
 
-    /** 将全部必需前置模组安装到选中的版本（隔离安装到各版本的 mods 文件夹） */
+    /** 判断目标版本的 folder 目录下是否已有同名（且同 SHA1，若已知）文件 */
+    fun isFileInstalledInTargets(
+        versionsDir: File,
+        targetVersions: List<MinecraftVersion>,
+        folder: String,
+        fileName: String,
+        sha1: String
+    ): Boolean = targetVersions.any { tv ->
+        val f = File(File(versionsDir, tv.id), "$folder/$fileName")
+        if (!f.isFile || f.length() == 0L) false
+        else if (sha1.isBlank()) true
+        else runCatching { FileUtils.calculateSha1(f).equals(sha1, ignoreCase = true) }.getOrDefault(false)
+    }
+
+    /**
+     * 将全部必需前置模组安装到选中的版本（隔离安装到各版本的 mods 文件夹）：
+     * 依赖逐项解析后去重（项目 id + 本地文件名 + 本地已装文件 SHA1），再逐项
+     * 提交到下载中心并发下载（各自独立进度），不再串行阻塞。
+     */
     fun startDepsForVersions(targetVersions: List<MinecraftVersion>) {
         if (downloading || targetVersions.isEmpty()) return
-        val deps = versions.flatMap { it.dependencies }
-            .distinctBy { it.projectId }
-            .filter { it.projectId.isNotBlank() && it.type == "required" }
-        downloading = true
-        downloadDone = false
-        downloadError = null
-        downloadProgress = 0f
-        downloadText = "准备安装前置模组..."
         val versionIds = targetVersions.map { it.id }
+        val appContext = context.applicationContext
         scope.launch {
-            var ok = 0
-            var fail = 0
-            deps.forEach { d ->
-                runCatching {
-                    val ver = repository.getVersions(d.projectId, "modrinth").firstOrNull()
-                    if (ver != null) {
-                        repository.downloadVersionForVersions("mod", ver, versionIds).getOrThrow()
-                        ok++
+            val deps = versions.flatMap { it.dependencies }
+                .distinctBy { it.projectId }
+                .filter { it.projectId.isNotBlank() && it.type == "required" }
+            if (deps.isEmpty()) {
+                Toast.makeText(context, "没有需要安装的前置模组", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            // 解析各依赖的最新版本文件（按依赖自身来源解析），并做去重/已装跳过
+            // gameVersions 与宿主版本有交集才兼容；loaders 能精确匹配的候选优先
+            val rootVersion = selectedVersion
+            fun pickCompatible(list: List<ResourceVersion>): ResourceVersion? {
+                if (list.isEmpty()) return null
+                val rootGV = rootVersion?.gameVersions.orEmpty()
+                if (rootGV.isEmpty()) return list.firstOrNull()
+                val intersected = list.filter { v -> v.gameVersions.any { it in rootGV } }
+                if (intersected.isEmpty()) return list.firstOrNull()
+                val rootLoaders = rootVersion?.loaders.orEmpty()
+                if (rootLoaders.isEmpty()) return intersected.firstOrNull()
+                return intersected.firstOrNull { v -> v.loaders.any { it in rootLoaders } } ?: intersected.firstOrNull()
+            }
+            val planned = mutableListOf<Pair<String, ResourceVersion>>() // (队列 key, 版本)
+            val seenFileKeys = mutableSetOf<String>()
+            var skippedInstalled = 0
+            var resolveFailed = 0
+            val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(appContext))
+            for (d in deps) {
+                val ver = runCatching { pickCompatible(repository.getVersions(d.projectId, d.source)) }.getOrNull()
+                val primary = ver?.primaryFile ?: ver?.files?.firstOrNull()
+                if (ver == null || primary == null || primary.url.isBlank()) {
+                    resolveFailed++
+                    continue
+                }
+                val safeName = (primary.filename.ifBlank { "${ver.id}.jar" })
+                    .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
+                // 批次内去重：同一文件（名+SHA1）只入队一次
+                val fileKey = "$safeName:${primary.sha1}"
+                if (!seenFileKeys.add(fileKey)) continue
+                // 本地已装去重：目标版本的 mods 中已有同名同 SHA1 文件时跳过
+                if (isFileInstalledInTargets(versionsDir, targetVersions, "mods", safeName, primary.sha1)) {
+                    skippedInstalled++
+                    continue
+                }
+                planned.add("dep:$projectId:${d.projectId}" to ver)
+            }
+
+            val queued = AtomicInteger(0)
+            val ok = AtomicInteger(0)
+            val fail = AtomicInteger(0)
+            if (planned.isEmpty()) {
+                val msg = buildString {
+                    if (skippedInstalled > 0) append("前置模组均已安装")
+                    else if (resolveFailed > 0) append("前置模组解析失败")
+                    else append("没有需要安装的前置模组")
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            downloadDone = false
+            downloadError = null
+            downloadText = "准备安装前置模组..."
+            planned.forEach { (key, ver) ->
+                if (DownloadCenter.findByKey(key) != null) {
+                    // 已在队列中，视为完成计数，避免汇总回调永不触发
+                    ok.incrementAndGet()
+                    return@forEach
+                }
+                val primary = ver.primaryFile ?: ver.files.firstOrNull()
+                DownloadCenter.submit(
+                    key = key,
+                    title = primary?.filename ?: ver.versionNumber,
+                    onComplete = { success, _ ->
+                        Schedulers.androidUIThread().execute {
+                            if (success) ok.incrementAndGet() else fail.incrementAndGet()
+                            if (ok.get() + fail.get() >= queued.get()) {
+                                if (fail.get() == 0) {
+                                    downloadDone = true
+                                    downloadText = "前置模组已安装到 ${versionIds.size} 个版本"
+                                } else {
+                                    downloadError = "完成:成功 ${ok.get()} / 失败 ${fail.get()}"
+                                    downloadText = downloadError ?: "下载失败"
+                                }
+                                Toast.makeText(
+                                    appContext,
+                                    if (fail.get() == 0) "前置模组安装完成 (${ok.get()})"
+                                    else "完成:成功 ${ok.get()} / 失败 ${fail.get()}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
+                    task = { onProgress, isCancelled ->
+                        repository.downloadVersionForVersions("mod", ver, versionIds, isCancelled, onProgress).isSuccess
                     }
-                }.onFailure { fail++ }
+                )
+                queued.incrementAndGet()
             }
-            downloading = false
-            if (fail == 0) {
-                downloadDone = true
-                downloadText = "前置模组已安装到 ${versionIds.size} 个版本"
-            } else {
-                downloadError = "完成:成功 $ok / 失败 $fail"
-                downloadText = downloadError ?: "下载失败"
+            if (skippedInstalled > 0) {
+                Toast.makeText(appContext, "已跳过 $skippedInstalled 个已安装的前置模组", Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(
-                context,
-                if (fail == 0) "前置模组安装完成 ($ok)" else "完成:成功 $ok / 失败 $fail",
-                Toast.LENGTH_SHORT
-            ).show()
+            if (resolveFailed > 0) {
+                Toast.makeText(appContext, "$resolveFailed 个前置模组解析失败", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    /** 安装到选中的多个版本（与 ZL2 的 downloadSingleForVersions 对应） */
+    /** 安装到选中的多个版本：提交到下载中心，页面退出不中断 */
     fun startDownloadForVersions(targetVersions: List<MinecraftVersion>) {
         val ver = selectedVersion ?: return
-        if (downloading || targetVersions.isEmpty()) return
-        downloading = true
+        if (targetVersions.isEmpty()) return
+        val itemKey = "$resourceKeyPrefix${ver.id}"
+        if (DownloadCenter.findByKey(itemKey) != null) {
+            Toast.makeText(context, "该资源已在下载队列中", Toast.LENGTH_SHORT).show()
+            return
+        }
         downloadDone = false
         downloadError = null
-        downloadProgress = 0f
         downloadText = "准备下载..."
-        scope.launch {
-            val result = repository.downloadVersionForVersions(
-                projectType = projectType,
-                version = ver,
-                targetVersionIds = targetVersions.map { it.id },
-                onProgress = { downloaded, total, speed ->
-                    val p = if (total > 0) downloaded.toFloat() / total else 0f
-                    downloadProgress = p
-                    downloadText = buildString {
-                        append("${formatFileSize(downloaded)}")
-                        if (total > 0) append(" / ${formatFileSize(total)}")
-                        if (speed > 0) append("  · ${formatSpeed(speed)}")
+        val appContext = context.applicationContext
+        val primary = ver.primaryFile ?: ver.files.firstOrNull()
+        DownloadCenter.submit(
+            key = itemKey,
+            title = primary?.filename?.takeIf { it.isNotBlank() } ?: (project?.title ?: ver.versionNumber),
+            onComplete = { success, error ->
+                Schedulers.androidUIThread().execute {
+                    if (success) {
+                        downloadDone = true
+                        downloadText = "已安装到 ${targetVersions.size} 个版本"
+                        Toast.makeText(appContext, "已安装到 ${targetVersions.size} 个版本", Toast.LENGTH_SHORT).show()
+                    } else if (error != "已取消") {
+                        downloadError = error ?: "下载失败"
+                        downloadText = downloadError ?: "下载失败"
+                        Toast.makeText(appContext, downloadError ?: "下载失败", Toast.LENGTH_SHORT).show()
                     }
                 }
-            )
-            downloading = false
-            result.onSuccess { files ->
-                downloadDone = true
-                downloadText = "已安装到 ${files.size} 个版本"
-            }.onFailure { e ->
-                downloadError = e.message ?: "下载失败"
-                downloadText = downloadError ?: "下载失败"
+            },
+            task = { onProgress, isCancelled ->
+                repository.downloadVersionForVersions(projectType, ver, targetVersions.map { it.id }, isCancelled, onProgress).isSuccess
             }
-        }
+        )
+        Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
     }
 
     // 按当前筛选标签过滤版本
@@ -477,7 +664,11 @@ fun ModDetailScreen(
         when {
             isLoading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = VerseColors.PcAccent, strokeWidth = 2.dp, modifier = Modifier.size(32.dp))
+                    RoseLoader(
+                        modifier = Modifier.size(32.dp),
+                        size = 32.dp,
+                        color = VerseColors.PcAccent
+                    )
                 }
             }
             error != null -> {
@@ -494,7 +685,6 @@ fun ModDetailScreen(
             project != null -> {
                 val proj = project!!
                 Column(modifier = Modifier.fillMaxSize()) {
-                    // ===== 顶栏（对齐 PC .moddetail-page-header，移动端紧凑：图标 36dp、标题单行、副文本一行）=====
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -505,10 +695,10 @@ fun ModDetailScreen(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = VerseColors.PcTextPrimary, modifier = Modifier.size(20.dp))
                         }
-                        // 图标
+                        // 图标（未加载/无图标时显示灰色底图）
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = VerseColors.PcBgCard,
+                            color = VerseColors.PcBgActive,
                             modifier = Modifier.size(36.dp)
                         ) {
                             if (!proj.iconUrl.isNullOrBlank()) {
@@ -518,15 +708,6 @@ fun ModDetailScreen(
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
-                            } else {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text(
-                                        proj.title.firstOrNull()?.uppercase() ?: "?",
-                                        color = VerseColors.PcAccent,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
-                                    )
-                                }
                             }
                         }
                         Spacer(Modifier.width(8.dp))
@@ -539,10 +720,10 @@ fun ModDetailScreen(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            // 描述 + 统计行合并为一行（移动端不占额外行高）
+                            // 描述 + 统计行合并为一行（移动端不占额外行高；描述截短避免挤占统计区）
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    proj.description.take(56) + if (proj.description.length > 56) "…" else "",
+                                    proj.description.take(24) + if (proj.description.length > 24) "…" else "",
                                     color = VerseColors.PcTextSecondary,
                                     fontSize = 11.sp,
                                     maxLines = 1,
@@ -571,7 +752,6 @@ fun ModDetailScreen(
                         }
                     }
 
-                    // ===== 操作栏（对齐 PC .md-action-bar：安装 / 收藏 / 打开源 / 复制名称）=====
                     // 版本 tab 下隐藏：版本卡片自带下载按钮，操作栏属描述类操作，为版本列表让出纵向空间
                     var isFav by remember { mutableStateOf(FavoritesRepository.isFavorite(context, proj.id, source)) }
                     if (detailTab != "versions") {
@@ -626,168 +806,6 @@ fun ModDetailScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    // ===== 前置依赖（对齐 PC .md-deps-section；与 versepc2 一致：仅 mod 类型展示，
-                    // 整合包/材质包/光影等资源类型隐藏，不再渲染且不拉取依赖详情）=====
-                    // 版本 tab 下隐藏：依赖属描述类信息，为版本列表让出纵向空间
-                    if (projectType == "mod" && detailTab != "versions") {
-                    val deps = remember(versions) {
-                        versions.flatMap { it.dependencies }
-                            .distinctBy { it.projectId }
-                            .filter { it.projectId.isNotBlank() }
-                    }
-                    var depDetails by remember {
-                        mutableStateOf<Map<String, ResourceDetail>>(emptyMap())
-                    }
-                    LaunchedEffect(deps) {
-                        val map = mutableMapOf<String, ResourceDetail>()
-                        deps.forEach { d ->
-                            if (d.projectId !in map) {
-                                runCatching { repository.getDetail(d.projectId, "modrinth") }
-                                    .onSuccess { map[d.projectId] = it }
-                            }
-                        }
-                        depDetails = map
-                    }
-                    if (deps.isNotEmpty()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = VerseColors.PcBgCard,
-                            border = BorderStroke(1.dp, VerseColors.PcBorder),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)).background(VerseColors.PcYellow.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Filled.Warning, null, Modifier.size(13.dp), VerseColors.PcYellow)
-                                    }
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("前置模组", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextPrimary)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("${deps.size}", fontSize = 12.sp, color = VerseColors.PcTextMuted)
-                                    Spacer(Modifier.weight(1f))
-                                    PcButton(
-                                        text = "一键下载",
-                                        onClick = { beginInstallDeps() },
-                                        variant = PcButtonVariant.GHOST,
-                                        icon = Icons.Filled.Download
-                                    )
-                                }
-                                Spacer(Modifier.height(6.dp))
-                                // 前置模组卡片（与 ZL2 的 AssetsVersionDependencyItem 对应：图标 + 标题 + 简介）
-                                deps.forEach { dep ->
-                                    val info = depDetails[dep.projectId]
-                                    val title = info?.title?.ifEmpty { null } ?: dep.projectId
-                                    val label = when (dep.type) {
-                                        "required" -> "必需"
-                                        "optional" -> "可选"
-                                        "incompatible" -> "不兼容"
-                                        else -> dep.type
-                                    }
-                                    val labelColor = when (dep.type) {
-                                        "required" -> VerseColors.PcGreen
-                                        "optional" -> VerseColors.PcOrange
-                                        "incompatible" -> VerseColors.PcRed
-                                        else -> VerseColors.PcTextMuted
-                                    }
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = VerseColors.PcBgTertiary,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 4.dp)
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                try {
-                                                    navController.navigate("mod_detail/${dep.projectId}?source=modrinth")
-                                                } catch (_: Exception) {}
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // 图标（无图标时用首字母占位，与详情页头部一致）
-                                            if (!info?.iconUrl.isNullOrBlank()) {
-                                                AsyncImage(
-                                                    model = info?.iconUrl,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier
-                                                        .size(48.dp)
-                                                        .clip(RoundedCornerShape(10.dp))
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(48.dp)
-                                                        .clip(RoundedCornerShape(10.dp))
-                                                        .background(VerseColors.PcBgActive),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        title.firstOrNull()?.uppercase() ?: "?",
-                                                        color = VerseColors.PcAccent,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 16.sp
-                                                    )
-                                                }
-                                            }
-                                            Spacer(Modifier.width(10.dp))
-                                            Column(Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        title,
-                                                        fontSize = 14.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = VerseColors.PcTextPrimary,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis,
-                                                        modifier = Modifier.weight(1f, fill = false)
-                                                    )
-                                                    Spacer(Modifier.width(6.dp))
-                                                    Surface(
-                                                        shape = RoundedCornerShape(3.dp),
-                                                        color = labelColor.copy(alpha = 0.12f)
-                                                    ) {
-                                                        Text(
-                                                            label,
-                                                            fontSize = 9.sp,
-                                                            color = labelColor,
-                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                        )
-                                                    }
-                                                }
-                                                val summary = info?.description?.takeIf { it.isNotBlank() }
-                                                if (summary != null) {
-                                                    Text(
-                                                        summary,
-                                                        fontSize = 11.sp,
-                                                        color = VerseColors.PcTextMuted,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                            Spacer(Modifier.width(4.dp))
-                                            Icon(Icons.Filled.ChevronRight, null, Modifier.size(14.dp), VerseColors.PcTextMuted)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        }
-                    }
-
-                    // ===== 主体：主区 + 侧栏（对齐 PC .md-layout）=====
                     // 版本 tab 下隐藏右侧信息栏：版本列表占满全宽（右侧兼容性/分类/链接/
                     // 详情/许可证属描述类元信息，在浏览版本时是次要内容）
                     Row(modifier = Modifier.fillMaxSize()) {
@@ -797,7 +815,6 @@ fun ModDetailScreen(
                                 .then(if (detailTab == "versions") Modifier.fillMaxWidth() else Modifier.weight(1f))
                                 .fillMaxHeight()
                         ) {
-                            // 主区 tabs（对齐 PC .md-tabs）
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -812,7 +829,6 @@ fun ModDetailScreen(
 
                             when (detailTab) {
                                 "versions" -> {
-                                    // 版本筛选 tabs（对齐 PC .md-version-tabs）
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -832,6 +848,10 @@ fun ModDetailScreen(
                                     ) {
                                         items(filteredVersions, key = { it.id }) { version ->
                                             val isSelected = selectedVersion?.id == version.id
+                                            // 选中版本的下载进度来自下载中心条目（任务在应用级协程）
+                                            val centerItem = if (isSelected) {
+                                                centerItems.firstOrNull { it.key == "$resourceKeyPrefix${version.id}" }
+                                            } else null
                                             VersionsDetailCard(
                                                 version = version,
                                                 isSelected = isSelected,
@@ -840,9 +860,17 @@ fun ModDetailScreen(
                                                     if (isSelected && !downloading) beginInstall()
                                                 },
                                                 selected = isSelected && !downloading && !downloadDone,
-                                                downloading = isSelected && downloading,
-                                                downloadProgress = if (isSelected) downloadProgress else 0f,
-                                                downloadText = if (isSelected) downloadText else "",
+                                                downloading = centerItem?.state == DownloadCenterState.RUNNING,
+                                                downloadProgress = centerItem?.progress?.coerceAtLeast(0f) ?: 0f,
+                                                downloadText = centerItem?.let {
+                                                    buildString {
+                                                        if (it.progress >= 0) append("${(it.progress * 100).toInt()}%")
+                                                        if (it.speed > 0) {
+                                                            if (isNotEmpty()) append(" · ")
+                                                            append(formatSpeed(it.speed))
+                                                        }
+                                                    }
+                                                } ?: (if (isSelected) downloadText else ""),
                                                 downloadDone = isSelected && downloadDone,
                                                 downloadError = if (isSelected) downloadError else null,
                                                 onDownload = { beginInstall() },
@@ -868,7 +896,6 @@ fun ModDetailScreen(
                                     }
                                 }
                                 "gallery" -> {
-                                    // 画廊（对齐 PC .md-gallery：图片网格，点击放大）
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
@@ -903,11 +930,84 @@ fun ModDetailScreen(
                                     }
                                 }
                                 else -> {
-                                    // 描述（对齐 PC renderModDescription：body 全文；body 为空显示暂无描述）
                                     LazyColumn(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
                                     ) {
+                                        // 随页面滚动，不占用固定纵向空间
+                                        if (deps.isNotEmpty()) {
+                                            item {
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = VerseColors.PcBgCard,
+                                                    border = BorderStroke(1.dp, VerseColors.PcBorder),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    // 区块限高 + 内部滚动：依赖数量多时不把正文撑爆
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .padding(12.dp)
+                                                            .heightIn(max = 220.dp)
+                                                            .verticalScroll(rememberScrollState())
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)).background(VerseColors.PcYellow.copy(alpha = 0.15f)),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(Icons.Filled.Warning, null, Modifier.size(13.dp), VerseColors.PcYellow)
+                                                            }
+                                                            Spacer(Modifier.width(6.dp))
+                                                            Text("前置模组", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextPrimary)
+                                                            Spacer(Modifier.width(6.dp))
+                                                            Text("${deps.size}", fontSize = 12.sp, color = VerseColors.PcTextMuted)
+                                                            Spacer(Modifier.weight(1f))
+                                                            PcButton(
+                                                                text = "一键下载",
+                                                                onClick = { beginInstallDeps() },
+                                                                variant = PcButtonVariant.GHOST,
+                                                                icon = Icons.Filled.Download
+                                                            )
+                                                        }
+                                                        Spacer(Modifier.height(6.dp))
+                                                        // 前置模组行：与资源列表行同密度（紧凑单行），不展示描述
+                                                        deps.forEach { dep ->
+                                                            val info = depDetails[dep.projectId]
+                                                            DependencyRow(
+                                                                title = info?.title?.ifEmpty { null } ?: dep.projectId,
+                                                                iconUrl = info?.iconUrl,
+                                                                badge = when (dep.type) {
+                                                                    "required" -> "必需"
+                                                                    "optional" -> "可选"
+                                                                    "incompatible" -> "不兼容"
+                                                                    "embedded" -> "内嵌"
+                                                                    "tool" -> "工具"
+                                                                    "include" -> "包含"
+                                                                    else -> dep.type
+                                                                },
+                                                                badgeColor = when (dep.type) {
+                                                                    "required" -> VerseColors.PcGreen
+                                                                    "optional" -> VerseColors.PcOrange
+                                                                    "incompatible" -> VerseColors.PcRed
+                                                                    else -> VerseColors.PcTextMuted
+                                                                },
+                                                                meta = info?.let { "${formatCount(it.downloads)} 下载" } ?: "",
+                                                                onClick = {
+                                                                    try {
+                                                                        navController.navigate("mod_detail/${dep.projectId}?source=${dep.source}")
+                                                                    } catch (_: Exception) {}
+                                                                }
+                                                            )
+                                                            Spacer(Modifier.height(4.dp))
+                                                        }
+                                                    }
+                                                }
+                                                Spacer(Modifier.height(8.dp))
+                                            }
+                                        }
                                         item {
                                             if (proj.body.isBlank()) {
                                                 Text(
@@ -918,7 +1018,6 @@ fun ModDetailScreen(
                                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                                 )
                                             } else {
-                                                // 对齐 PC renderModDescription：body 为 CommonMark，用 Markwon 渲染富文本
                                                 MarkdownBody(
                                                     body = proj.body,
                                                     textColor = VerseColors.PcTextSecondary,
@@ -931,7 +1030,6 @@ fun ModDetailScreen(
                             }
                         }
 
-                        // —— 侧栏（对齐 PC .md-layout-sidebar）——
                         // 仅描述/画廊 tab 显示；压缩到 200dp 让主区（描述正文/画廊）占主要宽度
                         if (detailTab != "versions") {
                         Column(
@@ -944,7 +1042,6 @@ fun ModDetailScreen(
                             MdSidebarSection("兼容性") {
                                 MdSidebarTags(proj.loaders, emptyAsDash = true)
                                 Spacer(Modifier.height(6.dp))
-                                // 游戏版本最多 16 个（对齐 PC gvs.slice(0, 16) +N）
                                 val gvs = proj.gameVersions
                                 MdSidebarTags(gvs.take(16) + if (gvs.size > 16) listOf("+${gvs.size - 16}") else emptyList(), emptyAsDash = true)
                             }
@@ -981,7 +1078,6 @@ fun ModDetailScreen(
             }
         }
 
-        // ===== 版本选择卡片（与 ZL2 的 DownloadDialog 对应）=====
         if (showVersionPicker) {
             // 模组依赖加载器：只能安装到 fabric/forge/neoforge/quilt 版本，原版不可选；
             // 材质包/光影不依赖加载器，全部版本可选
@@ -1035,7 +1131,6 @@ fun ModDetailScreen(
         }
     }
 
-    // 画廊大图（对齐 PC .md-gallery-lightbox）
     val viewUrl = galleryView
     if (viewUrl != null) {
         Dialog(onDismissRequest = { galleryView = null }) {
@@ -1060,7 +1155,6 @@ fun ModDetailScreen(
         }
     }
 
-    // ===== 整合包安装前的版本命名弹窗（复刻 FCL RemoteModpackPage：默认名=标题，无加载器后缀）=====
     if (showModpackNamingDialog) {
         VersionNamingDialog(
             gameVersion = project?.title?.trim()?.takeIf { it.isNotBlank() }
@@ -1096,7 +1190,91 @@ fun ModDetailScreen(
     }
 }
 
-/** 主区标签按钮（对齐 PC .md-tab） */
+/**
+ * 前置模组紧凑行（与资源列表行同密度：单行 36dp 图标 + 13sp 标题 +
+ * 徽章 + 下载量元信息 + 右侧箭头，不展示描述）。
+ */
+@Composable
+private fun DependencyRow(
+    title: String,
+    iconUrl: String?,
+    badge: String,
+    badgeColor: Color,
+    meta: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = VerseColors.PcBgTertiary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 6.dp, horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(VerseColors.PcBgActive),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!iconUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = iconUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = VerseColors.PcTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(3.dp),
+                        color = badgeColor.copy(alpha = 0.12f)
+                    ) {
+                        Text(
+                            badge,
+                            fontSize = 9.sp,
+                            color = badgeColor,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
+                    }
+                    if (meta.isNotBlank()) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            meta,
+                            fontSize = 11.sp,
+                            color = VerseColors.PcTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Icon(Icons.Filled.ChevronRight, null, Modifier.size(18.dp), VerseColors.PcTextMuted)
+        }
+    }
+}
+
 @Composable
 private fun MdTabBtn(label: String, text: String, current: String, onSelect: (String) -> Unit) {
     val selected = current == label
@@ -1118,7 +1296,6 @@ private fun MdTabBtn(label: String, text: String, current: String, onSelect: (St
     }
 }
 
-/** 版本筛选标签（对齐 PC .md-vtab） */
 @Composable
 private fun MdVTab(text: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
@@ -1140,7 +1317,6 @@ private fun MdVTab(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 侧栏区块（对齐 PC .md-sidebar-section） */
 @Composable
 private fun MdSidebarSection(title: String, content: @Composable () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -1156,7 +1332,6 @@ private fun MdSidebarSection(title: String, content: @Composable () -> Unit) {
     }
 }
 
-/** 侧栏标签组（对齐 PC .md-sidebar-tags） */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun MdSidebarTags(tags: List<String>, emptyAsDash: Boolean) {
@@ -1176,7 +1351,6 @@ private fun MdSidebarTags(tags: List<String>, emptyAsDash: Boolean) {
     }
 }
 
-/** 侧栏链接（对齐 PC .md-sidebar-links） */
 @Composable
 private fun MdSidebarLinks(links: List<Pair<String, String>>) {
     if (links.isEmpty()) {
@@ -1209,7 +1383,6 @@ private fun MdSidebarLinks(links: List<Pair<String, String>>) {
     }
 }
 
-/** 侧栏详情行（对齐 PC .md-sidebar-detail-row） */
 @Composable
 private fun MdSidebarDetailRow(key: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1218,7 +1391,6 @@ private fun MdSidebarDetailRow(key: String, value: String) {
     }
 }
 
-// ===== 版本号分组工具（对齐 PC _versionToExact / _versionToMajor / sortFn）=====
 
 private fun versionToExact(ver: String): String? {
     if (ver.isBlank()) return null
@@ -1279,97 +1451,106 @@ private fun VersionsDetailCard(
     onDownload: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassCard(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(10.dp)
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) VerseColors.PcAccent.copy(alpha = 0.08f) else VerseColors.PcBgCard,
+        border = BorderStroke(
+            1.dp,
+            if (selected) VerseColors.PcAccent.copy(alpha = 0.5f) else VerseColors.PcBorder
+        )
     ) {
         Column(
-            modifier = Modifier.padding(12.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    version.versionNumber,
-                    color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                val primaryFile = version.primaryFile ?: version.files.firstOrNull()
-                if (primaryFile != null) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        formatFileSize(primaryFile.size),
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 11.sp
+                        version.versionNumber,
+                        color = if (isSelected) VerseColors.PcAccent else VerseColors.PcTextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                }
-            }
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                version.gameVersions.take(6).forEach { ver ->
-                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
-                        Text(ver, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        version.gameVersions.take(2).forEach { ver ->
+                            Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
+                                Text(ver, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                            }
+                        }
+                        version.loaders.take(2).forEach { loader ->
+                            Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcOrange.copy(alpha = 0.1f)) {
+                                Text(loader, color = VerseColors.PcOrange, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                            }
+                        }
+                        val primaryFile = version.primaryFile ?: version.files.firstOrNull()
+                        if (primaryFile != null) {
+                            Text(
+                                formatFileSize(primaryFile.size),
+                                color = VerseColors.PcTextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
-                version.loaders.take(3).forEach { loader ->
-                    Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcOrange.copy(alpha = 0.1f)) {
-                        Text(loader, color = VerseColors.PcOrange, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                when {
+                    isSelected && downloading -> {
+                        RoseLoader(
+                            modifier = Modifier.size(18.dp),
+                            size = 18.dp,
+                            color = VerseColors.PcAccent
+                        )
+                    }
+                    isSelected && downloadDone -> {
+                        Icon(Icons.Filled.CheckCircle, null, Modifier.size(20.dp), tint = VerseColors.PcAccent)
+                    }
+                    isSelected && !downloading -> {
+                        Button(
+                            onClick = onDownload,
+                            enabled = version.primaryFile?.url?.isNotBlank() != false,
+                            shape = RoundedCornerShape(6.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VerseColors.PcAccent,
+                                contentColor = VerseColors.PcAccentText
+                            )
+                        ) {
+                            Icon(Icons.Filled.Download, null, Modifier.size(13.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("安装", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    else -> {
+                        Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
                     }
                 }
             }
 
-            if (isSelected) {
-                Spacer(Modifier.height(10.dp))
-                when {
-                    downloading -> {
-                        Column(Modifier.fillMaxWidth()) {
-                            LinearProgressIndicator(
-                                progress = { downloadProgress },
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                color = VerseColors.PcAccent,
-                                trackColor = VerseColors.PcBgSecondary
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(downloadText, color = VerseColors.PcTextMuted, fontSize = 11.sp)
-                        }
-                    }
-                    downloadDone -> {
-                        Surface(shape = RoundedCornerShape(6.dp), color = VerseColors.PcAccent.copy(alpha = 0.12f), modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Filled.CheckCircle, null, Modifier.size(16.dp), tint = VerseColors.PcAccent)
-                                Text(downloadText.ifBlank { "已安装到选中版本的对应文件夹" }, color = VerseColors.PcAccent, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                    else -> {
-                        Button(
-                            onClick = onDownload,
-                            enabled = version.primaryFile?.url?.isNotBlank() != false,
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = VerseColors.PcAccent,
-                                contentColor = VerseColors.PcAccentText
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(40.dp)
-                        ) {
-                            Icon(Icons.Filled.Download, null, Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("下载此版本", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        if (downloadError != null) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(downloadError, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
-                        }
-                    }
+            // 选中态的下载进度与结果反馈（紧凑行）
+            when {
+                isSelected && downloading -> {
+                    Spacer(Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { downloadProgress },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                        color = VerseColors.PcAccent,
+                        trackColor = VerseColors.PcBgSecondary
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(downloadText, color = VerseColors.PcTextMuted, fontSize = 11.sp)
+                }
+                isSelected && downloadError != null -> {
+                    Spacer(Modifier.height(4.dp))
+                    Text(downloadError, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
                 }
             }
         }
@@ -1377,9 +1558,7 @@ private fun VersionsDetailCard(
 }
 
 /**
- * Markdown 正文渲染（对齐 PC marked 库：Modrinth body 为 CommonMark）。
  * 使用 Markwon（Android 标准 Markdown 库，内部基于 commonmark-java）在 TextView 中渲染，
- * 支持 标题/粗体/斜体/删除线/列表/引用/代码块/行内代码/链接 等 PC marked 覆盖的常用语法。
  * 解析在后台线程执行，避免大 body 阻塞 UI。
  */
 @Composable
@@ -1396,7 +1575,6 @@ private fun MarkdownBody(
         value = try {
             withContext(Dispatchers.Default) { markwon.toMarkdown(body) }
         } catch (_: Exception) {
-            // 解析失败回退纯文本（与 PC marked 异常时降级一致）
             body
         }
     }

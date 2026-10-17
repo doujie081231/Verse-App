@@ -7,7 +7,6 @@ import java.net.URISyntaxException
 /**
  * 获取陶瓦联机公共节点列表
  *
- * 与 FCL 的 TerracottaNodeList 对应：从官方节点列表地址拉取，
  * 并按地区过滤——保留未标注地区的节点，其余节点仅在
  * 设备地区与节点地区一致时保留（大陆设备选 CN 节点，其它地区设备选非 CN 节点）。
  */
@@ -30,7 +29,6 @@ object TerracottaNodeList {
         }
     }
 
-    /** 与 FCL LocaleUtils.IS_CHINA_MAINLAND 对应的判断：时区为 Asia/Shanghai，或 UTC+8 且系统地区为 CN */
     private val isChinaMainland: Boolean = run {
         if (java.time.ZoneId.systemDefault().id == "Asia/Shanghai") return@run true
         val offsetSeconds = java.time.ZonedDateTime.now().offset.totalSeconds

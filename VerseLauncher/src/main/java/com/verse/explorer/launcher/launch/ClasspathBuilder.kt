@@ -14,9 +14,8 @@ internal class ClasspathBuilder(private val context: Context) {
         val classpath = mutableListOf<String>()
 
         // 定制 LWJGL 模块 jar 集始终排在 classpath 最前面，遮蔽 MC 自带的官方 LWJGL。
-        // 迁移自 FCL LWJGL-Pojav 套装（多 jar：core/glfw/opengl/stb/vma/spvc/shaderc...），
-        // 与 Pojav patched liblwjgl*.so 配对。lwjgl-glfw.jar 提供 glfwGetMonitorName
-        // （MC 1.19.4+/26.x Monitor 必需）。
+        // 多 jar 套装（core/glfw/opengl/stb/vma/spvc/shaderc...）与 patched liblwjgl*.so 配对。
+        // lwjgl-glfw.jar 提供 glfwGetMonitorName（MC 1.19.4+/26.x Monitor 必需）。
         val lwjglDir = File(runtimeDir, "lwjgl")
         val lwjglJars = lwjglDir.listFiles()?.filter { it.name.endsWith(".jar") && it.length() > 0 }?.sortedBy { it.name }
         if (!lwjglJars.isNullOrEmpty()) {
@@ -53,7 +52,7 @@ internal class ClasspathBuilder(private val context: Context) {
             }
         }
 
-        // FCL-style: JNA jar from runtime/jna
+        // JNA jar（runtime/jna）
         val jnaJar = File(runtimeDir, "jna/jna.jar")
         if (jnaJar.exists() && jnaJar.length() > 1024) {
             classpath.add(jnaJar.absolutePath)
@@ -70,7 +69,7 @@ internal class ClasspathBuilder(private val context: Context) {
             }
         }
 
-        // FCL-style: CacioCavallo JAR from runtime
+        // CacioCavallo JAR（runtime）
         val isJava8 = config.javaVersion <= 8
         val cacioDir = File(runtimeDir, if (isJava8) "caciocavallo" else "caciocavallo17")
         if (cacioDir.exists()) {
@@ -121,7 +120,7 @@ internal class ClasspathBuilder(private val context: Context) {
         if (jsonFile.exists()) {
             try {
                 val jsonText = jsonFile.readText()
-                // Check "jar" field (FCL-style: version JSON may specify a different jar version)
+                // Check "jar" field (version JSON may specify a different jar version)
                 val jarMatch = Regex("\"jar\"\\s*:\\s*\"([^\"]+)\"").find(jsonText)
                 println("[findVersionJar] jar field=${jarMatch?.groupValues?.get(1)}")
                 if (jarMatch != null) {

@@ -26,10 +26,8 @@ import java.util.concurrent.locks.LockSupport
 /**
  * 陶瓦联机控制器
  *
- * 与 FCL 的 Terracotta 类对应：负责初始化原生后端、后台轮询状态、
  * 创建/加入房间、管理 VPN 服务，并把状态变化同步给联机菜单与 VPN 前台通知。
  *
- * 与 FCL 一致：后台轮询守护一旦启动便不会停止（setWaiting 只复位后端状态，
  * 不停止轮询）；VPN 通知的状态文案由状态监听器推送。
  */
 object TerracottaController {
@@ -38,7 +36,6 @@ object TerracottaController {
 
     private const val TAG = "TerracottaController"
 
-    /** 与 FCL 的 TERRACOTTA_USER_NOTICE_VERSION 对应，用户须知更新时递增 */
     const val USER_NOTICE_VERSION = 1
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -61,7 +58,6 @@ object TerracottaController {
     /** 供经典 View 界面（游戏内联机菜单）注册的状态监听，回调固定在主线程执行 */
     private val stateListeners = CopyOnWriteArrayList<(TerracottaState) -> Unit>()
 
-    /** VPN 通知状态同步是否启用（与 FCL 的 notificationListener 生命周期一致） */
     @Volatile
     private var notificationUpdatesActive = false
 

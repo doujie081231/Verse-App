@@ -41,10 +41,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.data.account.CapeRepository
 import com.verse.explorer.app.data.account.DefaultSkinRepository
 import com.verse.explorer.app.data.account.MsSkinRepository
 import com.verse.explorer.app.data.account.SkinHeadCrop
 import com.verse.explorer.app.data.account.SkinUploadRepository
+import com.verse.explorer.app.skin.SkinFigureRenderer
 import com.verse.explorer.app.ui.components.FCLSkinViewer
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -73,9 +75,41 @@ fun AccountDetailContent(
     val selectedAccount by viewModel.selectedAccount.collectAsState()
     val isSelected = account.id == selectedAccount?.id
 
-    var animation by remember { mutableStateOf("idle") }
     var background by remember { mutableStateOf("white") }
     var autoRotate by remember { mutableStateOf(false) }
+
+    // 本地披风库状态（离线/微软账户共用；披风仅用于 3D 模型与卡片预览展示）
+    var capes by remember(account.id) { mutableStateOf<List<CapeRepository.Cape>>(emptyList()) }
+    var selectedCapeId by remember(account.id) { mutableStateOf("") }
+    var capeVersion by remember(account.id) { mutableIntStateOf(0) }
+    var capeBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(account.id) {
+        capes = CapeRepository.list(context, account.id)
+        selectedCapeId = CapeRepository.selected(context, account.id)?.id.orEmpty()
+    }
+
+    val capePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                capeBusy = true
+                val capeId = CapeRepository.import(context, account.id, uri)
+                if (capeId != null) {
+                    CapeRepository.select(context, account.id, capeId)
+                    capes = CapeRepository.list(context, account.id)
+                    selectedCapeId = capeId
+                    capeVersion++
+                    SkinFigureRenderer.clearCache()
+                    Toast.makeText(context, "披风已装备", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "披风导入失败", Toast.LENGTH_SHORT).show()
+                }
+                capeBusy = false
+            }
+        }
+    }
 
     // 微软本地皮肤库状态
     var msSkins by remember(account.id) { mutableStateOf<List<MsSkinRepository.MsSkin>>(emptyList()) }
@@ -132,22 +166,19 @@ fun AccountDetailContent(
 
     Box(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxSize()) {
-            // 左：模型容器（对齐 PC .acct-detail-left：白/黑背景 + 右上角色块切换）
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
                     .background(if (background == "black") Color.Black else Color.White)
             ) {
-                // FCL 式 3D 人物模型（GLSurfaceView）
                 FCLSkinViewer(
                     account = account,
                     background = if (background == "black") Color.Black else Color.White,
-                    animation = animation,
                     autoRotate = autoRotate,
+                    capeVersion = capeVersion,
                     modifier = Modifier.fillMaxSize()
                 )
-                // 右上角 白/黑 切换（对齐 PC .acct-bg-toggle）
                 Row(
                     modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -157,7 +188,6 @@ fun AccountDetailContent(
                 }
             }
 
-            // 右：信息 / 动作 / 皮肤 / 操作（对齐 PC .acct-detail-right：固定宽滚动面板）
             Column(
                 modifier = Modifier
                     .width(420.dp)
@@ -165,7 +195,6 @@ fun AccountDetailContent(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 20.dp)
             ) {
-                // 返回 + 用户名 + 类型 badge（对齐 PC .acct-detail-header-area）
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -197,7 +226,6 @@ fun AccountDetailContent(
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
-                    // badge（对齐 PC .acct-detail-badge：绿底）
                     Surface(shape = RoundedCornerShape(6.dp), color = Color(0xFFE8F5E9)) {
                         Text(
                             text = typeLabel,
@@ -211,7 +239,6 @@ fun AccountDetailContent(
 
                 Spacer(Modifier.height(8.dp))
 
-                // 字段区（对齐 PC .acct-detail-fields）
                 DetailField(label = "UUID") {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -242,52 +269,7 @@ fun AccountDetailContent(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 动作（对齐各启动器模型查看器动作集：默认呼吸站姿 + 跳跃/爬行/自动旋转）
-                Text("动作", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
-                Spacer(Modifier.height(8.dp))
-                val animations = listOf(
-                    "idle" to "呼吸",
-                    "walk" to "行走",
-                    "run" to "跑步",
-                    "jump" to "跳跃",
-                    "fly" to "飞行",
-                    "wave" to "挥手",
-                    "crouch" to "蹲下",
-                    "crawl" to "爬行",
-                    "hit" to "攻击",
-                    "swim" to "游泳"
-                )
-                animations.chunked(4).forEach { row ->
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-                    ) {
-                        row.forEach { (key, label) ->
-                            val animSelected = animation == key
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (animSelected) VerseColors.PcAccent else VerseColors.PcBgTertiary,
-                                border = if (animSelected) null else BorderStroke(1.dp, VerseColors.PcBorder),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { animation = key }
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 11.sp,
-                                    color = if (animSelected) VerseColors.PcAccentText else VerseColors.PcTextSecondary,
-                                    fontWeight = if (animSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-                // 自动旋转开关（模型绕 Y 轴匀速展示，可与其他动作叠加）
+                // 自动旋转开关（模型绕 Y 轴匀速展示）
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -318,7 +300,6 @@ fun AccountDetailContent(
 
                 Spacer(Modifier.height(16.dp))
 
-                // 皮肤（对齐 PC .acct-detail-skins：离线默认皮肤+自定义 / 微软本地皮肤库）
                 if (account.type == AccountType.OFFLINE) {
                     Text("皮肤", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
                     Spacer(Modifier.height(8.dp))
@@ -349,10 +330,10 @@ fun AccountDetailContent(
                                     }
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(10.dp),
+                                    modifier = Modifier.padding(8.dp).fillMaxWidth(),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    SkinHeadThumb(
+                                    SkinFigureThumb(
                                         load = {
                                             try {
                                                 if (skin.file.startsWith("custom_")) {
@@ -366,9 +347,11 @@ fun AccountDetailContent(
                                                 }
                                             } catch (_: Exception) { null }
                                         },
+                                        key = "default|${skin.file}|${account.skinFile}",
                                         fallback = skin.name,
                                         modifier = Modifier
-                                            .size(48.dp)
+                                            .fillMaxWidth()
+                                            .heightIn(max = 96.dp)
                                             .clip(RoundedCornerShape(4.dp))
                                     )
                                     Spacer(Modifier.height(6.dp))
@@ -484,15 +467,16 @@ fun AccountDetailContent(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     val pf = previewFile
-                                    SkinHeadThumb(
+                                    SkinFigureThumb(
                                         load = {
                                             if (pf != null && pf.exists()) {
                                                 runCatching { BitmapFactory.decodeFile(pf.absolutePath) }.getOrNull()
                                             } else null
                                         },
+                                        key = "ms|${account.id}|${skin.id}",
                                         fallback = skin.name,
                                         modifier = Modifier
-                                            .size(48.dp)
+                                            .size(width = 52.dp, height = 72.dp)
                                             .clip(RoundedCornerShape(4.dp))
                                     )
                                     Spacer(Modifier.width(10.dp))
@@ -564,9 +548,130 @@ fun AccountDetailContent(
                     }
                 }
 
+                Spacer(Modifier.height(16.dp))
+
+                // 披风（离线/微软账户共用）：本地披风库网格 + 导入/获取官方/卸下，
+                // 卡片与选中态结构与皮肤卡一致；披风在 3D 模型上即时呈现
+                if (account.type == AccountType.OFFLINE || account.type == AccountType.MICROSOFT) {
+                    Text("披风", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
+                    Spacer(Modifier.height(8.dp))
+                    if (capes.isEmpty()) {
+                        Text(
+                            "暂无披风，点击下方按钮导入",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextMuted
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            capes.chunked(3).forEach { rowCapes ->
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    rowCapes.forEach { cape ->
+                                        val selected = selectedCapeId == cape.id
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (selected) VerseColors.PcAccent.copy(alpha = 0.08f) else VerseColors.PcBgTertiary,
+                                            border = BorderStroke(
+                                                1.dp,
+                                                if (selected) VerseColors.PcAccent else VerseColors.PcBorder
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    CapeRepository.select(context, account.id, cape.id)
+                                                    selectedCapeId = cape.id
+                                                    capeVersion++
+                                                    Toast.makeText(context, "披风已装备", Toast.LENGTH_SHORT).show()
+                                                }
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                CapeThumb(
+                                                    load = { BitmapFactory.decodeFile(cape.file.absolutePath) },
+                                                    key = "cape|${account.id}|${cape.id}",
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .heightIn(max = 40.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                )
+                                                Spacer(Modifier.height(6.dp))
+                                                Text(
+                                                    cape.id,
+                                                    fontSize = 12.sp,
+                                                    color = if (selected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
+                                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    repeat(3 - rowCapes.size) { Spacer(Modifier.weight(1f)) }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PcButton(
+                            text = "导入披风",
+                            onClick = { capePickerLauncher.launch("image/png") },
+                            variant = PcButtonVariant.OUTLINE,
+                            enabled = !capeBusy,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (account.type == AccountType.MICROSOFT) {
+                            PcButton(
+                                text = "获取官方披风",
+                                onClick = {
+                                    scope.launch {
+                                        capeBusy = true
+                                        val capeId = withContext(Dispatchers.IO) {
+                                            CapeRepository.fetchOfficial(context, account)
+                                        }
+                                        if (capeId != null) {
+                                            capes = CapeRepository.list(context, account.id)
+                                            selectedCapeId = capeId
+                                            capeVersion++
+                                            Toast.makeText(context, "已装备官方披风", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "该账户没有官方披风", Toast.LENGTH_SHORT).show()
+                                        }
+                                        capeBusy = false
+                                    }
+                                },
+                                variant = PcButtonVariant.OUTLINE,
+                                enabled = !capeBusy && !account.capeUrl.isNullOrBlank(),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        PcButton(
+                            text = "卸下披风",
+                            onClick = {
+                                CapeRepository.select(context, account.id, "")
+                                selectedCapeId = ""
+                                capeVersion++
+                                Toast.makeText(context, "披风已卸下", Toast.LENGTH_SHORT).show()
+                            },
+                            variant = PcButtonVariant.OUTLINE,
+                            enabled = selectedCapeId.isNotEmpty(),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(20.dp))
 
-                // 操作（对齐 PC .acct-detail-actions：切换到此账户 / 刷新皮肤 / 登出）
                 if (!isSelected) {
                     PcButton(
                         text = "切换到此账户",
@@ -598,7 +703,6 @@ fun AccountDetailContent(
     }
 }
 
-/** 皮肤头部缩略图：加载完整皮肤后裁剪只显示头部（对齐 PC 皮肤网格的头像预览） */
 @Composable
 private fun SkinHeadThumb(
     load: () -> Bitmap?,
@@ -632,7 +736,66 @@ private fun SkinHeadThumb(
     }
 }
 
-/** 右栏字段（对齐 PC .acct-detail-field：uppercase 小标签 + 内容 + 底部分隔线） */
+/**
+ * 离屏 GL 渲染失败时回退为头部裁剪预览。
+ */
+@Composable
+private fun SkinFigureThumb(
+    load: () -> Bitmap?,
+    key: String,
+    fallback: String,
+    modifier: Modifier = Modifier
+) {
+    var figure by remember(key) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(key) {
+        figure = withContext(Dispatchers.Default) {
+            val skin = load() ?: return@withContext null
+            SkinFigureRenderer.renderFigure(skin, null, key)
+        }
+    }
+    val fig = figure
+    if (fig != null) {
+        Image(
+            bitmap = fig.asImageBitmap(),
+            contentDescription = fallback,
+            modifier = modifier
+        )
+    } else {
+        SkinHeadThumb(
+            load = load,
+            fallback = fallback,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun CapeThumb(
+    load: () -> Bitmap?,
+    key: String,
+    modifier: Modifier = Modifier
+) {
+    var bitmap by remember(key) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(key) {
+        bitmap = withContext(Dispatchers.IO) { load() }
+    }
+    val bmp = bitmap
+    if (bmp != null) {
+        Image(
+            bitmap = bmp.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier
+        )
+    } else {
+        Box(
+            modifier = modifier.background(VerseColors.PcBgPrimary),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("披风", fontSize = 10.sp, color = VerseColors.PcTextMuted)
+        }
+    }
+}
+
 @Composable
 private fun DetailField(
     label: String,
@@ -657,7 +820,6 @@ private fun DetailField(
     }
 }
 
-/** 模型容器右上角白/黑背景切换（对齐 PC .acct-bg-btn：28x28 色块，active 蓝描边） */
 @Composable
 private fun BgToggleBtn(
     color: Color,

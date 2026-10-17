@@ -11,7 +11,6 @@ import java.util.concurrent.TimeUnit
 /**
  * CurseForge API 封装。
  *
- * 与 VersePC `server/api/routes/resources.js` 的 CurseForge 分支对齐：
  *  - 搜索：`GET /mods/search`
  *  - 详情：`GET /mods/{modId}`
  *  - 版本文件：`GET /mods/{modId}/files`
@@ -25,12 +24,10 @@ import java.util.concurrent.TimeUnit
  *  - 3743    = datapack（数据包）
  */
 object CurseForgeApi {
-    // 官方 API 与国内镜像（与 versepc2 src-tauri/src/api/resources.rs 完全一致；
     // CurseForge 官方 API 国内 TTFB 慢，镜像 mod.mcimirror.top 优先）
     private const val CURSEFORGE_API = "https://api.curseforge.com/v1"
     private const val CURSEFORGE_API_MIRROR = "https://mod.mcimirror.top/curseforge/v1"
 
-    // 默认 API Key（与 VersePC 后端一致，仅用于公开 API 只读访问）
     private const val DEFAULT_API_KEY = "\$2a\$10\$bL4bIL5pUWqfcO7KQtnMReakwtfHbNKh6v1uTpKlzhwoueEJQnPnm"
 
     private val client = OkHttpClient.Builder()
@@ -68,12 +65,10 @@ object CurseForgeApi {
     )
 
     /**
-     * 带镜像回退 + 60s 缓存的请求（与 ModrinthApi.fetchWithMirror 同一套机制，对齐 versepc2）：
      *   - 镜像可用时：镜像(8s) → 官方(10s) → 官方(20s)
      *   - 镜像不可用（熔断）时：官方(10s) → 官方(20s)
      *   - 镜像 403/404 不阻断，继续官方；官方 403/404 直接失败
      *   - 镜像连续失败 3 次熔断 60s（MirrorCircuitBreaker 为 Modrinth/CurseForge 共享）
-     *   - [cacheTtlMs] 为 null 时不缓存（对齐 versepc2：仅 search 接口走 60s 缓存）
      */
     private suspend fun executeWithMirror(path: String, cacheTtlMs: Long? = 60_000): String =
         withContext(Dispatchers.IO) {
@@ -249,9 +244,31 @@ object CurseForgeApi {
                         sha1 = sha1
                     )
                 ),
+                // CurseForge 文件自带 dependencies（modId + relationType），映射为统一依赖模型
+                dependencies = (file.dependencies ?: emptyList()).mapNotNull { dep ->
+                    val mid = dep.modId ?: return@mapNotNull null
+                    ResourceDependency(
+                        projectId = mid.toString(),
+                        type = cfRelationType(dep.relationType),
+                        source = "curseforge"
+                    )
+                },
                 source = "curseforge"
             )
         }
+    }
+
+    /**
+     * 1=内嵌 2=可选 3=必需 4=工具 5=不兼容 6=包含
+     */
+    private fun cfRelationType(relationType: Int?): String = when (relationType) {
+        1 -> "embedded"
+        2 -> "optional"
+        3 -> "required"
+        4 -> "tool"
+        5 -> "incompatible"
+        6 -> "include"
+        else -> "required"
     }
 
     private fun modLoaderLabelFromName(name: String): String? {
@@ -342,8 +359,11 @@ object CurseForgeApi {
         val releaseType: Int? = null,
         val isAlternate: Boolean? = null,
         val gameVersions: List<String>? = emptyList(),
-        val hashes: List<CfHash>? = emptyList()
+        val hashes: List<CfHash>? = emptyList(),
+        val dependencies: List<CfDependency>? = emptyList()
     )
+
+    data class CfDependency(val modId: Long? = null, val relationType: Int? = null)
 
     data class CfHash(val algo: Int? = null, val value: String? = null)
 }

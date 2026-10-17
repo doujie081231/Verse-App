@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.components.PageHeader
@@ -62,15 +63,16 @@ fun ShadersScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = 10.dp)
-                .padding(top = 54.dp)
+                .padding(top = 8.dp)
         ) {
 
             // 搜索与筛选合并为单行；点开筛选时选项列表内联展开把底部顶下去
+            // 筛选栏上移贴顶，start 缩进避开左上角悬浮导航钮，给列表腾出更多展示空间
             PcCompactFilterBar(
                 selects = listOf(
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().padding(start = 56.dp)
             ) {
                 PcCompactSearchField(
                     value = searchQuery,
@@ -182,16 +184,15 @@ fun ShadersScreen(
                                     .padding(vertical = 12.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator(
+                                RoseLoader(
                                     modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
+                                    size = 24.dp,
                                     color = VerseColors.PcAccent
                                 )
                             }
                         }
                     }
 
-                    // PC 式分页（对齐 .pagination：上一页/页码/下一页）
                     item {
                         PcPagination(
                             currentPage = uiState.currentPage,
@@ -211,9 +212,9 @@ fun ShadersScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(
+                            RoseLoader(
                                 modifier = Modifier.size(36.dp),
-                                strokeWidth = 3.dp,
+                                size = 36.dp,
                                 color = VerseColors.PcAccent
                             )
                             Spacer(modifier = Modifier.height(12.dp))
@@ -233,138 +234,5 @@ fun ShadersScreen(
 
 @Composable
 private fun ShaderCard(hit: ModrinthSearchHit, onClick: () -> Unit = {}) {
-    GlassCard(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.Top
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(VerseColors.PcBgTertiary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 始终显示占位图标（加载失败时透出来）
-                    Icon(
-                        imageVector = Icons.Filled.Flare,
-                        contentDescription = null,
-                        tint = VerseColors.PcPurple,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    // 有图标 URL 时叠加 AsyncImage 在上层
-                    if (!hit.iconUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = hit.iconUrl,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp)),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = hit.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = VerseColors.PcTextPrimary,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "作者: ${hit.author}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = hit.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = VerseColors.PcTextSecondary,
-                fontSize = 11.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 15.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    LabelWithIcon(
-                        icon = Icons.Outlined.Download,
-                        text = formatDownloadCount(hit.downloads),
-                        color = VerseColors.PcTextSecondary
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = {},
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = VerseColors.PcOrange.copy(alpha = 0.12f),
-                        contentColor = VerseColors.PcOrange
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "安装",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            if (hit.categories.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    hit.categories.take(4).forEach { cat ->
-                        Surface(
-                            shape = RoundedCornerShape(4.dp),
-                            color = VerseColors.PcTextMuted.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = cat,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = VerseColors.PcTextMuted,
-                                fontSize = 9.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
+    ResourceSearchCard(hit, onClick = onClick)
 }

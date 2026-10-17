@@ -23,7 +23,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * 微软登录流程状态（与 ZL2 的 microsoftLogin 任务编排对应）
  */
 sealed class MicrosoftLoginState {
     data object Idle : MicrosoftLoginState()
@@ -43,7 +42,6 @@ sealed class MicrosoftLoginState {
         val needRelogin: Boolean = false
     ) : MicrosoftLoginState()
 
-    /** 用户离开内置浏览器页，流程被取消（与 ZL2 的 account_microsoft_exit_by_user 对应） */
     data object Cancelled : MicrosoftLoginState()
 }
 
@@ -98,7 +96,6 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
-     * 启动微软登录（与 ZL2 的 microsoftLogin 编排对应）：
      * 轮询设备码授权 → 完整认证链 → 保存账号。
      * 轮询期间用户在内置浏览器页完成验证；离开浏览器页时调用 [cancelMicrosoftLogin]。
      */
@@ -120,7 +117,6 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
                 if (result.success && result.account != null) {
-                    // 与 ZL2 一致：同一档案更新而不是重复添加
                     val saved = saveMicrosoftAccount(result.account!!)
                     VerseLogger.info("微软登录：认证成功，保存账号 ${saved.username} (uuid=${saved.uuid})", "MsaLogin")
                     _microsoftLoginState.value = MicrosoftLoginState.Success(saved)
@@ -146,7 +142,6 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** 用户离开内置浏览器页时取消登录（与 ZL2 的 checkIfInWebScreen 取消逻辑对应） */
     fun cancelMicrosoftLogin() {
         VerseLogger.warn("微软登录：取消（返回/离开浏览器页）", "MsaLogin")
         microsoftLoginJob?.cancel()
@@ -162,7 +157,6 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * 设备码轮询（自 ZL2 迁移）：过期、限速、网络波动等均由认证模块内部处理，
      * 设备码过期时抛出 [AuthenticationTimeoutException]，由 UI 提示重新获取。
      */
     suspend fun awaitDeviceAuth(codeResponse: DeviceCodeResponse): TokenResponse {
@@ -177,13 +171,11 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         return msAuth.authenticate(accessToken, refreshToken, onStatus)
     }
 
-    /** 校验微软账号缓存的访问令牌是否仍有效（自 ZL2 迁移） */
     suspend fun validateMicrosoft(account: Account): Boolean {
         return msAuth.validateAccessToken(account)
     }
 
     /**
-     * 保存微软账号（与 ZL2 的 AccountsManager.loadFromProfileID 对应）：
      * 同一档案已存在时更新而不是重复添加
      */
     suspend fun saveMicrosoftAccount(account: Account): Account {

@@ -10,10 +10,8 @@ import java.net.URL
 import java.util.LinkedHashSet
 
 /**
- * FCL 整合包安装用下载源（对齐 FCL/AutoDownloadProvider 的思路，仅做下载源适配，不自研安装引擎）：
  * - 版本清单：piston-meta version_manifest_v2.json 直连（0 跳转、签名 URL 直接 200，
  *   规避 BMCLAPI 302 → 签名 CDN 边缘节点 404 的不稳定问题）
- * - 文件下载：每个 URL 提供多候选源（官方直连 → BMCLAPI 镜像），由 FCL 的
  *   FileDownloadTask 按序回退（对国内网络最稳）
  * - 加载器版本列表（fabric/forge/neoforge/liteloader/optifine）：走 BMCLAPI；
  *   quilt/quilt-api/fabric-api/cleanroom：走官方

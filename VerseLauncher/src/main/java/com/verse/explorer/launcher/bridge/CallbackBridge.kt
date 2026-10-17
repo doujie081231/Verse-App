@@ -4,7 +4,7 @@ import android.view.Surface
 import org.lwjgl.glfw.CallbackBridge as GlfwCallbackBridge
 
 /**
- * Verse UI 输入桥接层。所有输入事件最终都由 FCL 原版 org.lwjgl.glfw.CallbackBridge 的 JNI
+ * Verse UI 输入桥接层。所有输入事件最终都由 org.lwjgl.glfw.CallbackBridge 的 JNI
  * 方法转发给 JVM 侧（libpojavexec.so），方法签名与 Verse 旧实现保持一致以最小化 UI 改动。
  */
 object CallbackBridge {
@@ -27,7 +27,7 @@ object CallbackBridge {
 
     @JvmStatic
     fun setupBridgeWindow(surface: Surface) {
-        // 为兼容需求保留文件指针记录能力；FCL 原版通过类型安全的 surface 实例完成注入。
+        // 为兼容需求保留文件指针记录能力；bridge 通过类型安全的 surface 实例完成注入。
         GlfwCallbackBridge.setupBridgeWindow(surface)
     }
 
@@ -95,7 +95,7 @@ object CallbackBridge {
 
     @JvmStatic
     fun nativeSetInputReady(ready: Boolean): Boolean {
-        // 转发到 FCL/verseexec 原生桥设置 isInputReady。
+        // 转发到 verseexec 原生桥设置 isInputReady。
         // 若不设置，native 层 critical_send_* 会因 isInputReady=false 丢弃全部输入事件。
         inputReady = ready
         return try {

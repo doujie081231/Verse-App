@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.verse.explorer.app.ui.LoaderBadge
 import com.verse.explorer.app.ui.VersionIcon
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.cardgrid.model.CardInteraction
 import com.verse.explorer.cardgrid.model.CardSizeClass
@@ -70,10 +71,10 @@ fun CardState.VersionCardContent(cardId: String) {
         when {
             card?.status is VersionCardStatus.Loading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
+                    RoseLoader(
                         color = VerseColors.PcAccent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(22.dp),
+                        size = 22.dp
                     )
                 }
             }

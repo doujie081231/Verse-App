@@ -63,16 +63,17 @@ data class ResourceVersion(
     val source: String = "modrinth"
 )
 
-/** 版本依赖（对齐 Modrinth version.dependencies） */
+/** 版本依赖（对齐 Modrinth version.dependencies 与 CurseForge file.dependencies） */
 data class ResourceDependency(
     val projectId: String = "",
     val versionId: String = "",
     val fileName: String = "",
-    val type: String = "required"
+    val type: String = "required",
+    /** 依赖所属下载源（与宿主资源一致）：modrinth / curseforge */
+    val source: String = "modrinth"
 )
 
 /**
- * 搜索分页结果（对齐 PC searchMods：limit/offset 分页，total 用于上一页/下一页 disabled）。
  */
 data class ResourceSearchResult(
     val hits: List<ModrinthSearchHit> = emptyList(),

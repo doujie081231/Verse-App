@@ -89,8 +89,6 @@ fun FilterRow(
 }
 
 /**
- * PC 式分页条（对齐 versepc2 `.pagination`：上一页 / 当前页/总页数 / 下一页）。
- * 翻页 disabled 规则对齐 PC updateModPagination：
  *   - 上一页 disabled: currentPage <= 0（即 offset<=0）
  *   - 下一页 disabled: (currentPage+1)*pageSize >= totalHits（即 offset+15>=total）
  */

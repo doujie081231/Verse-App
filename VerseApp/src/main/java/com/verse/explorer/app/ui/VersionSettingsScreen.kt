@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersionSettingsRepository
 import com.verse.explorer.app.ui.components.PcCard
@@ -40,7 +41,6 @@ import java.io.File
 private typealias VS = VersionSettingsRepository.VersionSettings
 
 /**
- * 版本级启动设置页。功能对齐 FCL 版本设置：独立设置、定向 Java、内存、
  * JVM/游戏参数、服务器直达、版本隔离、图形 API/Vulkan 驱动/渲染器、调试日志、
  * 完整性检查豁免、强制分辨率与控制布局选择。
  *
@@ -135,10 +135,10 @@ fun VersionSettingsScreen(
 
             if (!loaded) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(
-                        color = VerseColors.PcAccent,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(28.dp)
+                    RoseLoader(
+                        modifier = Modifier.size(28.dp),
+                        size = 28.dp,
+                        color = VerseColors.PcAccent
                     )
                 }
             } else {
@@ -231,7 +231,7 @@ fun VersionSettingsScreen(
                         PcCard(title = "内存") {
                             PcSwitchRow(
                                 "自动分配内存",
-                                "按启动时的实时可用内存计算（FCL 算法）",
+                                "按启动时的实时可用内存自动计算",
                                 settings.autoMemory
                             ) { update { s -> s.copy(autoMemory = it) } }
                             if (!settings.autoMemory) {

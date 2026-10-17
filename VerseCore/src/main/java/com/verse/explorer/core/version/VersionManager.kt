@@ -36,7 +36,6 @@ class VersionManager(private val gameDir: File) {
         .create()
 
     /**
-     * PC 端对齐的版本清单加载：
      * 1. 非强制刷新时优先读本地缓存（10 分钟有效），避免每次都走网络导致加载慢；
      * 2. 多源竞速拉取，先成功者胜出，避免慢源阻塞；
      * 3. 成功后写回缓存。
@@ -162,20 +161,16 @@ class VersionManager(private val gameDir: File) {
         }
     }
 
-    /**
-     * 与 FCL GameRepository.versionIdConflicts 对应：
-     * 命名冲突 = versions 目录下已存在同名版本目录。
-     */
     fun versionIdConflicts(id: String): Boolean {
         val versionsDir = GameConfig.getVersionsDir(gameDir)
         if (!versionsDir.exists() || !versionsDir.isDirectory) return false
-        return versionsDir.listFiles { f -> f.isDirectory }?.any { it.name == id } == true
+        // 只有存在 <id>.json 的目录才算占用命名：中断/失败的残留空目录不是版本，
+        // 不应阻止同名重新安装（否则一次失败的下载会让该版本永远"重名"）
+        return versionsDir.listFiles { f -> f.isDirectory }?.any {
+            it.name == id && File(it, "${it.name}.json").isFile
+        } == true
     }
 
-    /**
-     * 从版本 json 原文识别加载器（覆盖库、inheritsFrom 与 patches 三处来源）。
-     * 顺序注意：neoforge/optifine/quilt 需先于 forge，因为 neoforge 库名含 "forge" 子串。
-     */
     fun detectLoaderFromJson(jsonText: String): String? {
         val t = jsonText.lowercase()
         return when {

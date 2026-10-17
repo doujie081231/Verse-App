@@ -22,9 +22,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Rose Curve（玫瑰曲线）加载动画 —— 等价迁移自 versepc2 `rose-loader.js`。
  *
- * 与源码一致的配置（math-curve-loaders Rose Curve）：
  *  - roseK=5 五叶玫瑰线，粒子沿曲线运动并带拖影
  *  - detailScale 呼吸变化（0.52 ~ 1.0）
  *  - 整体每 28s 缓慢旋转一圈
@@ -45,7 +43,6 @@ private object RoseConfig {
     const val roseScale = 3.25f
 }
 
-/** 曲线点：与源码 point(progress, detailScale, config) 一致，viewBox 0 0 100 100 */
 internal fun rosePoint(progress: Float, detailScale: Float): Offset {
     val t = progress * PI.toFloat() * 2f
     val a = RoseConfig.roseA + detailScale * RoseConfig.roseABoost
@@ -61,20 +58,17 @@ internal fun roseNormalizeProgress(progress: Float): Float {
     return ((progress % 1f) + 1f) % 1f
 }
 
-/** 呼吸：与源码 getDetailScale(time) 一致 */
 internal fun roseDetailScale(timeMs: Long): Float {
     val pulseProgress = (timeMs % RoseConfig.pulseDurationMs).toFloat() / RoseConfig.pulseDurationMs
     val pulseAngle = pulseProgress * PI.toFloat() * 2f
     return 0.52f + ((sin(pulseAngle + 0.55f) + 1f) / 2f) * 0.48f
 }
 
-/** 旋转：与源码 getRotation(time) 一致 */
 internal fun roseRotation(timeMs: Long): Float {
     if (!RoseConfig.rotate) return 0f
     return -((timeMs % RoseConfig.rotationDurationMs).toFloat() / RoseConfig.rotationDurationMs) * 360f
 }
 
-/** 动态路径：与源码 buildPath(detailScale, steps=480) 一致 */
 internal fun roseBuildPath(detailScale: Float): Path {
     val path = Path()
     val steps = 480
@@ -89,7 +83,6 @@ internal fun roseBuildPath(detailScale: Float): Path {
     return path
 }
 
-/** 粒子：与源码 getParticle(index, progress, detailScale) 一致 */
 private class RoseParticle(val x: Float, val y: Float, val radius: Float, val opacity: Float)
 
 private fun roseGetParticle(index: Int, progress: Float, detailScale: Float): RoseParticle {
@@ -105,7 +98,6 @@ private fun roseGetParticle(index: Int, progress: Float, detailScale: Float): Ro
 }
 
 /**
- * 玫瑰曲线加载动画（等价格式迁移自 rose-loader.js）。
  * 通过 Canvas 在 100x100 逻辑坐标中绘制路径（4.5 宽、10% 透明描边）与 86 个粒子（带拖影）。
  */
 @Composable
@@ -122,7 +114,6 @@ fun RoseCurveLoader(
         }
     }
 
-    // 与源码一致：size<=24 时 stroke=3，否则 4.5（此处为启动层大图，用 4.5）
     val strokeWidthPx = 4.5f
 
     Canvas(modifier = modifier) {

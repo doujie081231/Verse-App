@@ -33,6 +33,7 @@ import androidx.navigation.NavHostController
 import androidx.compose.ui.graphics.asImageBitmap
 import com.caverock.androidsvg.SVG
 import com.caverock.androidsvg.SVGParseException
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.feedback.FeedbackRepository
 import com.verse.explorer.app.ui.components.PageHeader
@@ -47,10 +48,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.DecimalFormat
 
-/** 站点地址（对齐 versepc2 feedback.js FEEDBACK_SITE_URL） */
 private const val FEEDBACK_SITE_URL = "https://verselauncher.cn"
 
-/** 附件限制（对齐 versepc2 feedback.js） */
 private const val FEEDBACK_MAX_FILES = 10
 private const val FEEDBACK_MAX_FILE_BYTES = 20 * 1024 * 1024
 
@@ -75,7 +74,6 @@ private data class FeedbackAttachment(
 )
 
 /**
- * 问题反馈页（对齐 versepc2 page-feedback.js / feedback.js）：
  * 问题分类（启动/下载/其他）+ 反馈内容 + 日志附件（自动收集）+ 截图/视频（手动）
  * + 环境信息 + 人机验证（站点 SVG 验证码）+ HMAC 签名提交通道。
  */
@@ -218,7 +216,6 @@ fun ConsoleScreen(navController: NavHostController) {
         }
     }
 
-    // 环境信息（对齐 versepc2 loadFeedbackEnv）
     val envRows = remember {
         val versionName = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
@@ -713,9 +710,9 @@ fun ConsoleScreen(navController: NavHostController) {
                                         .background(VerseColors.PcBgTertiary),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    CircularProgressIndicator(
+                                    RoseLoader(
                                         modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
+                                        size = 16.dp,
                                         color = VerseColors.PcAccent
                                     )
                                 }

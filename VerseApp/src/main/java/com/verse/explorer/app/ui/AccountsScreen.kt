@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -61,14 +62,13 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-/** 对齐 PC `.accts-card`：180x240 / 24 圆角 / 24 间距 */
 private val AcctsCardWidth = 180.dp
 private val AcctsCardHeight = 240.dp
 private val AcctsCardGap = 24.dp
 
 /**
- * 暗色主题卡片颜色（对齐 [data-theme="dark"] 下 .accts-card）；
- * 浅色主题回落到 .accts-card 默认玻璃白（rgba(255,255,255,0.08/0.12) + 白边框），消除白底下的灰板块。
+ * 暗色主题卡片颜色；
+ * 浅色主题回落到默认玻璃白（rgba(255,255,255,0.08/0.12) + 白边框），消除白底下的灰板块。
  */
 private val AcctsCardBg: Color
     get() = if (VerseColors.isDark) Color(0x59121218) else Color(0x14FFFFFF)
@@ -80,10 +80,9 @@ private val AcctsCardBorderSel: Color
     get() = if (VerseColors.isDark) Color(0x28FFFFFF) else Color(0x40FFFFFF)
 
 /**
- * 账户页（对齐 PC `page-accounts` 新版堆叠布局）。
  *  - 顶部标题「账户」
  *  - 可拖动账号轮播轨道：第一张为「添加账号」卡片，之后为账号卡片；
- *    拖动切换账号（对齐 _carouselBindDrag），上滑删除（对齐 accts-card-eject），点击卡片进入详情。
+ *    拖动切换账号，上滑删除，点击卡片进入详情。
  */
 @Composable
 fun AccountsScreen(
@@ -134,7 +133,6 @@ fun AccountsScreen(
             viewModel = viewModel
         )
     } else {
-        // 对齐 PC page-accounts：轮播舞台 + 底部提示（无顶部标题，与 PC 顶部紧凑一致）
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -152,7 +150,8 @@ fun AccountsScreen(
                         accounts = accounts,
                         selectedAccount = selectedAccount,
                         onAddAccount = {
-                            addSheetInitialType = "microsoft"
+                            // 先进入登录方式选择卡片（微软/离线/外置登录），不直接进微软流程
+                            addSheetInitialType = ""
                             showAddSheet = true
                         },
                         onOpenDetail = { selectedDetailAccount = it },
@@ -160,7 +159,6 @@ fun AccountsScreen(
                         onSelectAccount = { id -> scope.launch { viewModel.selectAccount(id) } }
                     )
                 }
-                // 对齐 .accts-carousel-hint
                 Text(
                     text = "← 左右拖动切换账号，最左侧可添加 →",
                     fontSize = 12.sp,
@@ -324,10 +322,10 @@ fun AccountsScreen(
                                     )
                                 }
                                 if (isProfileAuthenticating) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(16.dp),
-                                        VerseColors.PcAccent,
-                                        strokeWidth = 2.dp
+                                    RoseLoader(
+                                        modifier = Modifier.size(16.dp),
+                                        size = 16.dp,
+                                        color = VerseColors.PcAccent
                                     )
                                 } else {
                                     Icon(
@@ -371,7 +369,6 @@ fun AccountsScreen(
         )
     }
 
-    // ===== 微软登录内置浏览器（与 ZL2 的 WebScreen 对应）=====
     // 观察登录状态：成功/失败时收回浏览器覆盖层
     val msaLoginState by viewModel.microsoftLoginState.collectAsState()
     LaunchedEffect(msaLoginState) {
@@ -416,7 +413,7 @@ fun AccountsScreen(
         else -> "正在连接..."
     }
 
-    // 内置浏览器 + 一旁悬浮的轮询状态卡片：从右侧 1/3 屏幕滑入 + 轻微缩放 + 淡入（对齐项目 Shared X-Axis 页面过渡节奏）
+    // 内置浏览器 + 一旁悬浮的轮询状态卡片：从右侧 1/3 屏幕滑入 + 轻微缩放 + 淡入
     AnimatedVisibility(
         visible = showMsaWeb,
         modifier = Modifier.fillMaxSize(),
@@ -437,7 +434,6 @@ fun AccountsScreen(
             ) +
             fadeOut(tween(220))
     ) {
-        // 与 ZL2 一致：离开浏览器页（返回键）视为取消登录流程
         androidx.activity.compose.BackHandler {
             viewModel.cancelMicrosoftLogin()
             showMsaWeb = false
@@ -459,7 +455,7 @@ fun AccountsScreen(
 }
 
 /**
- * 账号轮播轨道（对齐 accounts.js renderAccountCarousel + _carouselBindDrag）。
+ * 账号轮播轨道。
  * 卡片顺序：[添加账号] + accounts；选中账号居中放大；左右拖动切换；上滑删除。
  */
 @Composable
@@ -477,11 +473,11 @@ private fun AccountCarousel(
     val stepPx = with(density) { (AcctsCardWidth + AcctsCardGap).toPx() }
     val ejectThresholdPx = with(density) { 40.dp.toPx() }
 
-    // cards：null 表示「添加账号」卡片（对齐 ADD_CARD_ID）
+    // cards：null 表示「添加账号」卡片
     val cards = remember(accounts) { listOf<Account?>(null) + accounts }
     val maxIndex = cards.size - 1
 
-    // 对齐 _carouselCurrentIndex 初值：选中+1；无选中但有账户 -> 1；无账户 -> 0
+    // 选中索引初值：选中+1；无选中但有账户 -> 1；无账户 -> 0
     var currentIndex by remember(accounts, selectedAccount?.id) {
         mutableIntStateOf(
             accounts.indexOfFirst { it.id == selectedAccount?.id }
@@ -489,19 +485,19 @@ private fun AccountCarousel(
         )
     }
 
-    // 轨道额外偏移：拖动手势期间为拖拽量，松手后动画吸附（对齐 translateX 平滑过渡）
+    // 轨道额外偏移：拖动手势期间为拖拽量，松手后动画吸附
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var dragAccumX by remember { mutableFloatStateOf(0f) }
     var dragAccumY by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
 
-    // 上滑删除：选中卡片沿 z 轴翻飞（对齐 acctEject 0.42s），动画结束后弹删除确认
+    // 上滑删除：选中卡片沿 z 轴翻飞，动画结束后弹删除确认
     var ejectIndex by remember { mutableStateOf(-1) }
     var ejectProgress by remember { mutableFloatStateOf(0f) }
 
     val scope = rememberCoroutineScope()
 
-    // 从 from 平滑吸附到 to（每帧回写 dragOffset 状态驱动重组，对齐 translateX transition）
+    // 从 from 平滑吸附到 to（每帧回写 dragOffset 状态驱动重组）
     suspend fun animateOffsetTo(from: Float, to: Float) {
         if (from == to) {
             dragOffset = to
@@ -527,7 +523,7 @@ private fun AccountCarousel(
         }
     }
 
-    // 拖动阻尼（对齐拖拽超界反弹系数 0.25）
+    // 拖动阻尼（超界反弹系数 0.25）
     fun dampedOffset(accum: Float): Float {
         val eff = currentIndex - accum / stepPx
         val maxF = maxIndex.toFloat()
@@ -561,7 +557,7 @@ private fun AccountCarousel(
                     },
                     onDragEnd = {
                         dragging = false
-                        // 上滑删除：对齐 onMove 中 dy<-40 且正交判定
+                        // 上滑删除：dy<-40 且正交判定
                         if (dragAccumY < -ejectThresholdPx &&
                             abs(dragAccumY) > abs(dragAccumX) * 1.1f
                         ) {
@@ -575,7 +571,7 @@ private fun AccountCarousel(
                             }
                             return@detectDragGestures
                         }
-                        // 松手吸附到最近卡片（对齐 endDrag 取整）
+                        // 松手吸附到最近卡片
                         val eff = (currentIndex - dragAccumX / stepPx).coerceIn(0f, maxIndex.toFloat())
                         val target = eff.roundToInt()
                         val finalDelta = (currentIndex - target) * stepPx
@@ -602,10 +598,9 @@ private fun AccountCarousel(
             }
     ) {
         val containerWpx = with(density) { maxWidth.toPx() }
-        // 卡片纵向居中于舞台（对齐 PC .accts-stage align-items:center）
         val cardHPx = with(density) { AcctsCardHeight.toPx() }
         val centerY = (with(density) { maxHeight.toPx() } - cardHPx) / 2f
-        // 轨道左端 = 容器中心 - 卡片中心 - index*(卡宽+间距)（对齐 _carouselResetPosition）
+        // 轨道左端 = 容器中心 - 卡片中心 - index*(卡宽+间距)
         val baseX = containerWpx / 2 - cardWpx / 2 - currentIndex * stepPx
 
         cards.forEachIndexed { i, card ->
@@ -664,7 +659,7 @@ private fun AccountCarousel(
     }
 }
 
-/** 统一的卡片内层：添加账号卡 或 账号卡（对齐 .accts-card 结构） */
+/** 统一的卡片内层：添加账号卡 或 账号卡 */
 @Composable
 private fun EjectCardContent(
     card: Account?,
@@ -680,7 +675,7 @@ private fun EjectCardContent(
 }
 
 /**
- * 上滑删除的 z 轴翻飞（对齐 @keyframes acctEject 0.42s）：
+ * 上滑删除的 z 轴翻飞：
  *   0%   scale(1.12) rotateX(0)   z0   y0
  *   40%  scale(1.18) rotateX(18)  z60  y-30
  *   100% scale(1.3)  rotateX(72)  z120 y-260 / opacity 0
@@ -718,7 +713,7 @@ private fun EjectingCard(
 }
 
 /**
- * 添加账号卡片（对齐 .accts-card.accts-add-card）：
+ * 添加账号卡片：
  * 虚线 2.5px + 十字 + 「添加账号」 + 「微软 / 离线 / 外置登录」
  */
 @Composable
@@ -778,7 +773,7 @@ private fun AddAccountCard(
 }
 
 /**
- * 账号卡片（对齐 .accts-card + .accts-card.is-selected）：
+ * 账号卡片：
  * 头像(110dp/26%圆角) + 用户名 + 选中时显示类型胶囊
  */
 @Composable
@@ -838,7 +833,7 @@ private fun AccountCardView(
                     overflow = TextOverflow.Ellipsis
                 )
                 if (selected) {
-                    // 对齐 .accts-card-type：accent 渐变胶囊（暗色下白底黑字，与启动按钮一致）
+                    // accent 渐变胶囊（暗色下白底黑字，与启动按钮一致）
                     Box(
                         modifier = Modifier
                             .shadow(12.dp, RoundedCornerShape(999.dp), spotColor = VerseColors.PcAccent.copy(alpha = 0.35f))

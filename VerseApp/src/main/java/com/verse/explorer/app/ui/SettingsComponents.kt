@@ -107,15 +107,8 @@ fun BackgroundStyleOption(
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(16.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(VerseColors.PcTextMuted)
-            )
             Text(
                 label,
                 fontSize = 14.sp,

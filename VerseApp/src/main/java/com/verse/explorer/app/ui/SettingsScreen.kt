@@ -39,7 +39,13 @@ import com.verse.explorer.app.ui.components.PcSwitchRow
 import com.verse.explorer.app.ui.components.PcTextInput
 import com.verse.explorer.app.ui.components.PcTextInputRow
 import com.verse.explorer.app.ui.components.pcTextFieldColors
+import com.verse.explorer.app.ui.theme.ActionMenuSide
+import com.verse.explorer.app.ui.theme.ColorThemeType
+import com.verse.explorer.app.ui.theme.DarkMode
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.verse.explorer.app.ui.theme.paletteStyleLabel
+import com.verse.explorer.app.ui.theme.paletteSwatch
+import com.materialkolor.PaletteStyle
 import com.tungsten.fcl.setting.MenuSetting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,10 +59,9 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsRepo = SettingsRepository
     // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
     MenuSetting.init(context.filesDir)
-    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=其他 4=关于
+    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=关于（原"其他"页已并入关于）
     var selectedPage by remember { mutableIntStateOf(0) }
-    val pages = listOf("启动设置", "个性化", "触控布局", "其他", "关于")
-    // 渲染分辨率比例（FCL windowScale，100% = 屏幕物理分辨率；调低降低渲染压力缓解卡顿）
+    val pages = listOf("启动设置", "个性化", "触控布局", "关于")
     var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
     var maxMemory by remember { mutableFloatStateOf(settingsRepo.getMaxMemory().toFloat()) }
@@ -76,7 +81,6 @@ fun SettingsScreen(navController: NavHostController) {
     var showFps by remember { mutableStateOf(settingsRepo.getShowFps()) }
     var autoSetChinese by remember { mutableStateOf(settingsRepo.isAutoSetChinese()) }
     var debugMode by remember { mutableStateOf(settingsRepo.getDebugMode()) }
-    // 新增状态变量（对齐 PC 端结构）
     var windowTitle by remember { mutableStateOf(settingsRepo.getWindowTitle()) }
     var launcherVisibility by remember { mutableStateOf(settingsRepo.getLauncherVisibility()) }
     var showSnapshots by remember { mutableStateOf(false) }
@@ -87,7 +91,6 @@ fun SettingsScreen(navController: NavHostController) {
     var graphicsBackend by remember { mutableStateOf(settingsRepo.getGraphicsBackend()) }
     // Vulkan 驱动器（true=系统驱动 / false=Turnip，UI 值转字符串驱动下拉）
     var vkDriver by remember { mutableStateOf(if (settingsRepo.getVkDriverSystem()) "system" else "turnip") }
-    // 启动检查与日志（FCL 同名设置）
     var notCheckGame by remember { mutableStateOf(settingsRepo.getNotCheckGame()) }
     var debugLog by remember { mutableStateOf(settingsRepo.getDebugLog()) }
     var requestMicPermission by remember { mutableStateOf(settingsRepo.getRequestMicPermission()) }
@@ -96,6 +99,10 @@ fun SettingsScreen(navController: NavHostController) {
     var showColorPicker by remember { mutableStateOf(false) }
     var previousAccent by remember { mutableStateOf<Color?>(null) }
     var bgOpacity by remember { mutableIntStateOf(VersePersonalization.backgroundOpacity) }
+    // 背景模糊半径（0..40 Dp）/ 模糊类型 / 视频背景音量（改即存，与背景透明度一致）
+    var bgBlur by remember { mutableIntStateOf(VersePersonalization.backgroundBlur) }
+    var bgBlurType by remember { mutableStateOf(VersePersonalization.backgroundBlurType) }
+    var bgVideoVolume by remember { mutableIntStateOf(VersePersonalization.videoVolume) }
     val scope = rememberCoroutineScope()
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -146,7 +153,6 @@ fun SettingsScreen(navController: NavHostController) {
             setLauncherVisibility(launcherVisibility)
             setThemeColor(themeColor)
         }
-        // 渲染分辨率比例（FCL windowScale）写入 menu_setting.json，启动链路三同步缩放生效
         MenuSetting.windowScale = renderScale.coerceIn(25, 300) / 100.0
         MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
     }
@@ -168,12 +174,26 @@ fun SettingsScreen(navController: NavHostController) {
         showSnapshots = false; themeColor = "white"
         // 同步重置个性化内存态（背景文件 + 强调色 + 透明度）
         VerseColors.customAccent = null
+        VerseColors.applySchemeAccents(primary = null, secondary = null, tertiary = null)
         SettingsRepository.setThemeAccent("")
         VersePersonalization.setStyle("none")
         VersePersonalization.setOpacity(95)
+        VersePersonalization.applyBackgroundBlur(0)
+        VersePersonalization.applyBackgroundBlurType("background")
+        VersePersonalization.applyVideoVolume(0)
+        // 主题与外观回默认：浅色黑白主题 / 跟随系统 / 菜单停靠左侧 / 全屏开
+        VersePersonalization.applyColorTheme(ColorThemeType.LIGHT.name)
+        VersePersonalization.applyThemeCustomColor(0xFF0000FF.toInt())
+        VersePersonalization.applyPaletteStyle("TonalSpot")
+        VersePersonalization.applyDarkMode(DarkMode.FOLLOW_SYSTEM.name)
+        VersePersonalization.applyActionMenuSide(ActionMenuSide.START.name)
+        VersePersonalization.applyLauncherFullScreen(true)
         VersePersonalization.clear(context, "image")
         VersePersonalization.clear(context, "video")
         bgOpacity = 95
+        bgBlur = 0
+        bgBlurType = "background"
+        bgVideoVolume = 0
     }
 
     // 根容器：左侧栏 + 内容区；顶层承载取色器全屏宿主（SideDialogView 从右侧滑入）
@@ -239,9 +259,33 @@ fun SettingsScreen(navController: NavHostController) {
                 0 -> {
                     item {
                         PcCard(title = "启动选项") {
-                            PcSwitchRow("VerseX 渲染器", "启用 VerseX 渲染优化层（pipeline 缓存 + 异步提交，显著提升帧率）", versexRenderer) { on ->
-                                versexRenderer = on
-                                settingsRepo.setVersexRenderer(on)
+                            // VerseX 渲染器暂不可用：功能开发中，开关置灰禁用（保留设置存储）
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "VerseX 渲染器",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = VerseColors.PcTextMuted
+                                    )
+                                    Text(
+                                        "暂不可用",
+                                        fontSize = 12.sp,
+                                        color = VerseColors.PcTextMuted
+                                    )
+                                }
+                                Switch(
+                                    checked = versexRenderer,
+                                    onCheckedChange = null,
+                                    enabled = false,
+                                    colors = SwitchDefaults.colors(
+                                        checkedTrackColor = VerseColors.PcAccent.copy(alpha = 0.4f),
+                                        uncheckedTrackColor = VerseColors.PcBgTertiary
+                                    )
+                                )
                             }
                             PcSwitchRow("VerseX Pipeline 缓存", "缓存已编译的渲染管线对象，消除世界加载/切场景编译卡顿", versexPipelineCache) { on ->
                                 versexPipelineCache = on
@@ -373,7 +417,6 @@ fun SettingsScreen(navController: NavHostController) {
                                     }
                                 }
                                 Spacer(Modifier.height(12.dp))
-                                // 渲染分辨率比例（FCL windowScale：游戏渲染分辨率 = 屏幕 × 比例，三同步缩放，
                                 // 调低降低渲染压力缓解卡顿；对应游戏内控制面板的「窗口比例」滑块）
                                 Text(
                                     "渲染分辨率比例",
@@ -429,7 +472,6 @@ fun SettingsScreen(navController: NavHostController) {
 
                     item {
                         PcCard(title = "Java 设置") {
-                            // Java 运行时管理入口（原侧边栏 Java 页，收进设置；FCL 全局管理中的 Java 管理）
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -578,47 +620,127 @@ fun SettingsScreen(navController: NavHostController) {
                                 color = VerseColors.PcTextSecondary
                             )
                             Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                ThemeColorOption(
-                                    label = "黑色",
-                                    color = VerseColors.PcTextPrimary,
-                                    selected = themeColor == "black"
+                            // 颜色主题多选：深色/浅色（黑白主题，行为不变）+ 七套命名色板 + 动态取色 + 自定义取色
+                            val selection = VersePersonalization.colorTheme
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    themeColor = "black"
-                                    VerseColors.applyTheme("black")
+                                    ThemeColorOption(
+                                        label = "深色",
+                                        color = VerseColors.PcTextPrimary,
+                                        selected = selection == ColorThemeType.DARK.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.DARK.name) }
+                                    ThemeColorOption(
+                                        label = "浅色",
+                                        color = VerseColors.PcBgPrimary,
+                                        selected = selection == ColorThemeType.LIGHT.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.LIGHT.name) }
+                                    ThemeColorOption(
+                                        label = "动态取色",
+                                        color = VerseColors.PcAccent,
+                                        selected = selection == ColorThemeType.DYNAMIC.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.DYNAMIC.name) }
+                                    ThemeColorOption(
+                                        label = "自定义取色",
+                                        color = Color(VersePersonalization.themeCustomColor),
+                                        selected = selection == ColorThemeType.CUSTOM.name
+                                    ) {
+                                        VersePersonalization.applyColorTheme(ColorThemeType.CUSTOM.name)
+                                        previousAccent = VerseColors.customAccent
+                                        showColorPicker = true
+                                    }
                                 }
-                                ThemeColorOption(
-                                    label = "白色",
-                                    color = VerseColors.PcBgPrimary,
-                                    selected = themeColor == "white"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    themeColor = "white"
-                                    VerseColors.applyTheme("white")
+                                    ThemeColorOption(
+                                        label = "烬火",
+                                        color = paletteSwatch(ColorThemeType.EMBERMIRE),
+                                        selected = selection == ColorThemeType.EMBERMIRE.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.EMBERMIRE.name) }
+                                    ThemeColorOption(
+                                        label = "绯玫",
+                                        color = paletteSwatch(ColorThemeType.VELVET_ROSE),
+                                        selected = selection == ColorThemeType.VELVET_ROSE.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.VELVET_ROSE.name) }
+                                    ThemeColorOption(
+                                        label = "雾波",
+                                        color = paletteSwatch(ColorThemeType.MISTWAVE),
+                                        selected = selection == ColorThemeType.MISTWAVE.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.MISTWAVE.name) }
+                                    ThemeColorOption(
+                                        label = "冰川",
+                                        color = paletteSwatch(ColorThemeType.GLACIER),
+                                        selected = selection == ColorThemeType.GLACIER.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.GLACIER.name) }
                                 }
-                                ThemeColorOption(
-                                    label = "自定义",
-                                    color = VerseColors.customAccent ?: VerseColors.PcAccent,
-                                    selected = VerseColors.customAccent != null
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    previousAccent = VerseColors.customAccent
-                                    showColorPicker = true
+                                    ThemeColorOption(
+                                        label = "翠野",
+                                        color = paletteSwatch(ColorThemeType.VERDANT_FIELD),
+                                        selected = selection == ColorThemeType.VERDANT_FIELD.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.VERDANT_FIELD.name) }
+                                    ThemeColorOption(
+                                        label = "都市灰",
+                                        color = paletteSwatch(ColorThemeType.URBAN_ASH),
+                                        selected = selection == ColorThemeType.URBAN_ASH.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.URBAN_ASH.name) }
+                                    ThemeColorOption(
+                                        label = "翠晨",
+                                        color = paletteSwatch(ColorThemeType.VERDANT_DAWN),
+                                        selected = selection == ColorThemeType.VERDANT_DAWN.name
+                                    ) { VersePersonalization.applyColorTheme(ColorThemeType.VERDANT_DAWN.name) }
                                 }
                             }
-                            // 已设置自定义强调色时提供恢复入口
-                            if (VerseColors.customAccent != null) {
+                            // 自定义取色：配色风格（PaletteStyle）选择
+                            if (selection == ColorThemeType.CUSTOM.name) {
+                                Spacer(Modifier.height(10.dp))
+                                PcDropdownRow(
+                                    "配色风格",
+                                    VersePersonalization.paletteStyle,
+                                    PaletteStyle.entries.map { it.name to paletteStyleLabel(it) }
+                                ) { VersePersonalization.applyPaletteStyle(it) }
+                            }
+                            // 黑白主题下保留原有自定义强调色行为（取色器覆盖黑白主题强调色）
+                            if (selection == ColorThemeType.DARK.name || selection == ColorThemeType.LIGHT.name) {
                                 Spacer(Modifier.height(10.dp))
                                 PcButton(
-                                    text = "恢复默认强调色",
+                                    text = "自定义强调色",
                                     onClick = {
-                                        VerseColors.customAccent = null
-                                        SettingsRepository.setThemeAccent("")
+                                        previousAccent = VerseColors.customAccent
+                                        showColorPicker = true
                                     },
                                     variant = PcButtonVariant.OUTLINE
                                 )
+                                if (VerseColors.customAccent != null) {
+                                    Spacer(Modifier.height(10.dp))
+                                    PcButton(
+                                        text = "恢复默认强调色",
+                                        onClick = {
+                                            VerseColors.customAccent = null
+                                            SettingsRepository.setThemeAccent("")
+                                        },
+                                        variant = PcButtonVariant.OUTLINE
+                                    )
+                                }
                             }
+                            Spacer(Modifier.height(12.dp))
+                            // 主题明暗三态：深色 / 浅色 / 跟随系统
+                            PcDropdownRow(
+                                "主题明暗",
+                                VersePersonalization.darkMode,
+                                listOf(
+                                    DarkMode.FOLLOW_SYSTEM.name to "跟随系统",
+                                    DarkMode.ENABLE.name to "深色",
+                                    DarkMode.DISABLE.name to "浅色"
+                                )
+                            ) { VersePersonalization.applyDarkMode(it) }
                         }
                     }
 
@@ -629,6 +751,21 @@ fun SettingsScreen(navController: NavHostController) {
                                 "悬浮导航按钮与展开面板的液态玻璃折射效果（Android 13+ 生效）",
                                 VersePersonalization.sidebarGlass
                             ) { VersePersonalization.applySidebarGlass(it) }
+                            // 主界面操作菜单停靠侧：START=左 / END=右
+                            PcDropdownRow(
+                                "操作菜单停靠侧",
+                                VersePersonalization.actionMenuSide,
+                                listOf(
+                                    ActionMenuSide.END.name to "右侧",
+                                    ActionMenuSide.START.name to "左侧"
+                                )
+                            ) { VersePersonalization.applyActionMenuSide(it) }
+                            // 启动器部分屏幕全屏：默认开=沉浸式全屏并延伸到刘海区域，改动即时生效
+                            PcSwitchRow(
+                                "启动器全屏",
+                                "沉浸式全屏显示并延伸到刘海区域；关闭后退出沉浸并避让刘海",
+                                VersePersonalization.launcherFullScreen
+                            ) { VersePersonalization.applyLauncherFullScreen(it) }
                         }
                     }
 
@@ -731,6 +868,127 @@ fun SettingsScreen(navController: NavHostController) {
                                     Text("100%", fontSize = 11.sp, color = VerseColors.PcTextMuted)
                                 }
                             }
+                            // 背景模糊半径（0..40 Dp，0=关闭），背景无效时禁用
+                            val backgroundValid = VersePersonalization.backgroundValid
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "背景模糊",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = VerseColors.PcTextSecondary
+                                    )
+                                    Text(
+                                        "${bgBlur}Dp",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = VerseColors.PcAccent
+                                    )
+                                }
+                                Slider(
+                                    value = bgBlur.toFloat(),
+                                    onValueChange = {
+                                        bgBlur = it.toInt()
+                                        VersePersonalization.applyBackgroundBlur(bgBlur)
+                                    },
+                                    valueRange = 0f..40f,
+                                    enabled = backgroundValid,
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = VerseColors.PcAccent,
+                                        activeTrackColor = VerseColors.PcAccent,
+                                        inactiveTrackColor = VerseColors.PcBgTertiary,
+                                        disabledThumbColor = VerseColors.PcTextMuted,
+                                        disabledActiveTrackColor = VerseColors.PcTextMuted
+                                    )
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("0Dp", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                    Text("40Dp", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                }
+                            }
+                            // 模糊类型切换：背景模糊（整层模糊）/ 前景毛玻璃（卡片下模糊切片），背景无效时禁用
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                Text(
+                                    "模糊类型",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = VerseColors.PcTextSecondary
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    PcButton(
+                                        text = "背景模糊",
+                                        onClick = {
+                                            bgBlurType = "background"
+                                            VersePersonalization.applyBackgroundBlurType("background")
+                                        },
+                                        variant = if (bgBlurType == "background") PcButtonVariant.PRIMARY else PcButtonVariant.SECONDARY,
+                                        enabled = backgroundValid,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    PcButton(
+                                        text = "前景毛玻璃",
+                                        onClick = {
+                                            bgBlurType = "foreground"
+                                            VersePersonalization.applyBackgroundBlurType("foreground")
+                                        },
+                                        variant = if (bgBlurType == "foreground") PcButtonVariant.PRIMARY else PcButtonVariant.SECONDARY,
+                                        enabled = backgroundValid,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                            // 视频背景音量（0..100），仅背景为视频时提供
+                            if (VersePersonalization.backgroundStyle == "video") {
+                                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            "视频音量",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = VerseColors.PcTextSecondary
+                                        )
+                                        Text(
+                                            "${bgVideoVolume}%",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = VerseColors.PcAccent
+                                        )
+                                    }
+                                    Slider(
+                                        value = bgVideoVolume.toFloat(),
+                                        onValueChange = {
+                                            bgVideoVolume = it.toInt()
+                                            VersePersonalization.applyVideoVolume(bgVideoVolume)
+                                        },
+                                        valueRange = 0f..100f,
+                                        colors = SliderDefaults.colors(
+                                            thumbColor = VerseColors.PcAccent,
+                                            activeTrackColor = VerseColors.PcAccent,
+                                            inactiveTrackColor = VerseColors.PcBgTertiary
+                                        )
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("0%", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                        Text("100%", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                                    }
+                                }
+                            }
                             Spacer(Modifier.height(8.dp))
                             PcButton(
                                 text = "移除背景",
@@ -745,78 +1003,33 @@ fun SettingsScreen(navController: NavHostController) {
                     }
                 }
 
-                // 触控布局子页：本地布局管理 + 布局仓库下载（FCL ControllerManagePage/RepoPage 对应）
                 2 -> {
                     item { ControlLayoutsContent() }
                 }
 
-                // 其他子页
+                // 关于子页：通用（原"其他"页并入）+ 版本信息 + 致谢 + 开源协议
                 3 -> {
                     item {
                         PcCard(title = "通用") {
-                            PcDropdownRow(
-                                "语言设置",
-                                language,
-                                listOf(
-                                    "简体中文" to "简体中文",
-                                    "English" to "English",
-                                    "繁體中文" to "繁體中文"
-                                )
-                            ) { language = it }
                             PcSwitchRow("调试模式", "启用额外的调试信息和日志", debugMode) { debugMode = it }
                         }
                     }
 
-                    item {
-                        PcCard(title = "反馈与关于") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "反馈邮箱",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = VerseColors.PcTextSecondary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    "support@versemc.com",
-                                    fontSize = 13.sp,
-                                    color = VerseColors.PcTextPrimary
-                                )
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "版本号",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = VerseColors.PcTextSecondary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text("v1.0.0", fontSize = 13.sp, color = VerseColors.PcTextPrimary)
-                            }
-                            Spacer(Modifier.height(12.dp))
-                            PcButton(
-                                text = "恢复默认设置",
-                                onClick = { resetAll() },
-                                variant = PcButtonVariant.OUTLINE
-                            )
-                        }
-                    }
-                }
-
-                // 关于子页：版本信息 + 致谢 + 开源协议
-                4 -> {
                     item { AboutContent() }
+
+                    item {
+                        PcButton(
+                            text = "恢复默认设置",
+                            onClick = { resetAll() },
+                            variant = PcButtonVariant.OUTLINE,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
 
             // 保存设置按钮（关于页为纯展示信息，不提供保存操作）
-            if (selectedPage != 4) item {
+            if (selectedPage != 3) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -833,15 +1046,22 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-        // 顶层：Pojav HSV 取色器（打开时全屏 FrameLayout 宿主，从右滑入）
         if (showColorPicker) {
             ColorPickerOverlay(
-                initialArgb = (VerseColors.customAccent ?: Color.White).toArgb(),
+                // 自定义取色主题：初始值取自定义种子色；黑白主题：初始值取当前强调色
+                initialArgb = when (VersePersonalization.colorTheme) {
+                    ColorThemeType.CUSTOM.name -> VersePersonalization.themeCustomColor
+                    else -> (VerseColors.customAccent ?: Color.White).toArgb()
+                },
                 onCancel = {
                     VerseColors.customAccent = previousAccent
                     showColorPicker = false
                 },
                 onConfirm = { argb ->
+                    // 自定义取色主题：写入种子色（驱动 materialkolor 配色方案）；黑白主题：覆盖强调色
+                    if (VersePersonalization.colorTheme == ColorThemeType.CUSTOM.name) {
+                        VersePersonalization.applyThemeCustomColor(argb)
+                    }
                     SettingsRepository.setThemeAccent(String.format("%08X", argb))
                     showColorPicker = false
                 }
@@ -851,7 +1071,6 @@ fun SettingsScreen(navController: NavHostController) {
 }
 
 /**
- * Pojav HSV 取色器集成层：全屏 AndroidView FrameLayout 作 SideDialogView 宿主，
  * 拖动实时预览（VerseColors.customAccent），确定/取消/返回均先滑出再关闭。
  */
 @Composable
@@ -893,6 +1112,10 @@ private fun ColorPickerOverlay(
         selector.setAlphaEnabled(false)
         selector.setColorSelectionListener { argb ->
             latestArgb = argb
+            // 拖动实时预览：自定义取色主题同步刷新种子色，黑白主题覆盖强调色
+            if (VersePersonalization.colorTheme == ColorThemeType.CUSTOM.name) {
+                VersePersonalization.applyThemeCustomColor(argb)
+            }
             VerseColors.customAccent = Color(argb)
         }
         selector.setStartButtonListener(R.string.color_picker_cancel) {

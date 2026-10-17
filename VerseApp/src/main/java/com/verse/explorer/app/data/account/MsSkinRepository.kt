@@ -143,7 +143,6 @@ object MsSkinRepository {
 
     /**
      * 应用本地皮肤到 Minecraft 官方。
-     * 对齐 VersePC：multipart 上传，字段 variant + file。
      * 返回结果，含频率限制（429）与登录过期（401）细分。
      */
     suspend fun apply(

@@ -1,17 +1,14 @@
 package com.verse.explorer.app.ui.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.EaseInOut
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Surface
@@ -37,25 +34,37 @@ import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.install.modpack.ModpackTaskKind
+import com.tungsten.fclcore.task.FetchTask
 import kotlin.math.sin
 import kotlin.math.PI
 
-// ===== 状态模型（UI 层归并 FCL 任务事件 → 阶段行） =====
+// ===== 状态模型（UI 层归并任务事件 → 固定阶段行） =====
 
 enum class ModpackInstallPhase { DOWNLOAD_FILE, INSTALLING, DONE, FAILED, CANCELLED }
 
-enum class ModpackRowStatus { RUNNING, DONE, FAILED }
+enum class ModpackRowStatus { PENDING, RUNNING, DONE, FAILED }
 
+/** 安装期固定阶段行 key：阶段集合在安装开始前固定，分母不再随事件动态增长 */
+const val MODPACK_ROW_GAME = "game"
+const val MODPACK_ROW_ASSETS = "assets"
+const val MODPACK_ROW_LOADER = "loader"
+const val MODPACK_ROW_UNPACK = "modpack"
+const val MODPACK_ROW_MODS = "modpack_dl"
+
+/**
+ * 阶段行：n/total 计数（单阶段多文件）或任务进度（单任务阶段）二者其一驱动进度。
+ */
 data class ModpackStageRow(
     val key: String,
     val label: String,
-    val status: ModpackRowStatus = ModpackRowStatus.RUNNING,
+    val status: ModpackRowStatus = ModpackRowStatus.PENDING,
     val progress: Float = 0f,
     val detail: String = "",
     val error: String? = null,
-    // 归并统计：该阶段行出现的任务 start 次数 / done 次数，二者相等视为该行完成
-    val started: Int = 0,
-    val done: Int = 0
+    /** 本阶段已完成文件数（计数事件驱动） */
+    val countDone: Int = 0,
+    /** 本阶段总文件数（阶段任务 properties 声明） */
+    val countTotal: Int = 0
 )
 
 data class ModpackInstallUiState(
@@ -66,64 +75,123 @@ data class ModpackInstallUiState(
     val phase: ModpackInstallPhase = ModpackInstallPhase.DOWNLOAD_FILE,
     val fileProgress: Float = 0f,
     val fileText: String = "",
+    /** 整合包文件下载阶段的实时速度（字节/秒，来自下载中心条目上报） */
+    val downloadSpeed: Long = 0,
     val rows: List<ModpackStageRow> = emptyList(),
     val error: String? = null
 ) {
-    /** 总进度（整合包文件下载 0~0.15，FCL 任务阶段 0.15~1.0） */
+    /**
+     * 总进度：固定权重加权（阶段未开始记 0，完成记满）——
+     * 下载整合包文件 0.10 / MC 本体 0.25 / 资源文件 0.10 / 加载器 0.10 /
+     * 解压整合包 0.10 / 整合包模组 0.35。
+     */
     val overall: Float
         get() = when (phase) {
-            ModpackInstallPhase.DOWNLOAD_FILE -> fileProgress * 0.15f
+            ModpackInstallPhase.DOWNLOAD_FILE -> fileProgress * 0.10f
             ModpackInstallPhase.INSTALLING -> {
-                val total = rows.size.coerceAtLeast(1)
-                val doneW = rows.count { it.status == ModpackRowStatus.DONE }
-                val actW = rows.sumOf {
-                    if (it.status == ModpackRowStatus.RUNNING) it.progress.toDouble() else 0.0
-                }.toFloat()
-                0.15f + 0.85f * ((doneW + actW) / total).coerceIn(0f, 1f)
+                val byKey = rows.associateBy { it.key }
+                0.10f + 0.25f * byKey[MODPACK_ROW_GAME].rowValue() +
+                    0.10f * byKey[MODPACK_ROW_ASSETS].rowValue() +
+                    0.10f * byKey[MODPACK_ROW_LOADER].rowValue() +
+                    0.10f * byKey[MODPACK_ROW_UNPACK].rowValue() +
+                    0.35f * byKey[MODPACK_ROW_MODS].rowValue()
             }
             ModpackInstallPhase.DONE -> 1f
             else -> 0f
         }
+
+    private fun ModpackStageRow?.rowValue(): Float = when {
+        this == null -> 0f
+        status == ModpackRowStatus.DONE -> 1f
+        status == ModpackRowStatus.PENDING -> 0f
+        countTotal > 0 -> (countDone.toFloat() / countTotal).coerceIn(0f, 1f)
+        else -> progress.coerceIn(0f, 1f)
+    }
 }
 
-/** 将单个 FCL 任务事件归并进弹窗状态（必须在主线程调用） */
+/** 安装期固定阶段表：进入安装阶段时构建一次，行集合不再变化 */
+fun ModpackInstallUiState.withFixedStageRows(): ModpackInstallUiState = copy(
+    phase = ModpackInstallPhase.INSTALLING,
+    rows = listOf(
+        ModpackStageRow(MODPACK_ROW_GAME, "安装 Minecraft 本体"),
+        ModpackStageRow(MODPACK_ROW_ASSETS, "下载资源文件"),
+        ModpackStageRow(MODPACK_ROW_LOADER, "安装加载器"),
+        ModpackStageRow(MODPACK_ROW_UNPACK, "解压整合包文件"),
+        ModpackStageRow(MODPACK_ROW_MODS, "下载整合包模组")
+    )
+)
+
+/** 事件 key → 固定阶段行 key（task: 开头的单文件事件不占行，进度由计数事件表达） */
+private fun bucketOf(eventKey: String): String? {
+    if (!eventKey.startsWith("stage:")) return null
+    val stage = eventKey.removePrefix("stage:")
+    return when {
+        stage.equals("fcl.modpack", ignoreCase = true) -> MODPACK_ROW_UNPACK
+        stage.equals("fcl.modpack.download", ignoreCase = true) -> MODPACK_ROW_MODS
+        stage.startsWith("fcl.install.game:", ignoreCase = true) -> MODPACK_ROW_GAME
+        stage.equals("fcl.install.assets", ignoreCase = true) -> MODPACK_ROW_ASSETS
+        stage.startsWith("fcl.install.", ignoreCase = true) -> MODPACK_ROW_LOADER
+        else -> null
+    }
+}
+
+/** 将单个任务事件归并进弹窗状态（必须在主线程调用；行集合固定，未知 key 丢弃） */
 fun ModpackInstallUiState.applyTaskEvent(ev: ModpackTaskEvent): ModpackInstallUiState {
     if (!visible || phase != ModpackInstallPhase.INSTALLING) return this
+    val rowKey = bucketOf(ev.key) ?: return this
 
-    val idx = rows.indexOfFirst { it.key == ev.key }
-    val row = if (idx >= 0) rows[idx]
-    else ModpackStageRow(
-        key = ev.key,
-        label = ev.label.ifBlank { ev.key },
-        started = 0,
-        done = 0
-    )
-
-    val started = if (ev.kind == ModpackTaskKind.RUNNING) row.started + 1 else row.started
-    val done = if (ev.kind == ModpackTaskKind.DONE) row.done + 1 else row.done
-    val failed = ev.kind == ModpackTaskKind.FAILED
-
-    val status = when {
-        failed -> ModpackRowStatus.FAILED
-        started > 0 && done >= started -> ModpackRowStatus.DONE
-        else -> ModpackRowStatus.RUNNING
+    val newRows = rows.map { row ->
+        if (row.key != rowKey) return@map row
+        var r = row
+        if (ev.label.isNotBlank()) r = r.copy(label = ev.label)
+        when {
+            // 本阶段文件总数声明（n/total 的 total）。宿主任务的准备/查询期进度可能已把
+            // 行进度虚推到 1，计数接管后必须按计数重算，否则总进度先冲 100% 再回跳
+            ev.countTotal >= 0 ->
+                r = r.copy(
+                    countTotal = ev.countTotal,
+                    status = if (r.status == ModpackRowStatus.PENDING) ModpackRowStatus.RUNNING else r.status,
+                    progress = if (ev.countTotal > 0) (r.countDone.toFloat() / ev.countTotal).coerceIn(0f, 1f) else r.progress
+                )
+            // 单文件完成计数（n/total 的 n）
+            ev.countDone >= 0 -> {
+                r = r.copy(
+                    countDone = maxOf(r.countDone, ev.countDone),
+                    status = if (r.status == ModpackRowStatus.PENDING) ModpackRowStatus.RUNNING else r.status
+                )
+                if (r.countTotal > 0) {
+                    r = r.copy(progress = (r.countDone.toFloat() / r.countTotal).coerceIn(0f, 1f))
+                }
+            }
+            ev.kind == ModpackTaskKind.DONE && ev.rowDone ->
+                // 阶段宿主任务结束：整行完成（单文件完成不算）
+                r = r.copy(
+                    status = ModpackRowStatus.DONE,
+                    progress = 1f,
+                    countDone = maxOf(r.countDone, r.countTotal)
+                )
+            ev.kind == ModpackTaskKind.FAILED ->
+                r = r.copy(status = ModpackRowStatus.FAILED, error = ev.message.ifBlank { "任务失败" })
+            ev.kind == ModpackTaskKind.RUNNING -> {
+                if (r.status == ModpackRowStatus.PENDING) r = r.copy(status = ModpackRowStatus.RUNNING)
+                // 单任务阶段：取单调最大进度；多文件阶段的进度由计数驱动，不绑定单文件
+                if (r.countTotal <= 0 && ev.progress > r.progress) r = r.copy(progress = ev.progress)
+                // 任务名仅取可读名称，内部类名（无业务含义）不落到行详情
+                if (ev.name.isNotBlank() && !ev.name.startsWith("stage:") && !ev.name.contains('.')) {
+                    r = r.copy(detail = ev.name)
+                }
+            }
+        }
+        // 计数收齐 → 行完成（覆盖计数事件先于宿主结束事件到达的情况）
+        if (r.status == ModpackRowStatus.RUNNING && r.countTotal > 0 && r.countDone >= r.countTotal) {
+            r = r.copy(status = ModpackRowStatus.DONE, progress = 1f)
+        }
+        r
     }
-    val newRow = row.copy(
-        label = ev.label.ifBlank { row.label },
-        status = status,
-        progress = if (ev.kind == ModpackTaskKind.RUNNING) ev.progress else row.progress,
-        detail = if (ev.kind == ModpackTaskKind.RUNNING && ev.name.isNotBlank()) ev.name else row.detail,
-        error = if (failed) ev.message.ifBlank { "任务失败" } else row.error,
-        started = started,
-        done = done
-    )
-
-    val newRows = if (idx >= 0) rows.toMutableList().apply { set(idx, newRow) }
-    else rows + newRow
     return copy(rows = newRows)
 }
 
-// ===== 弹窗 UI（对齐版本下载的 InstallFlowCard 视觉：阶段行 + 总进度） =====
+// ===== 弹窗 UI（阶段行 + 固定权重总进度 + 实时速度） =====
 
 private val StageOrange = Color(0xFFF59E0B)
 private val StageGreen = Color(0xFF22C55E)
@@ -153,7 +221,7 @@ fun ModpackInstallDialog(
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // 标题 + 整合包作者图标（无图标或加载失败时显示首字母占位，不空白）
+            // 标题 + 整合包图标 + 实时速度（下载任务每秒上报，B/s → KB/s → MB/s）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -168,13 +236,6 @@ fun ModpackInstallDialog(
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Text(
-                            state.title.trim().firstOrNull()?.uppercase() ?: "?",
-                            color = VerseColors.PcAccent,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
                         )
                     }
                 }
@@ -205,6 +266,23 @@ fun ModpackInstallDialog(
                         )
                     }
                 }
+                if (running) {
+                    // 速度来源按阶段区分：整合包文件下载走下载中心条目上报（SmartDownloadClient），
+                    // 安装阶段的 libraries/assets 走任务引擎的每秒速度事件
+                    val speed = if (state.phase == ModpackInstallPhase.DOWNLOAD_FILE) {
+                        state.downloadSpeed
+                    } else {
+                        rememberFetchSpeed()
+                    }
+                    if (speed > 0) {
+                        Text(
+                            formatSpeedText(speed),
+                            fontSize = 11.sp,
+                            color = VerseColors.PcAccent,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
             }
             Spacer(Modifier.height(14.dp))
 
@@ -218,20 +296,26 @@ fun ModpackInstallDialog(
                     lastRow = true
                 )
             } else if (running || done || failed) {
-                // 阶段行：内容超高时区域内滚动，保证底部总进度与操作按钮不被顶出
+                // 固定阶段行：内容超高时区域内滚动，保证底部总进度与操作按钮不被顶出
                 Column(
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    state.rows.forEach { row ->
+                    state.rows.forEachIndexed { index, row ->
+                        val detailText = when {
+                            row.status == ModpackRowStatus.FAILED -> row.error ?: row.detail
+                            row.countTotal > 0 && row.status != ModpackRowStatus.PENDING ->
+                                "${row.countDone} / ${row.countTotal} 个文件"
+                            else -> row.detail
+                        }
                         ModpackStageRowView(
                             label = row.label,
                             status = row.status,
                             progress = row.progress,
-                            detail = if (row.status == ModpackRowStatus.FAILED) row.error ?: row.detail else row.detail,
+                            detail = detailText,
                             error = row.status == ModpackRowStatus.FAILED,
-                            lastRow = row == state.rows.last()
+                            lastRow = index == state.rows.lastIndex
                         )
                         Spacer(Modifier.height(6.dp))
                     }
@@ -250,7 +334,7 @@ fun ModpackInstallDialog(
 
             Spacer(Modifier.height(16.dp))
 
-            // 总进度条
+            // 总进度条（固定权重加权，不再随阶段行增减跳动）
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -298,6 +382,44 @@ fun ModpackInstallDialog(
     }
 }
 
+/**
+ * 订阅任务引擎的全局速度事件（每秒一次，聚合当前全部下载任务的字节速率），
+ * 弹窗组合期注册、离开组合注销。仅安装阶段的任务（FetchTask 体系）会发出事件。
+ */
+@Composable
+private fun rememberFetchSpeed(): Long {
+    val speed = remember { mutableLongStateOf(0L) }
+    DisposableEffect(Unit) {
+        val handler = java.util.function.Consumer<FetchTask.SpeedEvent> { event ->
+            speed.longValue = event.speed.toLong()
+        }
+        FetchTask.speedEvent
+            .channel(FetchTask.SpeedEvent::class.java)
+            .registerWeak(handler)
+        onDispose {
+            FetchTask.speedEvent
+                .channel(FetchTask.SpeedEvent::class.java)
+                .unregister(handler)
+        }
+    }
+    return speed.longValue
+}
+
+/** "xx.x KB/s" 格式（B/s → KB/s → MB/s） */
+private fun formatSpeedText(speed: Long): String {
+    var value = speed.toFloat()
+    var unit = "B/s"
+    if (value > 1024) {
+        value /= 1024
+        unit = "KB/s"
+    }
+    if (value > 1024) {
+        value /= 1024
+        unit = "MB/s"
+    }
+    return String.format("%.1f %s", value, unit)
+}
+
 @Composable
 private fun ModpackStageRowView(
     label: String,
@@ -308,12 +430,14 @@ private fun ModpackStageRowView(
     lastRow: Boolean = true
 ) {
     val color = when (status) {
+        ModpackRowStatus.PENDING -> ConnectorGray
         ModpackRowStatus.RUNNING -> StageOrange
         ModpackRowStatus.DONE -> StageGreen
         ModpackRowStatus.FAILED -> FailRed
     }
     val done = status == ModpackRowStatus.DONE
     val active = status == ModpackRowStatus.RUNNING
+    val pending = status == ModpackRowStatus.PENDING
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -328,6 +452,19 @@ private fun ModpackStageRowView(
                     })
                 } else if (done) {
                     MiniCheck()
+                } else if (pending) {
+                    // 未开始：灰色空心圆点
+                    Canvas(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .alpha(0.6f)
+                    ) {
+                        drawCircle(
+                            color = ConnectorGray,
+                            radius = size.minDimension / 2,
+                            style = Stroke(width = 1.6.dp.toPx())
+                        )
+                    }
                 } else {
                     MiniCross()
                 }
@@ -342,6 +479,7 @@ private fun ModpackStageRowView(
                     color = when {
                         done -> Color(0xFF11AA66)
                         error -> FailRed
+                        pending -> VerseColors.PcTextMuted
                         else -> VerseColors.PcTextPrimary
                     },
                     maxLines = 1
@@ -371,7 +509,7 @@ private fun ModpackStageRowView(
     }
 }
 
-/** 3×3 像素方块呼吸（对齐 InstallFlowCard 的活动态图标） */
+/** 3×3 像素方块呼吸（活动阶段行图标） */
 @Composable
 private fun MiniPixelCube(color: Color, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "cubeBreath")
@@ -442,7 +580,7 @@ private fun MiniCross() {
     }
 }
 
-/** 波浪进度条（对齐 InstallFlowCard：无灰底，进度填充 + 顶部正弦波浪） */
+/** 进度条：底轨 + 实心填充 + 填充区顶部正弦波浪（小进度也可辨识） */
 @Composable
 private fun ModpackWaveBar(
     progress: Float,
@@ -462,19 +600,34 @@ private fun ModpackWaveBar(
     Canvas(modifier = modifier.clip(RoundedCornerShape(999.dp))) {
         val w = size.width
         val h = size.height
+        val r = h / 2
+        val corner = androidx.compose.ui.geometry.CornerRadius(r)
+        // 底轨
+        drawRoundRect(color = color.copy(alpha = 0.14f), cornerRadius = corner)
         val filled = progress.coerceIn(0f, 1f) * w
         if (filled > 0f) {
+            // 实心填充（半透明底层 + 实色主体）
+            drawRoundRect(
+                color = color.copy(alpha = 0.35f),
+                size = androidx.compose.ui.geometry.Size(filled, h),
+                cornerRadius = corner
+            )
+            drawRoundRect(
+                color = color,
+                size = androidx.compose.ui.geometry.Size(filled, h * 0.55f),
+                cornerRadius = corner
+            )
+            // 填充区内的流动波浪高光
             val points = 40
             val waveH = h * 0.9f
             for (i in 0 until points) {
                 val x = i * filled / points
                 val y = h / 2 + sin((x / 6f) + t * 0.12f) * waveH * 0.35f + sin((x / 3f) + t * 0.2f) * waveH * 0.18f
-                val thickness = 1.4.dp.toPx()
                 drawLine(
-                    color = color,
+                    color = Color.White.copy(alpha = 0.35f),
                     start = androidx.compose.ui.geometry.Offset(x, y),
-                    end = androidx.compose.ui.geometry.Offset(x, y + thickness * 2),
-                    strokeWidth = thickness,
+                    end = androidx.compose.ui.geometry.Offset(x, y + 1.2.dp.toPx()),
+                    strokeWidth = 1.2.dp.toPx(),
                     cap = StrokeCap.Round
                 )
             }

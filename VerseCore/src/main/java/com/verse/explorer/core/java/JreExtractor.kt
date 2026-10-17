@@ -15,8 +15,6 @@ private const val TAG = "JavaRuntimeManager"
 internal object JreExtractor {
 
     /**
-     * 以 InputStream 解压 .tar.xz 到目标目录（对应 FCL 原版 RuntimeUtils.uncompressTarXZ）。
-     * 支持符号链接、目录、可执行权限；重复文件按 FCL 语义跳过（已存在且大小一致）。
      */
     fun extractTarXz(inputStream: InputStream, destDir: File, onProgress: (Int, Int) -> Unit) {
         destDir.mkdirs()
@@ -88,8 +86,6 @@ internal object JreExtractor {
     }
 
     /**
-     * 解包 Pojav jre zip 归档到 destDir（保留内部的 universal/bin-*.tar.xz 供后续统一解压）。
-     * 与 FCL 原版一致：不在此处猜测根目录或移动目录。
      */
     fun extractPojavJreZip(
         zipFile: File,

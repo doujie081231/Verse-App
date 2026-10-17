@@ -18,7 +18,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
-import com.verse.explorer.app.skin.SkinModel
 import com.verse.explorer.app.skin.SkinRenderer
 import com.verse.explorer.app.skin.SkinViewer
 import com.verse.explorer.core.account.Account
@@ -35,7 +34,6 @@ private val skinClient = OkHttpClient.Builder()
     .build()
 
 /**
- * FCL 式 3D 人物模型查看器（对齐 FCL SkinViewer：GLSurfaceView + GL10 固定管线 MC 模型）。
  * 皮肤源解析顺序与 AvatarRepository 一致：本地皮肤文件 → 网络皮肤 URL → 默认 alex/steve。
  */
 @Composable
@@ -43,13 +41,16 @@ fun FCLSkinViewer(
     account: Account,
     modifier: Modifier = Modifier,
     background: Color = Color.White,
-    animation: String = "idle",
-    autoRotate: Boolean = false
+    autoRotate: Boolean = false,
+    capeVersion: Int = 0
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current.density
     var renderer by remember { mutableStateOf<SkinRenderer?>(null) }
+    var viewer by remember { mutableStateOf<SkinViewer?>(null) }
     var bitmap by remember(account.id, account.skinFile, account.skinUrl) { mutableStateOf<Bitmap?>(null) }
+    // 披风位图（本地装备披风优先，回退微软官方披风 URL）；capeVersion 由调用方在披风切换后递增
+    var capeBitmap by remember(account.id, account.capeUrl, capeVersion) { mutableStateOf<Bitmap?>(null) }
 
     // 皮肤位图加载（完整皮肤，NormalizedSkin 内部判断 slim/旧格式）
     LaunchedEffect(account.id, account.skinFile, account.skinUrl) {
@@ -58,34 +59,27 @@ fun FCLSkinViewer(
         }
     }
 
-    LaunchedEffect(bitmap) {
+    LaunchedEffect(account.id, account.capeUrl, capeVersion) {
+        capeBitmap = withContext(Dispatchers.IO) {
+            loadCape(context, account)
+        }
+    }
+
+    LaunchedEffect(bitmap, capeBitmap) {
         val bmp = bitmap
         val r = renderer
         if (bmp != null && r != null) {
-            r.setTexture(bmp, null)
+            r.setTexture(bmp, capeBitmap)
+            // 按需渲染模式下纹理更新后主动请求一帧
+            viewer?.requestRender()
         }
     }
 
-    // 动作切换 → 渲染器按动作类型配置肢体动画（对齐 versepc2 setAnim；idle 默认呼吸）
-    LaunchedEffect(animation) {
-        val type = when (animation) {
-            "walk" -> SkinModel.SkinAnimationType.WALK
-            "run" -> SkinModel.SkinAnimationType.RUN
-            "jump" -> SkinModel.SkinAnimationType.JUMP
-            "fly" -> SkinModel.SkinAnimationType.FLY
-            "wave" -> SkinModel.SkinAnimationType.WAVE
-            "crouch" -> SkinModel.SkinAnimationType.CROUCH
-            "crawl" -> SkinModel.SkinAnimationType.CRAWL
-            "hit" -> SkinModel.SkinAnimationType.HIT
-            "swim" -> SkinModel.SkinAnimationType.SWIM
-            "none" -> SkinModel.SkinAnimationType.NONE
-            else -> SkinModel.SkinAnimationType.BREATHING
-        }
-        renderer?.skinModel?.setAnimation(type)
-    }
 
     LaunchedEffect(autoRotate) {
         renderer?.skinModel?.autoRotate = autoRotate
+        viewer?.setAutoRotate(autoRotate)
+        viewer?.requestRender()
     }
 
     Box(
@@ -98,6 +92,7 @@ fun FCLSkinViewer(
                     val r = SkinRenderer(ctx)
                     renderer = r
                     setRenderer(r, density)
+                    viewer = this
                 }
             },
             update = { },
@@ -132,12 +127,35 @@ private fun loadFullSkin(context: Context, account: Account): Bitmap? {
         }
     }
 
-    // 默认皮肤：FCL 默认 alex，失败回退 steve
     return runCatching {
         context.assets.open("skins/alex.png").use { BitmapFactory.decodeStream(it) }
     }.getOrNull() ?: runCatching {
         context.assets.open("skins/steve.png").use { BitmapFactory.decodeStream(it) }
     }.getOrNull()
+}
+
+/** 披风位图解析：本地装备披风 → 微软官方披风 URL → 无披风（null） */
+private fun loadCape(context: Context, account: Account): Bitmap? {
+    // 本地装备披风（披风库选中项）
+    val selected = com.verse.explorer.app.data.account.CapeRepository.selected(context, account.id)
+    if (selected != null && selected.file.exists()) {
+        BitmapFactory.decodeFile(selected.file.absolutePath)?.let { return it }
+    }
+    // 微软官方披风
+    val capeUrl = account.capeUrl
+    if (!capeUrl.isNullOrBlank()) {
+        try {
+            val request = Request.Builder().url(capeUrl).build()
+            skinClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bytes = response.body?.bytes() ?: return@use
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { return it }
+                }
+            }
+        } catch (_: Exception) {
+        }
+    }
+    return null
 }
 
 private fun resolveSkinFile(context: Context, skinFile: String): File? {

@@ -44,16 +44,10 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * 游戏内控制面板（样式与行项目全部对照 FCL 的 view_game_menu / menu_left / menu_right）：
- * - 双指下滑手势（由 GameActivity 在分发触摸前检测）唤起 FCL 样式的左右双侧边栏；
  * - 左栏「控制」= menu_left.xml 全量行：当前布局方案、编辑模式、显示控件边缘、隐藏所有控件、
  *   自动吸附、自动吸附间距、当前控件组、控件组管理、添加按键、添加方向控制键、按键样式、方向控制键样式；
  * - 右栏「设置」= menu_right.xml 全量行：功能（锁定菜单键/隐藏菜单键/显示FPS/联机菜单/快捷输入/发送键值/
  *   禁用软键盘自适应/物品栏缩放/窗口比例/光标偏移）、手势、鼠标、手柄、陀螺仪、调试分区；
- * - 设置项读写 MenuSetting（<filesDir>/menu_setting.json，键名与 FCL MenuSetting 一致）；
- * - 行为照搬 FCL GameMenu.java 对应接线：窗口缩放/光标偏移走 refreshWindowsSize（setScaleFactor +
- *   setDefaultBufferSize + pushEventWindow），陀螺仪接 Pojav GyroControl，快捷输入接 Pojav TouchCharInput，
- *   日志接 FCL LogWindow 移植，其余输入行为由 GameInputHandler（FCLInput/TouchPad 移植）读取。
  */
 @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
 class InGameControlOverlay(
@@ -62,7 +56,6 @@ class InGameControlOverlay(
     private val onScreenshot: () -> Unit,
     private val onExitGame: () -> Unit,
     private val onCancelGameGesture: () -> Unit,
-    /** 实体鼠标控制开关切换后的指针捕获同步（FCL PHYSICAL_MOUSE 开关的接线） */
     private val onPhysicalMouseChanged: (Boolean) -> Unit = {}
 ) {
 
@@ -87,14 +80,12 @@ class InGameControlOverlay(
     private var hintVisible = false
     private var panelVisible = false
 
-    // 显示 FPS / 内存（FCL 右栏「显示FPS」/调试「显示内存」，menu_right.xml switch_show_fps / switch_show_memory）
     private var fpsView: TextView? = null
     private var memView: TextView? = null
     private var infoHandler: Handler? = null
     private var fpsEnabled = false
     private var memEnabled = false
 
-    /** FCL 手柄「禁用手柄映射」：运行时字段（FCL GameMenu.gamepadDisabled，不入 menu_setting） */
     private var gamepadDisabled = false
 
     // ===================== 演示遮罩 =====================
@@ -214,7 +205,6 @@ class InGameControlOverlay(
         VerseLogger.info("双指下滑演示遮罩已消失", "Control")
     }
 
-    // ===================== FCL 样式控制面板（左右双侧边栏） =====================
 
     fun createPanelView(): View {
         val root = FrameLayout(activity).apply {
@@ -233,7 +223,6 @@ class InGameControlOverlay(
         return root
     }
 
-    /** 构建单条 FCL 样式侧边栏（270dp 宽，上下留 30dp，贴左/右边缘） */
     private fun buildSideBar(barGravity: Int, title: String, isLeft: Boolean): View {
         val container = FrameLayout(activity).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -267,7 +256,6 @@ class InGameControlOverlay(
         }
         container.addView(panel)
 
-        // 标题（FCL menu_left/menu_right：14sp 居中）
         panel.addView(TextView(activity).apply {
             text = title
             setTextColor(fclText)
@@ -280,7 +268,6 @@ class InGameControlOverlay(
             )
         })
 
-        // 内容区（ScrollView，FCL 对应结构）
         val scroll = android.widget.ScrollView(activity).apply {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -308,7 +295,6 @@ class InGameControlOverlay(
 
     // ===================== 左栏「控制」（menu_left.xml 全量） =====================
 
-    /** CTRLMAP 下的布局文件列表（对应 FCL 的 Controllers 控制器列表） */
     private fun layoutFileList(): List<String> {
         val dir = File(Tools.CTRLMAP_PATH)
         if (!dir.exists()) return emptyList()
@@ -319,7 +305,6 @@ class InGameControlOverlay(
     }
 
     private fun buildLeftContent(content: LinearLayout) {
-        // 当前布局方案（menu_left.xml current_controller，对应 FCL 的 Controllers 列表）
         val layouts = layoutFileList()
         content.addView(sectionHeader("当前布局方案"))
         content.addView(spinnerRow("当前布局方案", layouts, 0) { index ->
@@ -330,16 +315,13 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "加载布局失败: ${it.message}", Toast.LENGTH_SHORT).show()
             }
         })
-        // 保存布局（Pojav 游戏内编辑器菜单"保存"：openSaveDialog，输入名称保存到 CTRLMAP，编辑后按键修改持久化）
         content.addView(buttonRow("保存布局", "保存") {
             activity.controlLayout?.openSaveDialog(null)
         })
-        // 设为默认（Pojav 游戏内编辑器菜单"设为默认"：openSetDefaultDialog，写入 defaultCtrl 偏好，下次启动按 Pojav 语义优先加载该布局）
         content.addView(buttonRow("设为默认", "设默认") {
             activity.controlLayout?.openSetDefaultDialog()
         })
 
-        // 编辑模式（FCL edit_mode → ViewManager 编辑；Pojav 等价 = ControlLayout.setModifiable）
         content.addView(switchRow("编辑模式", activity.controlLayout?.getModifiable() == true) { on ->
             activity.controlLayout?.setModifiable(on)
             Toast.makeText(
@@ -350,24 +332,20 @@ class InGameControlOverlay(
             ).show()
             VerseLogger.info("控制面板：编辑模式=$on", "Control")
         })
-        // 显示控件边缘（FCL show_boundary；Pojav 等价 = 编辑模式下的句柄/边界视图）
         content.addView(switchRow("显示控件边缘", false) { on ->
             activity.controlLayout?.setModifiable(on)
             VerseLogger.info("控制面板：显示控件边缘=$on", "Control")
         })
-        // 隐藏所有控件（FCL hideAllViews；Pojav 等价 = ControlLayout.setControlVisible）
         content.addView(switchRow("隐藏所有控件", false) { on ->
             activity.controlLayout?.setControlVisible(!on)
             VerseLogger.info("控制面板：隐藏所有控件=$on", "Control")
         })
-        // 自动吸附（FCL TouchPad.autoFit；Pojav 等价 = 按屏幕宽度自适应按钮缩放，
         // 通过 PREF_BUTTONSIZE 控制并在间距变化时重新加载布局生效）
         content.addView(switchRow("自动吸附", MenuSetting.isAutoFit) { on ->
             MenuSetting.isAutoFit = on
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_FIT)
             applyAutoFit()
         })
-        // 自动吸附间距（FCL auto_fit_dist，0-10dp：间距越大按钮整体越小）
         content.addView(seekbarRow("自动吸附间距", 0, 10, MenuSetting.autoFitDist, "dp") { v ->
             MenuSetting.autoFitDist = v
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_FIT_DIST)
@@ -384,32 +362,26 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "加载控件组失败: ${it.message}", Toast.LENGTH_SHORT).show()
             }
         })
-        // 控件组管理（FCL manage_view_groups → ViewGroupDialog；Pojav 等价 = 布局加载/管理对话框）
         content.addView(buttonRow("控件组", "管理") {
             activity.controlLayout?.openLoadDialog()
         })
-        // 添加按键（FCL add_button → EditViewDialog；Pojav 等价 = addControlButton + 编辑对话框）
         content.addView(buttonRow("添加按键", "添加") {
             addNewControl(ControlData())
         })
-        // 添加方向控制键（FCL add_direction → EditViewDialog(ControlDirectionData)；Pojav 等价 = addJoystickButton）
         content.addView(buttonRow("添加方向控制键", "添加") {
             addNewControl(ControlJoystickData())
         })
 
         // 样式（menu_left.xml style 区块）
         content.addView(sectionHeader("样式"))
-        // 按键样式（FCL manage_button_style → ButtonStyleDialog；Pojav 等价 = 编辑最后添加的按键外观）
         content.addView(buttonRow("按键样式", "管理") {
             editLastControl(isJoystick = false)
         })
-        // 方向控制键样式（FCL manage_direction_style → DirectionStyleDialog；Pojav 等价 = 编辑方向键外观）
         content.addView(buttonRow("方向控制键样式", "管理") {
             editLastControl(isJoystick = true)
         })
     }
 
-    /** 添加默认控件并进入编辑模式（对应 FCL EditViewDialog 的添加流程） */
     private fun addNewControl(data: ControlData) {
         val layout = activity.controlLayout ?: return
         if (data is ControlJoystickData) {
@@ -421,7 +393,6 @@ class InGameControlOverlay(
         editLastControl(isJoystick = data is ControlJoystickData)
     }
 
-    /** 打开 Pojav EditControlSideDialog 编辑最后一个（方向键）控件，等价 FCL 的样式管理对话框 */
     private fun editLastControl(isJoystick: Boolean) {
         val layout = activity.controlLayout ?: return
         val target = layout.getButtonChildren()
@@ -443,12 +414,10 @@ class InGameControlOverlay(
     private fun buildRightContent(content: LinearLayout) {
         // ===== 功能 =====
         content.addView(sectionHeader("功能"))
-        // 锁定菜单键（FCL lockMenuView：锁定后双指下滑不能唤起/收起菜单）
         content.addView(switchRow("锁定菜单键", MenuSetting.isLockMenuView) { on ->
             MenuSetting.isLockMenuView = on
             MenuSetting.notifyChange(MenuSetting.Key.LOCK_MENU_VIEW)
         })
-        // 隐藏菜单键（FCL hideMenuView：隐藏全部虚拟控件 + 提示）
         content.addView(switchRow("隐藏菜单键", MenuSetting.isHideMenuView) { on ->
             MenuSetting.isHideMenuView = on
             MenuSetting.notifyChange(MenuSetting.Key.HIDE_MENU_VIEW)
@@ -457,13 +426,11 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "菜单按键已隐藏，按下音量键打开菜单。", Toast.LENGTH_LONG).show()
             }
         })
-        // 显示FPS（FCL switch_show_fps）
         content.addView(switchRow("显示FPS", MenuSetting.isShowFps) { on ->
             MenuSetting.isShowFps = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_FPS)
             setFpsVisible(on)
         })
-        // 游戏菜单（ESC；Verse 补充入口，对应 FCL MenuView 的暂停菜单键）
         content.addView(buttonRow("游戏菜单", "打开") { onEsc() })
         // 陶瓦联机（Verse 补充入口：直接唤出陶瓦联机对话框，未启用时提示）
         content.addView(buttonRow("陶瓦联机", "打开") {
@@ -475,16 +442,12 @@ class InGameControlOverlay(
             hidePanel(false)
             activity.showRedstoneDialog()
         })
-        // 快捷输入（FCL open_quick_input → TouchCharInput）
         content.addView(buttonRow("快捷输入", "管理") { activity.showQuickInput() })
-        // 发送键值（FCL open_send_key → SelectKeycodeDialog）
         content.addView(buttonRow("发送键值", "发送") { showSendKeyDialog() })
-        // 禁用软键盘自适应（FCL switch_soft_keyboard_adjust；SoftKeyboardHelper 未引入，仅持久化）
         content.addView(switchRow("禁用软键盘自适应", MenuSetting.isDisableSoftKeyAdjust) { on ->
             MenuSetting.isDisableSoftKeyAdjust = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_SOFT_KEY_ADJUST)
         })
-        // 物品栏缩放（FCL item_bar_width/height；GameItemBar 未引入，仅持久化）
         content.addView(seekbarRow("物品栏缩放 - 宽度", 0, 100, MenuSetting.itemBarWidth, "%") { v ->
             MenuSetting.itemBarWidth = v
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_WIDTH)
@@ -493,13 +456,11 @@ class InGameControlOverlay(
             MenuSetting.itemBarHeight = v
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_HEIGHT)
         })
-        // 窗口比例（FCL window_scale，1-300%，refreshWindowsSize）
         content.addView(seekbarRow("窗口比例", 1, 300, (MenuSetting.windowScale * 100).toInt(), "%") { v ->
             MenuSetting.windowScale = v / 100.0
             MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
             refreshWindowsSize(MenuSetting.windowScale)
         })
-        // 光标偏移（FCL cursor_offset，-150~150，refreshWindowsSize）
         content.addView(seekbarRow("光标偏移", -150, 150, MenuSetting.cursorOffset.toInt(), "") { v ->
             MenuSetting.cursorOffset = v.toDouble()
             MenuSetting.notifyChange(MenuSetting.Key.CURSOR_OFFSET)
@@ -516,7 +477,6 @@ class InGameControlOverlay(
             MenuSetting.isDisableBEGesture = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_BE_GESTURE)
         })
-        // 触控模式（FCL gesture_mode_spinner：建筑模式/战斗模式）
         content.addView(spinnerRow(
             "触控模式",
             listOf("建筑模式", "战斗模式"),
@@ -532,7 +492,6 @@ class InGameControlOverlay(
 
         // ===== 鼠标 =====
         content.addView(sectionHeader("鼠标"))
-        // 鼠标控制模式（FCL mouse_mode_spinner：点击/拖动）
         content.addView(spinnerRow(
             "鼠标控制模式",
             listOf("点击", "拖动"),
@@ -549,7 +508,6 @@ class InGameControlOverlay(
             MenuSetting.mouseSensitivityCursor = v / 100.0
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_SENSITIVITY_CURSOR)
         })
-        // 鼠标尺寸/偏移（FCL 作用于 CursorView；本实现为可见光标 dot，实时应用）
         content.addView(seekbarRow("鼠标尺寸", 0, 30, MenuSetting.mouseSize, "dp") { v ->
             MenuSetting.mouseSize = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_SIZE)
@@ -563,7 +521,6 @@ class InGameControlOverlay(
             MenuSetting.mouseOffsetY = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_OFFSET_Y)
         })
-        // 实体鼠标控制（FCL switch_physical_mouse_mode → GameMenu 的 PHYSICAL_MOUSE 接线）
         content.addView(switchRow("实体鼠标控制", MenuSetting.isPhysicalMouseMode) { on ->
             MenuSetting.isPhysicalMouseMode = on
             MenuSetting.notifyChange(MenuSetting.Key.PHYSICAL_MOUSE_MODE)
@@ -573,11 +530,9 @@ class InGameControlOverlay(
 
         // ===== 手柄 =====
         content.addView(sectionHeader("手柄"))
-        // 禁用手柄映射（FCL GameMenu.gamepadDisabled，运行时字段不入盘）
         content.addView(switchRow("禁用手柄映射", gamepadDisabled) { on ->
             gamepadDisabled = on
         })
-        // 重置映射 / 按键绑定：FCL 依赖 fr.spse.gamepad_remapper + com.mio.touchcontroller，未引入
         content.addView(buttonRow("重置映射", "重置") {
             Toast.makeText(activity, "重置映射（FCL 手柄栈未引入）", Toast.LENGTH_SHORT).show()
         })
@@ -591,19 +546,16 @@ class InGameControlOverlay(
 
         // ===== 陀螺仪 =====
         content.addView(sectionHeader("陀螺仪"))
-        // 陀螺仪（FCL switch_gyro → Gyroscope.enableSensor/disableSensor；接 Pojav GyroControl）
         content.addView(switchRow("陀螺仪", MenuSetting.isEnableGyroscope) { on ->
             MenuSetting.isEnableGyroscope = on
             MenuSetting.notifyChange(MenuSetting.Key.ENABLE_GYROSCOPE)
             activity.gyroControl?.let {
                 if (on) it.enable() else it.disable()
             }
-            // Pojav GyroControl 语义：视角转动只在抓取态（点击画面锁定光标）生效
             if (on) {
                 Toast.makeText(activity, "陀螺仪已开启，点击画面锁定光标后生效", Toast.LENGTH_LONG).show()
             }
         })
-        // 反转陀螺仪（FCL switch_gyro_invert；Pojav GyroControl 支持 PREF_GYRO_INVERT_X/Y）
         content.addView(switchRow("反转陀螺仪", MenuSetting.isInvertGyroscope) { on ->
             MenuSetting.isInvertGyroscope = on
             MenuSetting.notifyChange(MenuSetting.Key.INVERT_GYROSCOPE)
@@ -614,7 +566,6 @@ class InGameControlOverlay(
                 VerseLogger.warn("写入 PREF_GYRO_INVERT 失败: ${it.message}", "Control")
             }
         })
-        // 陀螺仪灵敏度（FCL gyro_sensitivity，0-1000）
         content.addView(seekbarRow("陀螺仪灵敏度", 0, 1000, MenuSetting.gyroscopeSensitivity, "") { v ->
             MenuSetting.gyroscopeSensitivity = v
             MenuSetting.notifyChange(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
@@ -623,32 +574,26 @@ class InGameControlOverlay(
 
         // ===== 调试 =====
         content.addView(sectionHeader("调试"))
-        // 显示内存（FCL switch_show_memory）
         content.addView(switchRow("显示内存", MenuSetting.isShowMemory) { on ->
             MenuSetting.isShowMemory = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_MEMORY)
             setMemoryVisible(on)
         })
-        // 持续性能模式（FCL switch_performance → setSustainedPerformanceMode）
         content.addView(switchRow("持续性能模式", MenuSetting.isPerformanceMode) { on ->
             MenuSetting.isPerformanceMode = on
             MenuSetting.notifyChange(MenuSetting.Key.PERFORMANCE_MODE)
             activity.window.setSustainedPerformanceMode(on)
         })
-        // 显示日志（FCL switch_show_log → LogWindow）
         content.addView(switchRow("显示日志", MenuSetting.isShowLog) { on ->
             MenuSetting.isShowLog = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_LOG)
             updateLogWindowVisibility()
         })
-        // 自动显示日志（FCL switch_auto_show_log）
         content.addView(switchRow("自动显示日志", MenuSetting.isAutoShowLog) { on ->
             MenuSetting.isAutoShowLog = on
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_SHOW_LOG)
             updateLogWindowVisibility()
         })
-        // 强制退出（FCL force_exit → 确认对话框后强退）
-        // 与 FCL GameMenu 一致：游戏 JVM 与启动器同进程且 main() 阻塞在 native 事件循环，
         // 优雅拆解不可行，强制退出直接杀死整个进程（下次冷启动回到启动器主页）
         content.addView(buttonRow("强制退出", "退出") {
             AlertDialog.Builder(activity)
@@ -662,7 +607,6 @@ class InGameControlOverlay(
                 .show()
         })
 
-        // 初始状态恢复（FCL GameMenu.setChecked 触发监听器的等价处理）
         if (MenuSetting.isShowFps) setFpsVisible(true)
         if (MenuSetting.isShowMemory) setMemoryVisible(true)
         if (MenuSetting.isPerformanceMode) activity.window.setSustainedPerformanceMode(true)
@@ -678,7 +622,6 @@ class InGameControlOverlay(
         updateLogWindowVisibility()
     }
 
-    /** FCL 自动吸附的 Pojav 等价实现：按屏幕自适应调整按钮缩放（PREF_BUTTONSIZE）并重载布局 */
     private fun applyAutoFit() {
         val layout = activity.controlLayout ?: return
         val name = layout.mLayoutFileName?.trimStart('.') ?: return
@@ -696,8 +639,6 @@ class InGameControlOverlay(
         }
     }
 
-    /** FCL 陀螺仪灵敏度：写入 LauncherPreferences（Pojav GyroControl 运行时读取；
-     *  FCL 默认 10 ↔ Pojav 默认 5.0，按 0.5 折算保持默认手感一致） */
     private fun applyGyroSensitivity(value: Int) {
         runCatching {
             LauncherPreferences.PREF_GYRO_SENSITIVITY = value * 0.5f
@@ -706,13 +647,11 @@ class InGameControlOverlay(
         }
     }
 
-    /** 日志窗口可见性（FCL bindShowLog/bindAutoShowLog 的等价） */
     private fun updateLogWindowVisibility() {
         val logWin = activity.logWindow ?: return
         logWin.setVisibility(MenuSetting.isShowLog || MenuSetting.isAutoShowLog)
     }
 
-    /** FCL GameMenu.refreshWindowsSize：按 scaleFactor + cursorOffset 重推窗口尺寸 */
     private fun refreshWindowsSize(factor: Double) {
         val bridge = activity.currentBridge ?: return
         val screenWidth = activity.resources.displayMetrics.widthPixels
@@ -731,7 +670,6 @@ class InGameControlOverlay(
         }
     }
 
-    /** 发送键值对话框：SelectKeycodeDialog 的功能等价（多选键码 → 按下 50ms → 释放，FCL onClick 流程） */
     @SuppressLint("InflateParams")
     private fun showSendKeyDialog() {
         val keys = listOf(
@@ -778,7 +716,6 @@ class InGameControlOverlay(
                 val selected = keys.filterIndexed { i, _ -> checks[i].isChecked }
                     .map { it.first }
                 if (selected.isEmpty()) return@setPositiveButton
-                // FCL GameMenu.onClick(sendKeycode)：按下全部 → 50ms → 释放全部
                 val bridge = activity.currentBridge ?: return@setPositiveButton
                 Thread {
                     selected.forEach { bridge.pushEventKey(it, 0, true) }
@@ -795,7 +732,6 @@ class InGameControlOverlay(
 
     // ===================== 通用行构建器 =====================
 
-    /** 分区标题（FCL：11sp + 1dp 分隔线） */
     /** 分区标题（Verse 卡片分组：3dp 主题色竖条 + 13sp 加粗标题，分组间留白） */
     private fun sectionHeader(header: String): View {
         return LinearLayout(activity).apply {
@@ -849,7 +785,6 @@ class InGameControlOverlay(
         }
     }
 
-    /** 开关行（对应 FCLSwitch：文本 13sp + Verse 强调色开关轨道） */
     private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): View {
         val sw = Switch(activity).apply {
             isChecked = checked
@@ -861,7 +796,6 @@ class InGameControlOverlay(
         return alignedRow(label, sw)
     }
 
-    /** 下拉选择行（对应 FCLSpinner，FCL 的 FCLSpinner 等价） */
     private fun spinnerRow(
         label: String,
         items: List<String>,
@@ -884,7 +818,6 @@ class InGameControlOverlay(
         return alignedRow(label, spinner)
     }
 
-    /** 滑块行（对应 FCLNumberSeekBar：标签行 + 数值 + 全宽滑块） */
     private fun seekbarRow(
         label: String,
         min: Int,
@@ -954,7 +887,6 @@ class InGameControlOverlay(
         view.clearAnimation()
         view.visibility = View.VISIBLE
         view.bringToFront()
-        // FCL Drawer 式滑入：左栏从左、右栏从右
         leftBar?.let {
             it.clearAnimation()
             val slide = TranslateAnimation(-dp(300f).toFloat(), 0f, 0f, 0f)
@@ -1001,7 +933,6 @@ class InGameControlOverlay(
 
     // ===================== 双指下滑手势 =====================
 
-    /** 指针 id -> 按下时的 Y（用于计算双指下滑距离），与 FCL 多指手势同思路 */
     private val pointerStart = mutableMapOf<Int, Float>()
     private val pointerCurrent = mutableMapOf<Int, Float>()
     private var multiSwipeFired = false
@@ -1081,7 +1012,6 @@ class InGameControlOverlay(
 
     /** 双指下滑成立后的统一处理：复位游戏按键 → 遮罩/面板状态切换或唤起面板 */
     fun fireSwipe() {
-        // FCL 锁定菜单键：锁定后手势不能唤起/收起菜单
         if (MenuSetting.isLockMenuView) {
             VerseLogger.info("菜单已锁定，忽略双指下滑手势", "Control")
             return
@@ -1097,7 +1027,6 @@ class InGameControlOverlay(
         }
     }
 
-    // ===================== 显示 FPS / 内存（FCL 显示FPS/显示内存） =====================
 
     private fun setFpsVisible(visible: Boolean) {
         fpsEnabled = visible
@@ -1148,7 +1077,6 @@ class InGameControlOverlay(
         })
     }
 
-    /** 创建 FPS / 内存文本视图（挂到 Activity 内容顶层，与 FCL 屏幕中央显示一致） */
     private fun ensureInfoOverlay() {
         if (fpsView == null) {
             fpsView = TextView(activity).apply {

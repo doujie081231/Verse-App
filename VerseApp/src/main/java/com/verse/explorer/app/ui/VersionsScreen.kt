@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.PcTabGroup
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
@@ -153,10 +154,10 @@ fun VersionsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(
+                        RoseLoader(
                             modifier = Modifier.size(32.dp),
-                            color = VerseColors.PcAccent,
-                            strokeWidth = 3.dp
+                            size = 32.dp,
+                            color = VerseColors.PcAccent
                         )
                         Spacer(Modifier.height(12.dp))
                         Text("从 $sourceLabel 获取版本列表...", color = VerseColors.PcTextMuted, fontSize = 12.sp)

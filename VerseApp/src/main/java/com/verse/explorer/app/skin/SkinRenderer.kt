@@ -24,8 +24,6 @@ class SkinRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private var modelTextureData: IntArray? = null
 
     init {
-        // 默认动作：呼吸站姿（对齐 versepc2 默认 idle = IdleAnimation）
-        this.skinModel.setAnimation(SkinModel.SkinAnimationType.BREATHING)
         this.updateBitmapSkin = false
         this.slim = false
         this.skin = loadDefaultSkin()

@@ -93,7 +93,6 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
                 val manifest = versionManager.fetchRemoteVersions(forceRefresh)
                 _remoteVersions.value = manifest.versions
 
-                // PC 端对齐分类：愚人节版本官方 type 多为 snapshot/release，按已知 ID 统一标记为 special
                 val categorized = manifest.versions.map {
                     if (isAprilFoolsId(it.id)) it.copy(type = VersionType.SPECIAL) else it
                 }
@@ -120,7 +119,6 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** 愚人节版本识别（与 PC 端 versions.rs 已知 ID 集合对齐） */
     private fun isAprilFoolsId(id: String): Boolean {
         return when (id) {
             "26.1.1", "26w14a", "25w14craftmine", "24w14potato",
@@ -157,7 +155,6 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
                 installName = installName,
                 isInstalling = true
             )
-            // 带加载器安装时基础原版落盘 versions/<version.id>/（Pojav 语义，跨实例复用）。
             // 记录安装前基础目录是否已存在：失败/取消时只清理本次新建的基础目录，
             // 复用的既有基础版本不能删（否则其他实例的 inheritsFrom 悬空）。
             val baseDirExisted = File(GameConfig.getVersionsDir(gameDir), version.id).exists()
@@ -271,7 +268,6 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * 参考PC端 cleanupVersionChain — 删除版本及其继承链中不再被引用的父版本
      * PC端逻辑: 追踪 inheritsFrom 链，只删除没有其他子版本的父版本
      */
     private fun cleanupVersionChain(versionId: String) {
@@ -332,7 +328,6 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         _installState.value = InstallState()
     }
 
-    /** 命名校验：与 FCL versionIdConflicts 对应，判断自定义安装名是否与已安装版本冲突 */
     fun versionIdConflicts(name: String): Boolean {
         return versionManager.versionIdConflicts(name)
     }

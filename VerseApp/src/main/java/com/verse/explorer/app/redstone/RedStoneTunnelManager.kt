@@ -42,7 +42,6 @@ object RedStoneTunnelManager {
         /** 隧道可用，联机地址 = server:port */
         data class Open(val server: String, val port: Int, val address: String, val node: String) : State()
 
-        /** 正在自动切换节点重连（与 VersePC 的 redstone:reconnecting 对应） */
         data class Reconnecting(val reason: String, val attempt: Int, val maxAttempts: Int) : State()
 
         /** 隧道失效（status=closed 或重连次数用尽/用户关闭） */
@@ -60,7 +59,6 @@ object RedStoneTunnelManager {
     /** 注册表不可用时的回退默认节点（与官方 server.json 的南京节点一致） */
     val DEFAULT_NODE = RedStoneNode("南京", "nj.hongshi.site")
 
-    // 与 VersePC 常量一致
     private const val STATUS_OPEN_TIMEOUT_MS = 30_000L
     private const val STATUS_POLL_INTERVAL_MS = 400L
     private const val NODE_SWITCH_INTERVAL_MS = 800L
@@ -103,7 +101,6 @@ object RedStoneTunnelManager {
         VerseLogger.info(line, TAG)
     }
 
-    /** 刷新节点列表（与 VersePC fetch_server_list 对应：注册表对象映射，失败回退默认） */
     fun refreshNodes() {
         scope.launch {
             val list = runCatching {
@@ -129,7 +126,6 @@ object RedStoneTunnelManager {
     }
 
     /**
-     * 拉起内核创建隧道（与 VersePC start_tunnel_inner 对应）：
      * 候选节点 = 选中的节点在前 + 注册表其余节点去重追加，按序尝试直到成功。
      */
     fun start(context: Context, node: String, localPort: Int) {
@@ -146,7 +142,6 @@ object RedStoneTunnelManager {
             return
         }
 
-        // 候选节点（与 VersePC 对应：选中在前，其余去重追加）
         val candidates = mutableListOf(node.trim())
         _nodes.value.forEach { n ->
             if (n.address.isNotEmpty() && candidates[0] != n.address && !candidates.contains(n.address)) {
@@ -158,7 +153,6 @@ object RedStoneTunnelManager {
         scope.launch { runTunnel(context, binary, candidates, localPort) }
     }
 
-    /** 按序尝试候选节点；成功后监听内核退出并自动切换剩余节点（与 VersePC 对应） */
     private suspend fun runTunnel(context: Context, binary: File, candidates: List<String>, localPort: Int) {
         var lastError = ""
         val tried = mutableListOf<String>()
@@ -173,7 +167,6 @@ object RedStoneTunnelManager {
                 return
             }
             lastError = "连接失败"
-            // 短暂间隔再试下一个（与 VersePC 对应）
             Thread.sleep(NODE_SWITCH_INTERVAL_MS)
         }
         if (!stoppedByUser) {
@@ -182,7 +175,6 @@ object RedStoneTunnelManager {
     }
 
     /**
-     * 在指定节点上启动一次隧道（与 VersePC try_start_node 对应）。
      * 成功返回进程对象；失败返回 null（原因写入状态/日志）。
      */
     private suspend fun tryStartNode(context: Context, binary: File, node: String, localPort: Int): Process? {
@@ -263,7 +255,6 @@ object RedStoneTunnelManager {
     }
 
     /**
-     * 内核退出监控与自动切换节点（与 VersePC 的 auto_reconnect 对应，最多 3 轮）。
      */
     private suspend fun monitorProcess(
         context: Context,
@@ -311,7 +302,6 @@ object RedStoneTunnelManager {
         }
     }
 
-    /** 停止内核（关闭房间，与 VersePC stop_tunnel_inner 对应） */
     fun stop() {
         stoppedByUser = true
         process?.destroy()

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -49,7 +50,6 @@ import java.util.zip.ZipFile
 
 /**
  * 已安装模组管理页（版本设置 → 模组管理）。
- * 列表/启停/删除/导入/信息/旧版回滚能力与 FCL 模组管理一致：
  * - 扫描版本运行目录 mods/（含按 MC 版本命名的子目录），解析 mcmod.info / mods.toml /
  *   fabric.mod.json / quilt.mod.json / litemod.json 元数据
  * - 启用=去掉 .disabled 后缀，禁用=追加 .disabled 后缀（文件重命名实现）
@@ -194,10 +194,10 @@ fun InstalledModsScreen(
             when {
                 loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(
-                            color = VerseColors.PcAccent,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(32.dp)
+                        RoseLoader(
+                            modifier = Modifier.size(32.dp),
+                            size = 32.dp,
+                            color = VerseColors.PcAccent
                         )
                     }
                 }
@@ -487,7 +487,7 @@ private fun InstalledModCard(
     }
 }
 
-/** 模组图标：优先读取模组包内 logoPath 指向的位图，失败时回退加载器字母占位 */
+/** 模组图标：优先读取模组包内 logoPath 指向的位图，未加载/失败时显示灰色底图 */
 @Composable
 private fun ModIconBox(
     modFile: java.nio.file.Path,
@@ -504,16 +504,9 @@ private fun ModIconBox(
         modifier = Modifier
             .size(36.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(VerseColors.PcBgTertiary),
+            .background(VerseColors.PcBgActive),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = loaderLabel(loader).firstOrNull()?.uppercase() ?: "?",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp
-        )
         bitmap?.let {
             Image(
                 bitmap = it,

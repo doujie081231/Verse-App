@@ -127,7 +127,7 @@ class GameService : Service() {
     
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Verse Explorer X")
+            .setContentTitle("Verse")
             .setContentText("Game is running")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setPriority(NotificationCompat.PRIORITY_LOW)

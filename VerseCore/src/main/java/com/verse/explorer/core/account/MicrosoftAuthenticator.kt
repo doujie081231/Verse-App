@@ -21,7 +21,6 @@ import java.util.concurrent.TimeUnit
 /**
  * 微软登录模块
  *
- * 自 ZalithLauncher2（ZL2）的 game/account/microsoft 模块完整迁移：
  * 设备码登录（授权轮询处理 authorization_pending / slow_down / 连续网络失败）、
  * 令牌刷新（login.live.com 端点）、XBL 认证（RpsTicket 去 "d=" 前缀回退）、
  * XSTS 认证（完整 XErr 错误码映射）、Minecraft 服务认证（429/403 细分）、
@@ -40,20 +39,16 @@ class MicrosoftAuthenticator {
         private const val TAG = "MsaLogin"
 
         private const val AUTHORITY = "https://login.microsoftonline.com"
-        // 与 versepc2 auth/microsoft.rs MS_CLIENT_ID 保持一致
         private const val CLIENT_ID = "b5b442d7-5978-4637-a81e-88faf9bfc8a6"
 
-        /** 与 ZL2 一致的作用域列表（子集沿用 Verse 已验证可用的配置） */
         private val SCOPES = listOf("XboxLive.signin", "offline_access")
         private const val TENANT = "/consumers"
 
         /**
-         * 与 ZL2 一致：轮询令牌时允许的最大连续网络失败次数
          * 网络环境较差时，偶发的失败不应中断登录，但持续失败说明网络不可用，应提前放弃
          */
         private const val MAX_CONSECUTIVE_POLL_FAILURES = 5
 
-        // 与 ZL2 的 MICROSOFT_AUTH_URL / LIVE_AUTH_URL / XBL_AUTH_URL / XSTS_AUTH_URL / MINECRAFT_SERVICES_URL 一致
         private const val MICROSOFT_AUTH_URL = "https://login.microsoftonline.com"
         private const val LIVE_AUTH_URL = "https://login.live.com"
         private const val XBL_AUTH_URL = "https://user.auth.xboxlive.com"
@@ -64,7 +59,6 @@ class MicrosoftAuthenticator {
         private const val TOKEN_URL = "$MICROSOFT_AUTH_URL$TENANT/oauth2/v2.0/token"
 
         /**
-         * 与 ZL2 的 XboxLoginException.XErr 映射一致
          * Reference : https://github.com/PrismarineJS/prismarine-auth/blob/1aef6e1/src/common/Constants.js#L50-L59
          */
         private val XERR_LOOKUP = mapOf<Long, XboxLoginException.ExceptionStatus>(
@@ -108,7 +102,6 @@ class MicrosoftAuthenticator {
                     val json = parseJson(raw)
                     val userCode = json.get("user_code")?.asString ?: ""
                     val verificationUri = json.get("verification_uri")?.asString ?: ""
-                    // 与 versepc2 一致：优先用预填验证码的完整链接，浏览器页直接打开可免手输 user_code
                     val verificationUriComplete = json.get("verification_uri_complete")?.asString ?: ""
                     val deviceCode = json.get("device_code")?.asString ?: ""
                     val expiresIn = json.get("expires_in")?.asInt ?: 0
@@ -144,7 +137,6 @@ class MicrosoftAuthenticator {
      * 使用设备代码流从 Microsoft Azure Active Directory 检索访问令牌和刷新令牌
      * 此函数会定期轮询 Microsoft 令牌端点，直到获取访问令牌或设备码超时
      *
-     * 与 ZL2 的 getTokenResponse 逻辑一致：
      * - 服务器响应 authorization_pending 时继续轮询，slow_down 时将轮询间隔 +1s
      * - 临时性网络错误不中断轮询，但连续 [MAX_CONSECUTIVE_POLL_FAILURES] 次失败后放弃
      * - [checkCancelled] 需连续两次确认才真正取消，防止误判
@@ -240,7 +232,6 @@ class MicrosoftAuthenticator {
     /**
      * 使用不同的身份验证类型验证用户，并检索其 Minecraft 帐户信息
      *
-     * 与 ZL2 的 microsoftAuthAsync 一致：访问令牌（或刷新令牌换取）→ XBL → XSTS →
      * Minecraft 服务认证 → 所有权校验 → 玩家档案，[statusUpdate] 回调当前步骤。
      */
     suspend fun authenticate(
@@ -270,7 +261,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 使用 refresh token 刷新微软账号（与 ZL2 的 refreshAccessToken 一致，
      * 走 login.live.com/oauth20_token.srf 端点）。
      * 刷新成功后重新走 Xbox/Minecraft 认证，返回新的访问令牌、刷新令牌与档案。
      */
@@ -288,7 +278,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 校验缓存的 accessToken 是否仍被服务端接受（与 ZL2 的 validateAccessToken 一致）
      * @return false 表示服务端已拒绝该凭据
      */
     suspend fun validateAccessToken(account: Account): Boolean = withContext(Dispatchers.IO) {
@@ -305,7 +294,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 完整认证链（与 ZL2 的 microsoftAuthAsync 对应）：
      * 访问令牌准备 → XBL → XSTS → Minecraft 登录 → 所有权校验，返回 Minecraft 访问令牌
      */
     private suspend fun fullAuthChain(
@@ -331,7 +319,6 @@ class MicrosoftAuthenticator {
         return authenticateMinecraft(xstsToken.second, xstsToken.first)
     }
 
-    /** 与 ZL2 的 refreshAccessToken 一致：走 login.live.com 旧端点，invalid_grant 视为凭据过期 */
     private suspend fun refreshAccessToken(
         refreshToken: String,
         update: (AsyncStatus) -> Unit
@@ -373,7 +360,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 与 ZL2 的 authenticateXBL 一致：RpsTicket 携带 "d=" 前缀；
      * 如遇 400 Bad Request，可去掉 "d=" 前缀重新请求
      * https://zh.minecraft.wiki/w/Tutorial:%E7%BC%96%E5%86%99%E5%90%AF%E5%8A%A8%E5%99%A8#Xbox_Live%E8%BA%AB%E4%BB%BD%E9%AA%8C%E8%AF%81
      */
@@ -418,7 +404,6 @@ class MicrosoftAuthenticator {
         }
     }
 
-    /** 与 ZL2 的 authenticateXSTS 一致：从 4xx 响应体解析 XErr 并细分账号问题 */
     private suspend fun authenticateXSTS(xblToken: String, uhs: String): Pair<String, String> = withRetry {
         val properties = JsonObject().apply {
             addProperty("SandboxId", "RETAIL")
@@ -461,7 +446,6 @@ class MicrosoftAuthenticator {
         }
     }
 
-    /** 与 ZL2 的 authenticateMinecraft 一致：429 → 登录过于频繁，403 → IP 被禁止 */
     private suspend fun authenticateMinecraft(uhs: String, xstsToken: String): String = withRetry {
         val body = JsonObject().apply {
             addProperty("identityToken", "XBL3.0 x=$uhs;$xstsToken")
@@ -500,7 +484,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 所有权校验 + 档案获取（与 ZL2 的 verifyGameOwnership / getPlayerProfile 对应）：
      * mcstore 所有权项为空 → 未购买；档案 429 → 频繁；404 → 区分未创建档案/未购买
      */
     private suspend fun fetchProfileWithOwnership(
@@ -528,7 +511,6 @@ class MicrosoftAuthenticator {
         return getPlayerProfile(mcToken)
     }
 
-    /** 与 ZL2 的 getPlayerProfile 一致：429 → 频繁；404 → 未创建档案（结合许可证检查细分未购买） */
     private fun getPlayerProfile(mcToken: String): MinecraftProfile {
         val request = Request.Builder()
             .url("$MINECRAFT_SERVICES_URL/minecraft/profile")
@@ -645,7 +627,6 @@ class MicrosoftAuthenticator {
     }
 
     /**
-     * 与 ZL2 的 withRetry 一致：3 次重试、1s 起步指数退避（上限 10s）。
      * 可重试条件：5xx、DNS 解析失败、网络 IO 异常；取消不重试。
      */
     private suspend fun <T> withRetry(
@@ -688,12 +669,10 @@ class MicrosoftAuthenticator {
     }
 }
 
-/** 与 ZL2 的 AuthType 一致：Access = 直接使用访问令牌，Refresh = 刷新令牌换取 */
 enum class AuthType {
     Access, Refresh
 }
 
-/** 与 ZL2 的 AsyncStatus 一致：认证执行到哪个步骤 */
 enum class AsyncStatus {
     GETTING_ACCESS_TOKEN,
     GETTING_XBL_TOKEN,
@@ -703,21 +682,17 @@ enum class AsyncStatus {
     GETTING_PLAYER_PROFILE
 }
 
-/** HTTP 状态异常，携带从响应体解析出的 OAuth error 字段（对应 ZL2 的 ClientRequestException 场景） */
 class AuthHttpException(
     val httpStatus: Int,
     val errorCode: String?,
     message: String
 ) : Exception(message)
 
-/** 与 ZL2 的 CredentialsExpiredException 一致：刷新令牌已被撤销或失效，无法自动恢复 */
 class CredentialsExpiredException : Exception("登录已过期，请重新登录")
 
-/** 与 ZL2 的 HttpRequestTimeoutException 一致：设备码过期前用户未完成授权 */
 class AuthenticationTimeoutException : Exception("网络访问超时，请检查网络环境。")
 
 /**
- * 与 ZL2 的 XboxLoginException 一致：XSTS 认证返回的账号状态问题
  */
 class XboxLoginException(val status: ExceptionStatus) : RuntimeException() {
     enum class ExceptionStatus {
@@ -746,7 +721,6 @@ class XboxLoginException(val status: ExceptionStatus) : RuntimeException() {
         UNDERAGE
     }
 
-    /** 与 ZL2 的 XboxLoginException.toLocal 一致（中文提示） */
     fun toLocalMessage(): String = when (status) {
         ExceptionStatus.BANNED -> "您的账号因违反 Xbox 社区规范已被封禁，无法使用！"
         ExceptionStatus.RESTRICTED -> "您的账号目前受到限制，监护人尚未授权您进行在线游戏。"
@@ -760,7 +734,6 @@ class XboxLoginException(val status: ExceptionStatus) : RuntimeException() {
 }
 
 /**
- * 与 ZL2 的 MinecraftProfileException 一致：Minecraft 服务认证 / 档案获取异常
  */
 class MinecraftProfileException(val status: ExceptionStatus) : RuntimeException() {
     enum class ExceptionStatus {
@@ -774,7 +747,6 @@ class MinecraftProfileException(val status: ExceptionStatus) : RuntimeException(
         PROFILE_NOT_EXISTS
     }
 
-    /** 与 ZL2 的 MinecraftProfileException.toLocal 一致（中文提示） */
     fun toLocalMessage(): String = when (status) {
         ExceptionStatus.FREQUENT -> "登录过于频繁，请稍后再试。"
         ExceptionStatus.BLOCKED_IP -> "当前 IP 地址已被禁止登陆。"
@@ -782,7 +754,6 @@ class MinecraftProfileException(val status: ExceptionStatus) : RuntimeException(
     }
 }
 
-/** 与 ZL2 的 NotPurchasedMinecraftException 一致（提示文本采用 ZL2 文案） */
 class NotPurchasedMinecraftException : Exception("未检查到 Minecraft 配置信息，请前往 Minecraft 的官方网站购买。")
 
 class EmptyProfileException : Exception("请先创建 Minecraft 玩家档案，然后再重新登陆！")

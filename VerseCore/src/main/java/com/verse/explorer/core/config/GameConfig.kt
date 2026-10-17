@@ -10,12 +10,10 @@ object GameConfig {
 
     val MOJANG_MIRRORS = listOf(
         MojangMirror("BMCLAPI 镜像", "https://bmclapi2.bangbang93.com", 0, isOfficial = false),
-        MojangMirror("MCBBS 镜像", "https://download.mcbbs.net", 1, isOfficial = false),
         MojangMirror("Mojang 官方", "https://piston-meta.mojang.com", 2, isOfficial = true)
     )
 
     fun getGameDir(context: Context): File {
-        // 对齐 FCL：游戏数据放在应用内部私有目录，保证 App 全程可读写。
         // 曾用共享根 /sdcard/VerseExplorerX 与外部私有 /sdcard/Android/data/...，
         // 二者在部分设备（ColorOS 等）的 FUSE 挂载上不可靠：共享根读取报
         // Permission denied（JVM 载不到主类 => 启动 exit 6），外部私有写入报

@@ -1,4 +1,3 @@
-// VersePc2CrashAnalyzer.kt — 崩溃分析入口（逻辑移植自 VersePC2 crash_analyzer/mod.rs）
 // 收集游戏目录下的日志（MC 运行日志 / hs_err / crash-report / debug 日志）→
 // LogPrepare.prepare 预处理 → Crit1 → Crit2 → 堆栈分析（Mod 场景）→ Crit3 → 建议文本
 package com.verse.explorer.app.crash
@@ -21,7 +20,7 @@ data class Pc2Analysis(
 
 object VersePc2CrashAnalyzer {
 
-    /** 收集游戏目录下的日志文件（Android 路径适配，对齐 file_collector 的三类输入） */
+    /** 收集游戏目录下的日志文件（Android 路径适配） */
     fun collectLogs(gameDir: File?, debugLog: File?): List<RawLogFile> {
         val raw = mutableListOf<RawLogFile>()
         val dir = gameDir

@@ -21,6 +21,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.version.LoaderRepository
 import com.verse.explorer.app.domain.model.version.*
 import com.verse.explorer.app.ui.components.InstallFlowCard
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
@@ -57,7 +58,6 @@ fun VersionDetailScreen(
     var loaderError by remember { mutableStateOf<String?>(null) }
     var isLoadingVersions by remember { mutableStateOf(false) }
     var versionInfoText by remember { mutableStateOf("") }
-    // 命名弹窗（复刻 FCL）：确认下载时先弹窗确认版本名，再进入下载
     var showNamingDialog by remember { mutableStateOf(false) }
     var confirmedInstallName by remember { mutableStateOf<String?>(null) }
 
@@ -145,9 +145,11 @@ fun VersionDetailScreen(
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .widthIn(max = 520.dp)
+                    .align(Alignment.CenterHorizontally),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 // Download source section
                 item {
@@ -227,10 +229,10 @@ fun VersionDetailScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(
-                                    Modifier.size(18.dp),
-                                    color = VerseColors.PcAccent,
-                                    strokeWidth = 2.dp
+                                RoseLoader(
+                                    modifier = Modifier.size(18.dp),
+                                    size = 18.dp,
+                                    color = VerseColors.PcAccent
                                 )
                                 Spacer(Modifier.width(10.dp))
                                 Text("正在获取版本列表...", fontSize = 13.sp, color = VerseColors.PcTextMuted)
@@ -340,7 +342,6 @@ fun VersionDetailScreen(
                         }
                         Button(
                             onClick = {
-                                // 先弹命名弹窗（复刻 FCL 命名逻辑），确认后再下载
                                 showNamingDialog = true
                             },
                             modifier = Modifier.weight(1.5f),
@@ -387,7 +388,6 @@ fun VersionDetailScreen(
         }
     }
 
-    // 下载前的版本命名弹窗（复刻 FCL）
     if (showNamingDialog) {
         VersionNamingDialog(
             gameVersion = versionId,

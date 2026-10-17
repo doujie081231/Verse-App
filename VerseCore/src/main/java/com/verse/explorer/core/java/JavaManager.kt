@@ -206,7 +206,6 @@ class JavaManager(private val runtimeDir: File) {
     }
 
     private fun findJreRoot(javaDir: File): File {
-        // FCL-style: Check for JDK8 jre/ layout first
         if (isJDK8Layout(javaDir)) return File(javaDir, "jre")
         if (File(javaDir, "lib/rt.jar").exists()) return javaDir
         if (File(javaDir, "lib/modules").exists()) return javaDir

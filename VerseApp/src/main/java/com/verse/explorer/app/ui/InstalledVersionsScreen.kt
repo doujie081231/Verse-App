@@ -44,17 +44,14 @@ import com.verse.explorer.core.version.VersionType
 import java.io.File
 
 /**
- * 已安装版本管理列表（对齐 versepc2 `page-installed-versions` + `renderInstalledVersionsInto`）。
  *
  * 从主页点击版本卡片进入。手机端为单一游戏文件夹，因此：
  *  - 移除「版本文件夹选择器」（folder-selector）
  *  - 移除「添加已有文件夹」（add-external-folder）
  *
- * 保留 PC 端列表交互：
  *  - 模组版本 / 基础版本 分组
  *  - 版本项：图标 + 名称 + 加载器 badge + meta(类型 · 日期)
  *  - 右侧：设置齿轮（进版本设置） + 删除按钮
- *  - 选中态：✓ 角标 + accent 边框（对应 PC `.version-item.selected`）
  */
 @Composable
 fun InstalledVersionsScreen(navController: NavHostController) {
@@ -73,7 +70,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         if (uri != null) importUri = uri
     }
 
-    // PC 端 split：模组版本优先显示，基础版本(原版)分组在下方
     val moddedVersions = localVersions.filter { isModdedVersion(it) }
     val vanillaVersions = localVersions.filterNot { isModdedVersion(it) }
 
@@ -82,7 +78,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             .fillMaxSize()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 对齐 PC .page-header：返回箭头 + 标题 + 刷新
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -108,7 +103,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                     color = VerseColors.PcTextPrimary,
                     modifier = Modifier.weight(1f)
                 )
-                // 导入整合包：打开内部存储挑选文件（zip/mrpack 等），走 FCL 原版安装链路
                 IconButton(
                     onClick = {
                         importPicker.launch(
@@ -145,7 +139,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             Spacer(modifier = Modifier.height(6.dp))
 
             if (localVersions.isEmpty()) {
-                // PC 空态：'该文件夹下暂无版本'
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         text = "暂无已安装版本，请前往「下载」页安装一个吧",
@@ -187,7 +180,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 
                     if (vanillaVersions.isNotEmpty()) {
                         item {
-                            // PC：基础版本分组头（⚠ 原版分组）
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Spacer(Modifier.height(12.dp))
                                 Row(
@@ -233,7 +225,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         }
     }
 
-    // 本地导入整合包（SAF 选文件 → 命名 → FCL 安装链路 → 完成刷新列表）
     ModpackImportFlow(
         importSource = importUri,
         onHandled = { importUri = null },
@@ -270,7 +261,6 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 }
 
 /**
- * 单个已安装版本项（对齐 PC `.version-item`）：
  *  图标(52dp, 透明底) + 名称 + badge + meta + 右侧「齿轮 + 删除」
  *  选中版本：accent 边框 + 左上角 ✓ 角标
  */
@@ -297,7 +287,6 @@ private fun InstalledVersionItem(
             } else null
         } catch (e: Exception) { null }
     }
-    // 加载器图标（对齐 PC get_version_icon：有加载器显示加载器图标，否则版本类型图标）。
     // 加载器同时按版本 json 内容识别（loaderHint），覆盖整合包等名称不含加载器关键词的版本。
     val lower = version.id.lowercase()
     val hint = version.loaderHint?.lowercase()
@@ -336,7 +325,6 @@ private fun InstalledVersionItem(
 
     Box {
         if (selected) {
-            // ✓ 角标（对齐 PC .version-item.selected::before）
             Box(
                 modifier = Modifier
                     .size(22.dp)
@@ -460,8 +448,7 @@ private fun InstalledVersionItem(
     }
 }
 
-/** 加载器 badge（对齐 PC renderInstalledVersionsInto badge 判定 + HomeScreen LoaderBadge）。
- *  优先取版本 json 识别的加载器（loaderHint），再退化为名称关键词判定。 */
+/** 加载器 badge：优先取版本 json 识别的加载器（loaderHint），再退化为名称关键词判定。 */
 private fun loaderBadge(version: MinecraftVersion): Pair<String, Color> {
     val hint = version.loaderHint?.lowercase()
     if (!hint.isNullOrBlank()) {

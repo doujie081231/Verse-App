@@ -5,7 +5,6 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * 反馈请求防伪签名工具（对齐 PC 端 feedback.js / 站点 lib/sign.ts）：
  * HMAC-SHA256 over 规范化字段 + 随机一次性 nonce 防重放。
  */
 object FeedbackCrypto {

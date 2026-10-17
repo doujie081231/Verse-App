@@ -36,8 +36,15 @@ object MirrorSourceManager {
     // MCBBS 镜像已移除：download.mcbbs.net 域名失效，DNS 解析实测挂起 11 秒，
     // 每个命中它的文件都要白等一轮系统 DNS 超时（镜像回退链 = [BMCLAPI, 官方]）
 
+    // BMCLAPI 的 /maven/ 对部分旧版官方库未收录（实测 gson-2.8.9 / asm-9.6 等返回 403），
+    // 未收录的库只能退官方源直连，手机网络下极慢 → 库阶段整批卡住。
+    // 阿里云 Maven（代理 Central）与 BMCLAPI 收录互补：官方 libraries 域名的库
+    // 全部发布在 Central，403 时由阿里云补位（实测 gson/asm/icu4j/guava 均秒回）。
+    private val LIBRARIES_TO_ALIYUN = mapOf(
+        "https://libraries.minecraft.net" to "https://maven.aliyun.com/repository/public"
+    )
+
     /**
-     * 资源下载 CDN 镜像（对齐 PC 端 to_mirror_url / to_curseforge_url）：
      *  - Modrinth CDN → mcimirror 国内镜像（host 替换，路径不变），官方 CDN 国内直连仅几十 KB/s
      *  - edge.forgecdn.net → mediafilez.forgecdn.net（同为 CurseForge 官方 CDN 节点）：
      *    edge 对带 Range 的请求直接返回 404，分块下载/测速探针全灭；mediafilez 支持 Range，
@@ -77,10 +84,12 @@ object MirrorSourceManager {
         if (source == "mojang") return listOf(originalUrl)
 
         val bmclapiUrl = applyMirror(originalUrl, MOJANG_TO_BMCLAPI)
+        val aliyunUrl = applyMirror(originalUrl, LIBRARIES_TO_ALIYUN)
         val resourceUrl = applyResourceMirror(originalUrl)
 
         val mirrorUrls = mutableListOf<String>()
         if (bmclapiUrl != originalUrl) mirrorUrls.add(bmclapiUrl)
+        if (aliyunUrl != originalUrl && aliyunUrl !in mirrorUrls) mirrorUrls.add(aliyunUrl)
         if (resourceUrl != originalUrl && resourceUrl !in mirrorUrls) mirrorUrls.add(resourceUrl)
 
         if (mirrorUrls.isEmpty()) return listOf(originalUrl)

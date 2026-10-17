@@ -1,5 +1,3 @@
-// CrashReportActivity.kt — 崩溃分析页面（布局对齐 ZL2：左侧分析内容，右侧操作按钮）
-// 数据来源：VersePc2CrashAnalyzer（VersePC2 崩溃分析逻辑移植）
 package com.verse.explorer.app.ui.game
 
 import android.app.Activity
@@ -105,7 +103,6 @@ class CrashReportActivity : Activity() {
             marginEnd = (10 * density).toInt()
         })
 
-        // ===== 右侧：操作按钮列（ZL2 风格） =====
         val actions = card(VerseColors.PcBgSecondary.toArgb(), 10f, 10f).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -152,7 +149,6 @@ class CrashReportActivity : Activity() {
         return root
     }
 
-    /** 异步执行 PC2 逻辑分析并渲染 */
     private fun startAnalysis() {
         contentColumn.addView(text("正在分析崩溃原因…", 14f, VerseColors.PcTextSecondary.toArgb()))
         Thread {
@@ -180,7 +176,7 @@ class CrashReportActivity : Activity() {
         val stack = runCatching {
             if (crashFile.exists()) {
                 val all = crashFile.readText()
-                val idx = all.lastIndexOf("===== Verse Explorer X Crash =====")
+                val idx = all.lastIndexOf("===== Verse Crash =====")
                 if (idx >= 0) all.substring(idx).take(6000) else all.take(6000)
             } else ""
         }.getOrDefault("")
@@ -282,7 +278,7 @@ class CrashReportActivity : Activity() {
     /** 拼接导出/复制的报告文本 */
     private fun buildReportText(result: Pc2Analysis) {
         val sb = StringBuilder()
-        sb.appendLine("Verse Explorer X 崩溃分析报告")
+        sb.appendLine("Verse 崩溃分析报告")
         sb.appendLine("时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
         sb.appendLine("退出码: $exitCode")
         sb.appendLine()
@@ -340,7 +336,6 @@ class CrashReportActivity : Activity() {
         @Volatile
         var onRestartRequested: (() -> Unit)? = null
 
-        /** 游戏崩溃：显示 PC2 逻辑分析页 */
         fun show(activity: Activity, exitCode: Int, gameDir: File?, onRestart: () -> Unit) {
             onRestartRequested = onRestart
             val intent = Intent(activity, CrashReportActivity::class.java).apply {

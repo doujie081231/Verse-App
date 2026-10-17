@@ -17,9 +17,8 @@ import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 
 /**
- * 游戏输入处理：行为全部照搬 FCL 的 FCLInput.java + control/view/TouchPad.java
- * （CursorDisabled=抓取态 / CursorEnabled=GUI 态 两条触摸分支，400ms 长按 BUILD/FIGHT 手势，
- * CLICK/SLIDE 鼠标移动模式，物理鼠标 external mouse 事件，左半屏禁用触控）。
+ * 游戏输入处理：CursorDisabled=抓取态 / CursorEnabled=GUI 态 两条触摸分支，400ms 长按 BUILD/FIGHT 手势，
+ * CLICK/SLIDE 鼠标移动模式，物理鼠标 external mouse 事件，左半屏禁用触控。
  * 不新增私有逻辑；设置项从 MenuSetting（menu_setting.json）读取。
  */
 @SuppressLint("ClickableViewAccessibility")
@@ -27,11 +26,9 @@ class GameInputHandler(
     private val bridgeProvider: () -> FCLBridge?,
     private val context: Context? = null,
     private val hitResultTypeProvider: () -> Int = { FCLBridge.HIT_RESULT_TYPE_UNKNOWN },
-    /** 指针捕获/焦点目标视图（对应 FCLInput.initExternalController 的 focusableView） */
     private val captureViewProvider: () -> android.view.View? = { null }
 ) {
 
-    // ===== FCLInput 常量（MOUSE_MAP 与 FCLInput.java 一致） =====
     companion object {
         const val MOUSE_LEFT = 1000
         const val MOUSE_MIDDLE = 1001
@@ -39,7 +36,6 @@ class GameInputHandler(
         const val MOUSE_SCROLL_UP = 1003
         const val MOUSE_SCROLL_DOWN = 1004
         private const val TAG = "GameInputHandler"
-        // 与 FCL TouchPad 的长按阈值/点击判定一致
         private const val HOLD_DELAY = 400L
         private const val CLICK_DELAY = 33L
         private const val TAP_MAX_TIME = 100L
@@ -50,17 +46,14 @@ class GameInputHandler(
 
     private var isGrabbing = false
 
-    // ===== 光标/指针状态（FCL GameMenu.cursorX/cursorY + pointerX/pointerY 的对应） =====
     internal var cursorX = 0f
     internal var cursorY = 0f
     private var pointerX = 0f
     private var pointerY = 0f
     private var pointerId: String? = null
 
-    /** GUI 态光标移动回调（FCL CursorView.setX/setY 的对应，由 GameActivity 接可见光标） */
     internal var cursorMoveListener: ((Float, Float) -> Unit)? = null
 
-    // ===== FCL TouchPad 抓取态状态 =====
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
@@ -89,7 +82,6 @@ class GameInputHandler(
 
     // 本次触摸是否发生过滑动（位移超过 TAP_MAX_DIST）。滑动转视角的手指在抬起时
     // 绝不应被判定为 tap/长按点击（否则转视角同时触发挖掘/攻击 → 视角跳转抽搐）。
-    // FCL TouchPad 事件流完整（独立 view 接收），Verse 经 Activity.dispatchTouchEvent
     // 手动分流（按钮指针跳过）后事件时序错乱，tap 判定会误触发，需用滑动标志兜底。
     private var hasMoved = false
 
@@ -120,7 +112,7 @@ class GameInputHandler(
         syncCapturedPointer()
     }
 
-    /** FCL GameMenu.onCursorModeChange 的捕获同步：物理鼠标模式下抓取态用相对鼠标
+    /** 捕获同步：物理鼠标模式下抓取态用相对鼠标
      * （需指针捕获），GUI 态用屏幕绝对坐标（释放捕获）；非物理鼠标模式不捕获，
      * 由 GameActivity.onWindowFocusChanged 在挂载时按需请求。 */
     fun syncCapturedPointer() {
@@ -138,7 +130,6 @@ class GameInputHandler(
         }
     }
 
-    /** FCL TouchPad.getGestureMode()：BE 手势禁用时用设置值，否则按命中结果自动切换 BUILD/FIGHT */
     private fun effectiveGestureMode(): GestureMode {
         if (MenuSetting.isDisableBEGesture) {
             return GestureMode.getById(MenuSetting.gestureMode)
@@ -155,15 +146,12 @@ class GameInputHandler(
         }
     }
 
-    // ===== FCLInput.setPointer：推送指针时按 scaleFactor 缩放（与 FCLInput.java 一致） =====
     // GUI 态屏幕坐标 → 渲染 buffer 坐标的精确映射（刘海避让/窗口比例/强制分辨率场景），
-    // 由 GameActivity 注入 pointerMapper；返回 null 时回退到 ×scaleFactor 的 FCL 原始行为
     var pointerMapper: ((Float, Float) -> Pair<Int, Int>?)? = null
 
     private fun setPointer(x: Float, y: Float) {
         pointerX = x
         pointerY = y
-        // FCL：光标坐标仅在 CursorEnabled（GUI 态）更新，抓取态只维护指针坐标
         if (!isGrabbing) {
             cursorX = x
             cursorY = y
@@ -195,7 +183,6 @@ class GameInputHandler(
 
     private var lastCursorDiagTime = 0L
 
-    /** FCLInput.sendKeyEvent：鼠标键走 pushEventMouseButton（含滚轮映射），其余走 pushEventKey */
     private fun sendKeyEvent(keycode: Int, press: Boolean) {
         val bridge = bridgeProvider() ?: return
         when (keycode) {
@@ -208,7 +195,6 @@ class GameInputHandler(
         }
     }
 
-    /** FCLInput.handleExternalMouseEvent：外接鼠标按钮/滚轮事件 */
     fun handleExternalMouseEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_BUTTON_RELEASE -> {
@@ -229,7 +215,6 @@ class GameInputHandler(
         return true
     }
 
-    /** FCLInput.handleMouse：抓取态下捕获的相对鼠标移动（指针捕获模式），含灵敏度 */
     fun handleCapturedPointer(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_MOVE) {
             var tX = event.x
@@ -311,7 +296,6 @@ class GameInputHandler(
         VerseLogger.debug("in: ev=$action cnt=${event.pointerCount} main=$mainIndex skip=$skipIds grab=$isGrabbing | $ptrs", "TouchDiag")
     }
 
-    // ===== FCL TouchPad CursorEnabled（GUI 态）分支 =====
     private fun handleGuiTouch(event: MotionEvent, mainIndex: Int) {
         val bridge = bridgeProvider() ?: return
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
@@ -326,13 +310,11 @@ class GameInputHandler(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> handler.postDelayed(clickDownRunnable, CLICK_DELAY)
                 MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                    // 照搬 FCL TouchPad：DOWN/UP 各排一次延迟发送，【不】removeCallbacks(clickDown)。
                     // 否则快速点按（DOWN→UP < 33ms）时按下事件被取消，鼠标左键从未按下 → 点击无效。
                     handler.postDelayed(clickUpRunnable, CLICK_DELAY)
                 }
             }
         } else {
-            // MouseMoveMode.SLIDE（FCL TouchPad 原版语义）：DOWN 记基线（光标初始位置），
             // MOVE 相对移动光标（initial + delta × GUI 灵敏度），UP 仅 tap（≤100ms 且 ≤10px）点击
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -363,7 +345,6 @@ class GameInputHandler(
         }
     }
 
-    // ===== FCL TouchPad CursorDisabled（抓取/游戏内）分支 =====
     private fun handleGrabbedTouch(event: MotionEvent, mainIndex: Int) {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) return
         if (MenuSetting.isDisableLeftTouch && event.getX(mainIndex) <= screenWidth / 2f) {
@@ -415,7 +396,6 @@ class GameInputHandler(
                     || kotlin.math.abs(newDownY - downY) > TAP_MAX_DIST
                 ) {
                     // 发生滑动：标记 hasMoved 并彻底取消长按 —— 滑动转视角绝不应触发 BUILD/FIGHT 点击。
-                    // （FCL 仅 MOVE 位移>1 且 <400ms 时移除，滑动后手指停留仍会在满 400ms 触发长按；
                     //   Verse 手动分流下误判率高，滑动过即取消更符合"滑动=转视角"预期。）
                     hasMoved = true
                 }
@@ -474,7 +454,6 @@ class GameInputHandler(
 
     fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         val bridge = bridgeProvider() ?: return false
-        // FCL handleKeyEvent：鼠标源设备上 BACK 键映射为鼠标右键
         if (isMouseSource(event)) {
             if (keyCode == KeyEvent.KEYCODE_BACK) {
                 sendKeyEvent(MOUSE_RIGHT, true)
@@ -483,7 +462,6 @@ class GameInputHandler(
         }
         val glfwKey = androidKeyToGlfw(keyCode)
         if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
-            // FCL handleKeyEvent：仅 GUI 态（光标可见）随按键携带 unicode 字符
             val keyChar = if (!isGrabbing) (event?.unicodeChar ?: 0) else 0
             bridge.pushEventKey(glfwKey, keyChar, true)
             return true

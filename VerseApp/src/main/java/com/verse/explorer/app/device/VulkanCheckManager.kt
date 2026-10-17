@@ -87,7 +87,6 @@ data class VulkanCheckRecord(
         GameVersionNumberCompat.compare(this, other) < 0
 }
 
-/** GameVersionNumber 的稳定入口（与 FCL 一致的版本比较语义） */
 private object GameVersionNumberCompat {
     fun compare(a: String, b: String): Int = com.tungsten.fclcore.util.versioning.GameVersionNumber.compare(a, b)
 }

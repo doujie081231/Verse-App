@@ -23,8 +23,6 @@ enum class JavaInstallStatus {
 
 object JavaRuntimeManager {
 
-    // 与 FCL 原版一致：只带 jre8 / jre17 / jre21 / jre25。
-    // FCL 的 app_runtime（Pojav 运行时）不含 jre11，其归档在官方仓库为 404 占位，
     // 强行安装只会产生下载失败日志。处理器 fallback 链为 21→17，也不依赖 11。
     internal val JRE_VERSIONS = mapOf(
         "java8" to 8,
@@ -149,7 +147,6 @@ object JavaRuntimeManager {
         val manager = JavaManager(jreDir)
         val primaryRuntimes = manager.scanInstalledRuntimes()
 
-        // 同时扫描 RuntimeSetupManager (FCL-style) 的 Java 目录
         val runtimeDir = context.getDir("runtime", 0)
         val javaDir = File(runtimeDir, "java")
         if (javaDir.exists() && javaDir.isDirectory) {

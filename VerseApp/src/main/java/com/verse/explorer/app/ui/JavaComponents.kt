@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.theme.VerseColors
 
 @Composable
@@ -48,10 +49,10 @@ fun JavaVersionRow(
             contentAlignment = Alignment.Center
         ) {
             if (isInstalling) {
-                CircularProgressIndicator(
+                RoseLoader(
                     modifier = Modifier.size(18.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
+                    size = 18.dp,
+                    color = Color.White
                 )
             } else {
                 Icon(
@@ -145,10 +146,10 @@ fun JavaVersionRow(
                 )
             ) {
                 if (isInstalling) {
-                    CircularProgressIndicator(
+                    RoseLoader(
                         modifier = Modifier.size(12.dp),
-                        color = VerseColors.PcOrange,
-                        strokeWidth = 1.5.dp
+                        size = 12.dp,
+                        color = VerseColors.PcOrange
                     )
                 } else {
                     Icon(Icons.Filled.Download, null, Modifier.size(12.dp))

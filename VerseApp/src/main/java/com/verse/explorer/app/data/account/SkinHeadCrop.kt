@@ -7,7 +7,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * 皮肤头部裁剪工具。逐行对齐 PC 端 `cropSkinHeadCanvas`：
  *  - 脸部像素块放大到输出的 0.75，帽子层放大到 0.875（帽子比脸大，完整显示帽子像素块）；
  *  - 先画脸部（居中背景），再按 alpha 叠加帽子层（透明像素露出脸部）；
  *  - 支持高清皮肤（scale = 宽 / 64）。
@@ -17,7 +16,6 @@ object SkinHeadCrop {
     /**
      * 裁剪皮肤头部。
      * @param skin 完整皮肤 Bitmap（64x64 或 64x32，可为高清皮肤）
-     * @param outputSize 输出边长（PC 列表卡 64；主页 max(128, 宽)）
      * @return 头像 Bitmap；无法裁剪时返回原图
      */
     fun cropHead(skin: Bitmap, outputSize: Int = 64): Bitmap {
@@ -26,7 +24,7 @@ object SkinHeadCrop {
         if (w < 64 || h < 32) return skin
 
         val scale = w / 64f
-        // 对齐 cropSkinHeadCanvas：脸 0.75 / 帽 0.875，居中偏移
+        // 脸 0.75 / 帽 0.875，居中偏移
         val faceSize = (outputSize * 0.75f).roundToInt()
         val hatSize = (outputSize * 0.875f).roundToInt()
         val faceOffset = ((outputSize - faceSize) / 2f).roundToInt()
@@ -40,7 +38,6 @@ object SkinHeadCrop {
         val out = Bitmap.createBitmap(outputSize, outputSize, Bitmap.Config.ARGB_8888)
         Canvas(out).drawBitmap(faceScaled, faceOffset.toFloat(), faceOffset.toFloat(), null)
 
-        // 帽子层：高度 >= 64 才存在（对齐 PC `if (sh >= 64)`）
         if (h >= 64 && hatLeft + sw <= w) {
             val hat = Bitmap.createBitmap(skin, hatLeft, sw, sw, sw)
             val hatScaled = Bitmap.createScaledBitmap(hat, hatSize, hatSize, false)
@@ -51,14 +48,12 @@ object SkinHeadCrop {
         return out
     }
 
-    /** 判断是否为整张皮肤（对齐 PC resolveFinal `width>=64 && height>=32`） */
     fun isFullSkin(bitmap: Bitmap): Boolean {
         return bitmap.width >= 64 && bitmap.height >= 32
     }
 
     /**
      * 逐像素将帽子层叠加到脸部层（标准 alpha over 混合）。
-     * 对齐 PC：帽子不透明像素直接覆盖脸部，透明像素保留脸部。
      */
     private fun blendOverlay(face: Bitmap, hat: Bitmap, size: Int): Bitmap {
         val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)

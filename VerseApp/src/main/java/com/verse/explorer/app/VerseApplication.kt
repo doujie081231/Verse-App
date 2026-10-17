@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.room.Room
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.decode.GifDecoder
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.account.AccountManager
@@ -37,6 +38,11 @@ class VerseApplication : Application(), ImageLoaderFactory {
     /** 应用级协程作用域：供跨页面长任务（如整合包安装）使用，不随页面销毁而取消 */
     val appScope: CoroutineScope get() = applicationScope
 
+    /** 当前前台 Activity（供下载中心发起 Android 13 通知权限请求等一次性 UI 操作） */
+    @Volatile
+    var currentActivity: android.app.Activity? = null
+        private set
+
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         // 崩溃页独立进程不注册 handler：页面自身若再崩溃会无限递归
@@ -59,6 +65,10 @@ class VerseApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .crossfade(true)
+            .components {
+                // GIF 动图解码器：背景图片支持动态 GIF
+                add(GifDecoder.Factory())
+            }
             .build()
     }
 
@@ -67,11 +77,24 @@ class VerseApplication : Application(), ImageLoaderFactory {
         if (isCrashProcess()) return // 崩溃页进程：跳过数据库/JRE 等重初始化
         writeBootLog("Application.onCreate started")
         instance = this
+        // 跟踪前台 Activity（下载中心通知权限请求等一次性 UI 操作使用）
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityStarted(activity: android.app.Activity) { currentActivity = activity }
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivityStopped(activity: android.app.Activity) {
+                if (currentActivity === activity) currentActivity = null
+            }
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
         // 陶瓦联机：提供应用级 Context 供后台推送 VPN 通知状态
         com.verse.explorer.app.terracotta.TerracottaController.appContext = this
-        // fclcore（FCL download 模块）宿主接入：FCLApp/FCLPath/处理器链路
         com.verse.explorer.app.install.FclCoreHost.init(this)
         SettingsRepository.init(this)
+        // 下载诊断日志（模组/版本/加载器/整合包）挂载 download.log
+        com.verse.explorer.core.log.DownloadLog.init(this)
         database = Room.databaseBuilder(this, AppDatabase::class.java, "verse_explorer.db")
             .fallbackToDestructiveMigration()
             .build()
@@ -80,6 +103,25 @@ class VerseApplication : Application(), ImageLoaderFactory {
         authlibAuthenticator = AuthlibAuthenticator()
         writeBootLog("Application.onCreate completed, starting JRE init")
         initAllJreRuntimes()
+        cleanupDownloadResidue()
+    }
+
+    /** 启动时清理上次中断留下的下载残留：整合包 .part 半截文件与缓存目录孤儿文件 */
+    private fun cleanupDownloadResidue() {
+        applicationScope.launch {
+            runCatching {
+                val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(this@VerseApplication)
+                // 整合包目录：删除中断下载留下的 .part 半截文件（坏 zip 会让重试识别失败）
+                File(gameDir, "modpacks").listFiles { f -> f.isFile && f.name.endsWith(".part") }
+                    ?.forEach { runCatching { it.delete() } }
+                // 资源下载缓存目录：清理超过一天的孤儿缓存文件（正常流程结束即清理，
+                // 只有进程被杀才会残留）
+                val cacheAssets = File(cacheDir, "assets")
+                val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+                cacheAssets.listFiles { f -> f.isFile && f.lastModified() < cutoff }
+                    ?.forEach { runCatching { it.delete() } }
+            }
+        }
     }
 
     /** 崩溃分析页独立进程名（AndroidManifest :crash） */
@@ -110,7 +152,6 @@ class VerseApplication : Application(), ImageLoaderFactory {
                         Log.e("VerseApp", "UncaughtException on thread=" + thread.name, throwable)
                     } catch (_: Throwable) {}
                 }
-                // ZL2 模式：捕获后展示崩溃分析页（应用不直接闪退），
                 // 页面由系统在新进程中恢复（intent 已送达 system_server）
                 try {
                     com.verse.explorer.app.ui.game.CrashReportActivity.showForApp(this@VerseApplication)
@@ -139,7 +180,7 @@ class VerseApplication : Application(), ImageLoaderFactory {
         try {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
             val sw = StringWriter()
-            sw.write("===== Verse Explorer X Crash =====\n")
+            sw.write("===== Verse Crash =====\n")
             sw.write("Time: $timestamp\n")
             sw.write("Thread: ${thread.name}\n")
             sw.write("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, SDK ${Build.VERSION.SDK_INT})\n")

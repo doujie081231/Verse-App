@@ -644,8 +644,11 @@ public class FCLauncher {
 
                 // launch game
                 launch(config, bridge, "Minecraft");
-            } catch (IOException e) {
+            } catch (Throwable e) {
+                // 启动线程死亡必须通知宿主：任何异常（含 UnsatisfiedLinkError 等错误）都
+                // 经 onExit 上报，否则 JVM 秒退时宿主收不到退出事件、崩溃分析页无法触发
                 e.printStackTrace();
+                bridge.onExit(1);
             }
         });
 

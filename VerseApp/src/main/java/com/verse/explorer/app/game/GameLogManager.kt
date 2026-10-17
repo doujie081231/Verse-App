@@ -72,7 +72,7 @@ class GameLogManager(private val activity: ComponentActivity) {
             logDir.mkdirs()
             val logFile = File(logDir, "verse_debug_${System.currentTimeMillis()}.log")
             val sb = StringBuilder()
-            sb.appendLine("=== Verse Explorer X Debug Log ===")
+            sb.appendLine("=== Verse Debug Log ===")
             sb.appendLine("Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
             sb.appendLine("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             sb.appendLine("Android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})")

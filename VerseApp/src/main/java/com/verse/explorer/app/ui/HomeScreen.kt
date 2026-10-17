@@ -48,7 +48,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * 主页（ZL2 同款控件自定义）：整页为可自定义排布的白色卡片网格，
  * 头像、版本选择与启动入口均为可控卡片，可拖动换位；
  * 头像支持放大缩小，版本选择与启动按钮尺寸固定。
  */
@@ -149,7 +148,6 @@ fun HomeScreen(
             HomePageContent(gridState = gridState)
         }
 
-        // 启动加载弹窗(ZL2 样式:遮罩 + 居中卡片,不可取消)
         if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
             PcLaunchOverlay(
                 launchState = launchState
