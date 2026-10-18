@@ -618,7 +618,6 @@ class InGameControlOverlay(
                 LauncherPreferences.PREF_GYRO_INVERT_Y = true
             }
         }
-        if (MenuSetting.isAutoFit) applyAutoFit()
         updateLogWindowVisibility()
     }
 

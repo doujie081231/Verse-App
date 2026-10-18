@@ -824,15 +824,22 @@ class GameLaunchOrchestrator(
                 continue
             }
 
-            // 检查关键 AWT 库 — 缺失说明 JRE 安装不完整，需要重装
+            // 检查关键 AWT 库与核心运行库 — 缺失说明 JRE 安装不完整，需要重装。
+            // 核心运行库：JDK9+ 为 lib/modules，JRE8 为 lib/rt.jar；损坏或缺失时
+            // JVM 初始化直接失败（NoClassDefFoundError: java/lang/Object）
             val libawtOk = javaDetector.findFileInDir(libDir, "libawt.so")
             val libfontmanagerOk = javaDetector.findFileInDir(libDir, "libfontmanager.so")
-            if (!libawtOk || !libfontmanagerOk) {
+            val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
+                javaDetector.findNonEmptyFileInDir(libDir, "rt.jar")
+            if (!libawtOk || !libfontmanagerOk || !classesOk) {
                 if (reinstalledJre && reinstalledPath == home) {
-                    VerseLogger.warn("JRE 重装后仍缺少 AWT 库，放弃", TAG)
+                    VerseLogger.warn("JRE 重装后仍缺少关键文件，放弃", TAG)
                     continue
                 }
-                VerseLogger.warn("JRE $home 缺少 AWT 库 (libawt.so=$libawtOk, libfontmanager.so=$libfontmanagerOk)，触发重装", TAG)
+                VerseLogger.warn(
+                    "JRE $home 关键文件缺失 (libawt.so=$libawtOk, libfontmanager.so=$libfontmanagerOk, 运行库=$classesOk)，触发重装",
+                    TAG
+                )
                 file.deleteRecursively()
 
                 // 触发 JRE 重新安装（同步等待完成）

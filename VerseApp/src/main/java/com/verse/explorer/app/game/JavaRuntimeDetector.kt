@@ -162,6 +162,15 @@ class JavaRuntimeDetector(
         return false
     }
 
+    fun findNonEmptyFileInDir(dir: File, name: String): Boolean {
+        if (!dir.exists()) return false
+        dir.listFiles()?.forEach {
+            if (it.isFile && it.name == name && it.length() > 0) return true
+            if (it.isDirectory && findNonEmptyFileInDir(it, name)) return true
+        }
+        return false
+    }
+
     fun findJavaHome(): String? {
         val runtimes = JavaRuntimeManager.getInstalledRuntimes(activity)
         val best = runtimes.maxByOrNull { it.version }

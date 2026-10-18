@@ -196,6 +196,10 @@ fun MainScreen(
         ChangelogDialog(
             versionName = "v${BuildConfig.VERSION_NAME}",
             items = listOf(
+                "修复游戏内操控摇杆导致的闪退（含加载自定义触控布局、开启自动吸附时）",
+                "修复部分设备 Java 运行环境损坏导致游戏无法启动的问题（自动检测并重装）",
+                "修复外置登录（LittleSkin 等皮肤站）验证服务器连接失败的问题",
+                "修复外置登录选择角色后无响应的问题",
                 "修复外部导入的整合包（Forge / OptiFine）无法启动的问题",
                 "修复打开控制面板时可能闪退的问题",
                 "修复重启应用后主页卡片堆叠在左上角的问题（受影响的布局会自动恢复）",

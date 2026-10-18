@@ -48,6 +48,19 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         }
     }
 
+    @Override
+    public boolean postDelayed(Runnable action, long delayMillis) {
+        // 摇杆库在 attach 后延时 100ms 把 ForwardLockView 加入父容器且不判空：
+        // 该窗口内重载布局会 detach 本视图，回调运行时 getParent() 为 null 直接 NPE。
+        // 包一层 attached 校验，视图已脱离布局时跳过回调（废弃实例无需再加锁视图）。
+        if (delayMillis == 100) {
+            return super.postDelayed(() -> {
+                if (isAttachedToWindow()) action.run();
+            }, delayMillis);
+        }
+        return super.postDelayed(action, delayMillis);
+    }
+
     private void init(ControlJoystickData data, ControlLayout layout) {
         mControlData = data;
         setProperties(preProcessProperties(data, layout));

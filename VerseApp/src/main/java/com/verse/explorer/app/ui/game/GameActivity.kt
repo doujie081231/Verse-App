@@ -746,6 +746,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val loadPath = versionLayout?.absolutePath
                 ?: LauncherPreferences.PREF_DEFAULTCTRL_PATH
                 ?: jsonPath
+            // 自动吸附的缩放折算必须在首次加载前写入，保证布局一次加载到位，
+            // 不再在控制面板挂载时二次 loadLayout（摇杆库在 attach 后 100ms 内
+            // 重载布局会让其内部回调拿到空父容器而崩溃）
+            if (MenuSetting.isAutoFit) {
+                LauncherPreferences.PREF_BUTTONSIZE =
+                    (100 - MenuSetting.autoFitDist * 3).coerceIn(70, 100).toFloat()
+            }
             layout.loadLayout(loadPath)
 
             // 触摸分发：手机触屏走普通 touch 事件（Activity dispatchTouchEvent 手动分流，

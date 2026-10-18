@@ -851,6 +851,16 @@ class AuthlibAuthenticator {
         }
     }
 
+    private fun postJson(url: String, jsonBody: String): Triple<Boolean, Int, String> {
+        val request = Request.Builder()
+            .url(url)
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response ->
+            return Triple(response.isSuccessful, response.code, response.body?.string() ?: "")
+        }
+    }
+
     suspend fun authenticate(
         serverUrl: String,
         username: String,
@@ -859,6 +869,8 @@ class AuthlibAuthenticator {
     ): AuthResult = withContext(Dispatchers.IO) {
         try {
             val apiRoot = resolveApiRoot(serverUrl)
+            val clientToken = UUID.randomUUID().toString().replace("-", "")
+
             val body = JsonObject().apply {
                 add("agent", JsonObject().apply {
                     addProperty("name", "Minecraft")
@@ -866,63 +878,114 @@ class AuthlibAuthenticator {
                 })
                 addProperty("username", username)
                 addProperty("password", password)
+                addProperty("clientToken", clientToken)
                 addProperty("requestUser", true)
-                if (profileId != null) {
-                    addProperty("profile", profileId)
-                }
             }
 
-            val request = Request.Builder()
-                .url("${apiRoot}authserver/authenticate")
-                .post(body.toString().toRequestBody("application/json".toMediaType()))
-                .build()
+            val (ok, code, respBody) = postJson("${apiRoot}authserver/authenticate", body.toString())
+            if (!ok) {
+                return@withContext AuthResult(success = false, error = "登录失败: HTTP $code $respBody")
+            }
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    val errBody = response.body?.string() ?: ""
-                    return@withContext AuthResult(success = false, error = "登录失败: HTTP ${response.code} $errBody")
-                }
+            val json = gson.fromJson(respBody, JsonObject::class.java)
+                ?: return@withContext AuthResult(success = false, error = "登录失败: 响应无效")
+            val accessToken = json.get("accessToken")?.takeIf { it.isJsonPrimitive }?.asString
+                ?: return@withContext AuthResult(success = false, error = "登录失败: 响应缺少 accessToken")
+            val selectedProfile = json.getAsJsonObject("selectedProfile")
+            val availableProfiles = json.getAsJsonArray("availableProfiles")
 
-                val json = gson.fromJson(response.body?.string(), JsonObject::class.java)
-                val accessToken = json.get("accessToken").asString
-                val selectedProfile = json.getAsJsonObject("selectedProfile")
-                val availableProfiles = json.getAsJsonArray("availableProfiles")
-
-                if (availableProfiles != null && availableProfiles.size() > 1 && selectedProfile == null) {
-                    val profilesList = mutableListOf<AuthlibProfile>()
-                    availableProfiles.forEach { p ->
-                        val obj = p.asJsonObject
-                        profilesList.add(
-                            AuthlibProfile(
-                                id = obj.get("id").asString,
-                                name = obj.get("name").asString
-                            )
-                        )
-                    }
-                    return@withContext AuthResult(
-                        success = true,
-                        profiles = profilesList
-                    )
-                }
-
-                val profileName = selectedProfile?.get("name")?.asString ?: username
-                val resolvedProfileId = selectedProfile?.get("id")?.asString ?: UUID.randomUUID().toString()
-
+            fun buildAccount(profileUuid: String, profileName: String, token: String): AuthResult =
                 AuthResult(
                     success = true,
                     account = Account(
                         username = profileName,
-                        uuid = resolvedProfileId,
-                        accessToken = accessToken,
+                        uuid = profileUuid,
+                        accessToken = token,
                         type = AccountType.AUTHLIB,
                         serverUrl = apiRoot,
                         loginUsername = username,
-                        skinUrl = "https://mc-heads.net/avatar/$resolvedProfileId/64"
+                        skinUrl = "https://mc-heads.net/avatar/$profileUuid/64"
                     )
                 )
+
+            // 多角色且未指定：先返回候选列表，等用户选择后带 profileId 再走一遍
+            // （此时经 /authserver/refresh 选定角色）
+            if (selectedProfile == null && availableProfiles != null && availableProfiles.size() > 0) {
+                val profilesList = mutableListOf<AuthlibProfile>()
+                availableProfiles.forEach { p ->
+                    val obj = p.asJsonObject
+                    profilesList.add(
+                        AuthlibProfile(
+                            id = obj.get("id").asString,
+                            name = obj.get("name").asString
+                        )
+                    )
+                }
+                if (profilesList.size > 1 && profileId == null) {
+                    return@withContext AuthResult(success = true, profiles = profilesList)
+                }
+                val chosen = if (profileId != null) {
+                    profilesList.firstOrNull { it.id == profileId }
+                        ?: return@withContext AuthResult(success = false, error = "角色不存在")
+                } else {
+                    profilesList.first()
+                }
+                return@withContext selectProfile(apiRoot, accessToken, clientToken, chosen, username)
             }
+
+            val profileName = selectedProfile?.get("name")?.asString ?: username
+            val resolvedProfileId = selectedProfile?.get("id")?.asString ?: UUID.randomUUID().toString()
+            buildAccount(resolvedProfileId, profileName, accessToken)
         } catch (e: Exception) {
             AuthResult(success = false, error = e.message?.let { "登录失败: $it" } ?: "外置登录失败")
+        }
+    }
+
+    /**
+     * 角色选定：认证响应未含 selectedProfile 时，通过 /authserver/refresh 携带
+     * selectedProfile 完成（需复用认证时的 clientToken）。
+     */
+    private fun selectProfile(
+        apiRoot: String,
+        accessToken: String,
+        clientToken: String,
+        profile: AuthlibProfile,
+        loginUsername: String
+    ): AuthResult {
+        return try {
+            val body = JsonObject().apply {
+                addProperty("accessToken", accessToken)
+                addProperty("clientToken", clientToken)
+                addProperty("requestUser", true)
+                add("selectedProfile", JsonObject().apply {
+                    addProperty("id", profile.id)
+                    addProperty("name", profile.name)
+                })
+            }
+            val (ok, code, respBody) = postJson("${apiRoot}authserver/refresh", body.toString())
+            if (!ok) {
+                return AuthResult(success = false, error = "选择角色失败: HTTP $code $respBody")
+            }
+            val json = gson.fromJson(respBody, JsonObject::class.java)
+                ?: return AuthResult(success = false, error = "选择角色失败: 响应无效")
+            val selected = json.getAsJsonObject("selectedProfile")
+            val newToken = json.get("accessToken")?.takeIf { it.isJsonPrimitive }?.asString ?: accessToken
+            val profileId = selected?.get("id")?.asString ?: profile.id
+            val profileName = selected?.get("name")?.asString ?: profile.name
+            AuthResult(
+                success = true,
+                account = Account(
+                    username = profileName,
+                    uuid = profileId,
+                    accessToken = newToken,
+                    type = AccountType.AUTHLIB,
+                    serverUrl = apiRoot,
+                    loginUsername = loginUsername,
+                    skinUrl = "https://mc-heads.net/avatar/$profileId/64"
+                )
+            )
+        } catch (e: Exception) {
+            AuthResult(success = false, error = "选择角色失败: ${e.message}")
         }
     }
 }
