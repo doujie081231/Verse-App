@@ -38,6 +38,7 @@ import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.PcDropdownRow
 import com.verse.explorer.app.ui.components.PcSwitchRow
+import com.verse.explorer.app.ui.components.PcSliderRow
 import com.verse.explorer.app.ui.components.PcTextInput
 import com.verse.explorer.app.ui.components.PcTextInputRow
 import com.verse.explorer.app.ui.components.UpdateDialog
@@ -55,6 +56,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.kdt.pojavlaunch.Tools
 import net.kdt.pojavlaunch.colorselector.ColorSelector
+import net.kdt.pojavlaunch.prefs.LauncherPreferences
 
 @Composable
 fun SettingsScreen(navController: NavHostController) {
@@ -62,9 +64,9 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsRepo = SettingsRepository
     // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
     MenuSetting.init(context.filesDir)
-    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=关于（原"其他"页已并入关于）
+    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=控制设置 4=关于（原"其他"页已并入关于）
     var selectedPage by remember { mutableIntStateOf(0) }
-    val pages = listOf("启动设置", "个性化", "触控布局", "关于")
+    val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "关于")
     var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
     var maxMemory by remember { mutableFloatStateOf(settingsRepo.getMaxMemory().toFloat()) }
@@ -1013,8 +1015,13 @@ fun SettingsScreen(navController: NavHostController) {
                     item { ControlLayoutsContent() }
                 }
 
-                // 关于子页：通用（原"其他"页并入）+ 版本信息 + 致谢 + 开源协议
+                // 控制设置子页：鼠标 / 手势 / 陀螺仪 / 显示与菜单 / 手柄
                 3 -> {
+                    item { ControlSettingsContent(context) }
+                }
+
+                // 关于子页：通用（原"其他"页并入）+ 版本信息 + 致谢 + 开源协议
+                4 -> {
                     item {
                         PcCard(title = "通用") {
                             PcSwitchRow("调试模式", "启用额外的调试信息和日志", debugMode) { debugMode = it }
@@ -1067,8 +1074,8 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             }
 
-            // 保存设置按钮（关于页为纯展示信息，不提供保存操作）
-            if (selectedPage != 3) item {
+            // 保存设置按钮（关于页为纯展示信息，不提供保存操作；控制设置各项即时生效并持久化）
+            if (selectedPage != 4) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -1186,5 +1193,328 @@ private fun ColorPickerOverlay(
             onConfirm(latestArgb)
         }
         selector.show(true, initialArgb)
+    }
+}
+
+/**
+ * 控制设置页：鼠标 / 手势 / 陀螺仪 / 显示与菜单 / 手柄。
+ * 所有控制项写入 MenuSetting（menu_setting.json），改动即时持久化，
+ * 与游戏内控制面板共用同一份配置。
+ */
+@Composable
+private fun ControlSettingsContent(context: android.content.Context) {
+    // LauncherPreferences 承载陀螺仪等运行时项，写入前需初始化（幂等）
+    LauncherPreferences.init(context)
+
+    var mouseMoveMode by remember { mutableIntStateOf(MenuSetting.mouseMoveMode) }
+    var mouseSensitivity by remember { mutableIntStateOf((MenuSetting.mouseSensitivity * 100).toInt()) }
+    var mouseSensitivityCursor by remember { mutableIntStateOf((MenuSetting.mouseSensitivityCursor * 100).toInt()) }
+    var mouseSize by remember { mutableIntStateOf(MenuSetting.mouseSize) }
+    var mouseOffsetX by remember { mutableIntStateOf(MenuSetting.mouseOffsetX) }
+    var mouseOffsetY by remember { mutableIntStateOf(MenuSetting.mouseOffsetY) }
+    var physicalMouseMode by remember { mutableStateOf(MenuSetting.isPhysicalMouseMode) }
+
+    var disableGesture by remember { mutableStateOf(MenuSetting.isDisableGesture) }
+    var disableBEGesture by remember { mutableStateOf(MenuSetting.isDisableBEGesture) }
+    var gestureMode by remember { mutableIntStateOf(MenuSetting.gestureMode) }
+    var disableLeftTouch by remember { mutableStateOf(MenuSetting.isDisableLeftTouch) }
+
+    var enableGyroscope by remember { mutableStateOf(MenuSetting.isEnableGyroscope) }
+    var invertGyroscope by remember { mutableStateOf(MenuSetting.isInvertGyroscope) }
+    var gyroscopeSensitivity by remember { mutableIntStateOf(MenuSetting.gyroscopeSensitivity) }
+
+    var lockMenuView by remember { mutableStateOf(MenuSetting.isLockMenuView) }
+    var hideMenuView by remember { mutableStateOf(MenuSetting.isHideMenuView) }
+    var showMemory by remember { mutableStateOf(MenuSetting.isShowMemory) }
+    var disableSoftKeyAdjust by remember { mutableStateOf(MenuSetting.isDisableSoftKeyAdjust) }
+    var itemBarWidth by remember { mutableIntStateOf(MenuSetting.itemBarWidth) }
+    var itemBarHeight by remember { mutableIntStateOf(MenuSetting.itemBarHeight) }
+    var cursorOffset by remember { mutableIntStateOf(MenuSetting.cursorOffset.toInt()) }
+    var performanceMode by remember { mutableStateOf(MenuSetting.isPerformanceMode) }
+    var autoFit by remember { mutableStateOf(MenuSetting.isAutoFit) }
+    var autoFitDist by remember { mutableIntStateOf(MenuSetting.autoFitDist) }
+    var showLog by remember { mutableStateOf(MenuSetting.isShowLog) }
+    var autoShowLog by remember { mutableStateOf(MenuSetting.isAutoShowLog) }
+
+    var gamepadDeadzone by remember { mutableIntStateOf((MenuSetting.gamepadDeadzone * 100).toInt()) }
+
+    fun persist(key: String) = MenuSetting.notifyChange(key)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        PcCard(title = "鼠标") {
+            PcDropdownRow(
+                "鼠标控制模式",
+                mouseMoveMode.toString(),
+                listOf("0" to "点击", "1" to "拖动")
+            ) {
+                mouseMoveMode = it.toInt()
+                MenuSetting.mouseMoveMode = mouseMoveMode
+                persist(MenuSetting.Key.MOUSE_MOVE_MODE)
+            }
+            PcSliderRow(
+                label = "鼠标灵敏度",
+                value = mouseSensitivity,
+                valueRange = 100..1000,
+                suffix = "%"
+            ) { v ->
+                mouseSensitivity = v
+                MenuSetting.mouseSensitivity = v / 100.0
+                persist(MenuSetting.Key.MOUSE_SENSITIVITY)
+            }
+            PcSliderRow(
+                label = "鼠标灵敏度（当指针可见时）",
+                value = mouseSensitivityCursor,
+                valueRange = 100..1000,
+                suffix = "%"
+            ) { v ->
+                mouseSensitivityCursor = v
+                MenuSetting.mouseSensitivityCursor = v / 100.0
+                persist(MenuSetting.Key.MOUSE_SENSITIVITY_CURSOR)
+            }
+            PcSliderRow(
+                label = "鼠标尺寸",
+                value = mouseSize,
+                valueRange = 0..30,
+                suffix = "dp"
+            ) { v ->
+                mouseSize = v
+                MenuSetting.mouseSize = v
+                persist(MenuSetting.Key.MOUSE_SIZE)
+            }
+            PcSliderRow(
+                label = "鼠标偏移 X",
+                value = mouseOffsetX,
+                valueRange = -30..30,
+                suffix = "dp"
+            ) { v ->
+                mouseOffsetX = v
+                MenuSetting.mouseOffsetX = v
+                persist(MenuSetting.Key.MOUSE_OFFSET_X)
+            }
+            PcSliderRow(
+                label = "鼠标偏移 Y",
+                value = mouseOffsetY,
+                valueRange = -30..30,
+                suffix = "dp"
+            ) { v ->
+                mouseOffsetY = v
+                MenuSetting.mouseOffsetY = v
+                persist(MenuSetting.Key.MOUSE_OFFSET_Y)
+            }
+            PcSwitchRow(
+                "实体鼠标控制",
+                "使用外接鼠标的相对移动控制视角，关闭时由触屏模拟光标",
+                physicalMouseMode
+            ) { on ->
+                physicalMouseMode = on
+                MenuSetting.isPhysicalMouseMode = on
+                persist(MenuSetting.Key.PHYSICAL_MOUSE_MODE)
+            }
+        }
+
+        PcCard(title = "手势") {
+            PcSwitchRow(
+                "禁用手势",
+                "关闭所有触屏手势操作",
+                disableGesture
+            ) { on ->
+                disableGesture = on
+                MenuSetting.isDisableGesture = on
+                persist(MenuSetting.Key.DISABLE_GESTURE)
+            }
+            PcSwitchRow(
+                "禁用仿基岩版手势",
+                "关闭仿基岩版的双击/长按等手势",
+                disableBEGesture
+            ) { on ->
+                disableBEGesture = on
+                MenuSetting.isDisableBEGesture = on
+                persist(MenuSetting.Key.DISABLE_BE_GESTURE)
+            }
+            PcDropdownRow(
+                "触控模式",
+                gestureMode.toString(),
+                listOf("0" to "建筑模式", "1" to "战斗模式")
+            ) {
+                gestureMode = it.toInt()
+                MenuSetting.gestureMode = gestureMode
+                persist(MenuSetting.Key.GESTURE_MODE)
+            }
+            PcSwitchRow(
+                "禁用左半屏触控",
+                "屏蔽屏幕左半区域的触摸输入",
+                disableLeftTouch
+            ) { on ->
+                disableLeftTouch = on
+                MenuSetting.isDisableLeftTouch = on
+                persist(MenuSetting.Key.DISABLE_LEFT_TOUCH)
+            }
+        }
+
+        PcCard(title = "陀螺仪") {
+            PcSwitchRow(
+                "陀螺仪",
+                "开启后转动设备即可控制视角",
+                enableGyroscope
+            ) { on ->
+                enableGyroscope = on
+                MenuSetting.isEnableGyroscope = on
+                persist(MenuSetting.Key.ENABLE_GYROSCOPE)
+            }
+            PcSwitchRow(
+                "反转陀螺仪",
+                "反转陀螺仪的 X / Y 轴方向",
+                invertGyroscope
+            ) { on ->
+                invertGyroscope = on
+                MenuSetting.isInvertGyroscope = on
+                persist(MenuSetting.Key.INVERT_GYROSCOPE)
+                runCatching {
+                    LauncherPreferences.PREF_GYRO_INVERT_X = on
+                    LauncherPreferences.PREF_GYRO_INVERT_Y = on
+                }
+            }
+            PcSliderRow(
+                label = "陀螺仪灵敏度",
+                value = gyroscopeSensitivity,
+                valueRange = 0..1000
+            ) { v ->
+                gyroscopeSensitivity = v
+                MenuSetting.gyroscopeSensitivity = v
+                persist(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
+                runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = v * 0.5f }
+            }
+        }
+
+        PcCard(title = "显示与菜单") {
+            PcSwitchRow(
+                "锁定菜单键",
+                "锁定后菜单键不可拖动",
+                lockMenuView
+            ) { on ->
+                lockMenuView = on
+                MenuSetting.isLockMenuView = on
+                persist(MenuSetting.Key.LOCK_MENU_VIEW)
+            }
+            PcSwitchRow(
+                "隐藏菜单键",
+                "隐藏游戏内菜单按键，按音量键唤出",
+                hideMenuView
+            ) { on ->
+                hideMenuView = on
+                MenuSetting.isHideMenuView = on
+                persist(MenuSetting.Key.HIDE_MENU_VIEW)
+            }
+            PcSwitchRow(
+                "显示内存",
+                "在游戏内显示内存占用信息",
+                showMemory
+            ) { on ->
+                showMemory = on
+                MenuSetting.isShowMemory = on
+                persist(MenuSetting.Key.SHOW_MEMORY)
+            }
+            PcSwitchRow(
+                "显示日志",
+                "在游戏内显示日志窗口",
+                showLog
+            ) { on ->
+                showLog = on
+                MenuSetting.isShowLog = on
+                persist(MenuSetting.Key.SHOW_LOG)
+            }
+            PcSwitchRow(
+                "自动显示日志",
+                "启动游戏时自动展开日志窗口",
+                autoShowLog
+            ) { on ->
+                autoShowLog = on
+                MenuSetting.isAutoShowLog = on
+                persist(MenuSetting.Key.AUTO_SHOW_LOG)
+            }
+            PcSwitchRow(
+                "禁用软键盘自适应",
+                "软键盘弹出时不自动调整控件布局",
+                disableSoftKeyAdjust
+            ) { on ->
+                disableSoftKeyAdjust = on
+                MenuSetting.isDisableSoftKeyAdjust = on
+                persist(MenuSetting.Key.DISABLE_SOFT_KEY_ADJUST)
+            }
+            PcSwitchRow(
+                "持续性能模式",
+                "启用系统持续性能模式以稳定帧率",
+                performanceMode
+            ) { on ->
+                performanceMode = on
+                MenuSetting.isPerformanceMode = on
+                persist(MenuSetting.Key.PERFORMANCE_MODE)
+            }
+            PcSliderRow(
+                label = "物品栏缩放 - 宽度",
+                value = itemBarWidth,
+                valueRange = 0..100,
+                suffix = "%"
+            ) { v ->
+                itemBarWidth = v
+                MenuSetting.itemBarWidth = v
+                persist(MenuSetting.Key.ITEM_BAR_WIDTH)
+            }
+            PcSliderRow(
+                label = "物品栏缩放 - 高度",
+                value = itemBarHeight,
+                valueRange = 0..100,
+                suffix = "%"
+            ) { v ->
+                itemBarHeight = v
+                MenuSetting.itemBarHeight = v
+                persist(MenuSetting.Key.ITEM_BAR_HEIGHT)
+            }
+            PcSliderRow(
+                label = "光标偏移",
+                value = cursorOffset,
+                valueRange = -150..150
+            ) { v ->
+                cursorOffset = v
+                MenuSetting.cursorOffset = v.toDouble()
+                persist(MenuSetting.Key.CURSOR_OFFSET)
+            }
+        }
+
+        PcCard(title = "控制面板") {
+            PcSwitchRow(
+                "自动吸附",
+                "控件边缘自动对齐屏幕与相邻控件",
+                autoFit
+            ) { on ->
+                autoFit = on
+                MenuSetting.isAutoFit = on
+                persist(MenuSetting.Key.AUTO_FIT)
+            }
+            PcSliderRow(
+                label = "自动吸附间距",
+                value = autoFitDist,
+                valueRange = 0..10,
+                suffix = "dp",
+                enabled = autoFit
+            ) { v ->
+                autoFitDist = v
+                MenuSetting.autoFitDist = v
+                persist(MenuSetting.Key.AUTO_FIT_DIST)
+            }
+            PcSliderRow(
+                label = "手柄死区",
+                value = gamepadDeadzone,
+                valueRange = 0..100,
+                suffix = "%"
+            ) { v ->
+                gamepadDeadzone = v
+                MenuSetting.gamepadDeadzone = v / 100.0
+                persist(MenuSetting.Key.GAMEPAD_DEADZONE)
+            }
+        }
     }
 }

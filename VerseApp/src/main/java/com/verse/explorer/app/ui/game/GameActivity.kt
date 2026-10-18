@@ -764,6 +764,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
             val gyro = GyroControl(this)
             gyroControl = gyro
+            // 启动器控制设置持久化的陀螺仪项同步到运行时偏好
+            LauncherPreferences.PREF_GYRO_INVERT_X = MenuSetting.isInvertGyroscope
+            LauncherPreferences.PREF_GYRO_INVERT_Y = MenuSetting.isInvertGyroscope
+            LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroscopeSensitivity * 0.5f
             if (MenuSetting.isEnableGyroscope) {
                 gyro.enable()
             }

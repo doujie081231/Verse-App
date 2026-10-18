@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -364,6 +366,60 @@ fun PcSwitchRow(
                 checkedTrackColor = VerseColors.PcAccent,
                 uncheckedThumbColor = VerseColors.PcTextMuted,
                 uncheckedTrackColor = VerseColors.PcBgTertiary
+            )
+        )
+    }
+}
+
+/**
+ * 整型滑块行：标题 + 当前值 + 滑块，用于控制设置中的数值项。
+ */
+@Composable
+fun PcSliderRow(
+    label: String,
+    value: Int,
+    valueRange: IntRange,
+    modifier: Modifier = Modifier,
+    description: String = "",
+    suffix: String = "",
+    enabled: Boolean = true,
+    onValueChange: (Int) -> Unit
+) {
+    Column(modifier = modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    label,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (enabled) VerseColors.PcTextSecondary else VerseColors.PcTextMuted
+                )
+                if (description.isNotEmpty()) {
+                    Text(description, fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                }
+            }
+            Text(
+                "$value$suffix",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (enabled) VerseColors.PcAccent else VerseColors.PcTextMuted
+            )
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.roundToInt()) },
+            valueRange = valueRange.first.toFloat()..valueRange.last.toFloat(),
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                thumbColor = VerseColors.PcAccent,
+                activeTrackColor = VerseColors.PcAccent,
+                inactiveTrackColor = VerseColors.PcBgTertiary,
+                disabledThumbColor = VerseColors.PcTextMuted,
+                disabledActiveTrackColor = VerseColors.PcTextMuted
             )
         )
     }
