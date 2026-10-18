@@ -38,7 +38,8 @@ data class AuthlibProfile(
 data class ServerInfo(
     val success: Boolean,
     val serverName: String = "",
-    val description: String = ""
+    val description: String = "",
+    val apiUrl: String = ""
 )
 
 data class AuthResult(

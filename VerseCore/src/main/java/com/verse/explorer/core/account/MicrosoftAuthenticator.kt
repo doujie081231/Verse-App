@@ -766,34 +766,85 @@ class AuthlibAuthenticator {
 
     private val gson = Gson()
 
+    /** 已解析的验证服务器 API 根（键=用户输入，值=规范化 API 根，带尾斜杠） */
+    private val apiRootCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private class LocatedServer(val apiUrl: String, val serverName: String, val description: String)
+
+    private class HttpResult(val body: String, val finalUrl: String, val apiLocation: String?)
+
+    /** 无协议时默认补 https（外置登录服务器均为 https 服务） */
+    private fun addHttpsIfMissing(url: String): String {
+        if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(url)) return url
+        return if (url.startsWith("//")) "https:$url" else "https://$url"
+    }
+
+    private fun urlEqualsIgnoreSlash(a: String, b: String): Boolean = a.trimEnd('/') == b.trimEnd('/')
+
+    private fun httpGetString(url: String): HttpResult {
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept-Language", java.util.Locale.getDefault().toLanguageTag())
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("HTTP ${response.code}")
+            return HttpResult(
+                body = response.body?.string() ?: "",
+                finalUrl = response.request.url.toString(),
+                apiLocation = response.header("x-authlib-injector-api-location")
+            )
+        }
+    }
+
+    /**
+     * 定位验证服务器：入口 URL 可以是主页或 API 根。若响应头携带
+     * X-Authlib-Injector-API-Location，则解析为绝对地址并重连到该 API 根；
+     * 元数据即 API 根路径返回的 JSON（serverName 位于根字段或 meta 内）。
+     */
+    private fun locateServer(rawUrl: String): LocatedServer {
+        val entry = addHttpsIfMissing(rawUrl.trim())
+        var apiUrl = entry
+        var result = httpGetString(entry)
+        result.apiLocation?.let { location ->
+            val absolute = java.net.URL(java.net.URL(result.finalUrl), location).toString()
+            if (!urlEqualsIgnoreSlash(entry, absolute)) {
+                apiUrl = absolute
+                result = httpGetString(absolute)
+            } else {
+                apiUrl = absolute
+            }
+        }
+        if (!apiUrl.endsWith("/")) apiUrl += "/"
+
+        val json = gson.fromJson(result.body, JsonObject::class.java)
+            ?: throw IllegalStateException("服务器元数据无效")
+        val meta = json.getAsJsonObject("meta")
+        fun str(obj: JsonObject?, key: String): String? =
+            obj?.get(key)?.takeIf { it.isJsonPrimitive }?.asString
+        val serverName = str(json, "serverName") ?: str(meta, "serverName") ?: "未知服务器"
+        val implementation = str(json, "implementationName") ?: str(meta, "implementationName") ?: ""
+        val version = str(json, "implementationVersion") ?: ""
+        val description = listOf(implementation, version).filter { it.isNotBlank() }.joinToString(" ")
+        return LocatedServer(apiUrl, serverName, description)
+    }
+
+    /** 键=用户输入，值=规范化 API 根；未验证过时现场定位 */
+    private fun resolveApiRoot(serverUrl: String): String {
+        val key = addHttpsIfMissing(serverUrl.trim())
+        return apiRootCache[key] ?: locateServer(serverUrl).also { apiRootCache[key] = it.apiUrl }.apiUrl
+    }
+
     suspend fun verifyServer(url: String): ServerInfo {
         return withContext(Dispatchers.IO) {
             try {
-                val baseUrl = url.trimEnd('/')
-                val request = Request.Builder()
-                    .url("$baseUrl/server-meta")
-                    .get()
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        val json = gson.fromJson(body, JsonObject::class.java)
-                        val meta = json?.getAsJsonObject("meta")
-                        val serverName = json?.get("serverName")?.takeIf { !it.isJsonNull }?.asString
-                            ?: meta?.get("serverName")?.takeIf { !it.isJsonNull }?.asString
-                            ?: "未知服务器"
-                        val description = json?.get("implementationDescription")?.takeIf { !it.isJsonNull }?.asString
-                            ?: meta?.get("implementationDescription")?.takeIf { !it.isJsonNull }?.asString
-                            ?: ""
-                        ServerInfo(
-                            success = true,
-                            serverName = serverName,
-                            description = description
-                        )
-                    } else {
-                        ServerInfo(success = false)
-                    }
-                }
+                val located = locateServer(url)
+                apiRootCache[addHttpsIfMissing(url.trim())] = located.apiUrl
+                ServerInfo(
+                    success = true,
+                    serverName = located.serverName,
+                    description = located.description,
+                    apiUrl = located.apiUrl
+                )
             } catch (e: Exception) {
                 ServerInfo(success = false)
             }
@@ -807,6 +858,7 @@ class AuthlibAuthenticator {
         profileId: String? = null
     ): AuthResult = withContext(Dispatchers.IO) {
         try {
+            val apiRoot = resolveApiRoot(serverUrl)
             val body = JsonObject().apply {
                 add("agent", JsonObject().apply {
                     addProperty("name", "Minecraft")
@@ -821,7 +873,7 @@ class AuthlibAuthenticator {
             }
 
             val request = Request.Builder()
-                .url("${serverUrl.trimEnd('/')}/authserver/authenticate")
+                .url("${apiRoot}authserver/authenticate")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
@@ -863,14 +915,14 @@ class AuthlibAuthenticator {
                         uuid = resolvedProfileId,
                         accessToken = accessToken,
                         type = AccountType.AUTHLIB,
-                        serverUrl = serverUrl,
+                        serverUrl = apiRoot,
                         loginUsername = username,
                         skinUrl = "https://mc-heads.net/avatar/$resolvedProfileId/64"
                     )
                 )
             }
         } catch (e: Exception) {
-            AuthResult(success = false, error = e.message ?: "外置登录失败")
+            AuthResult(success = false, error = e.message?.let { "登录失败: $it" } ?: "外置登录失败")
         }
     }
 }
