@@ -43,7 +43,8 @@ import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.verse.explorer.app.BuildConfig
-import com.verse.explorer.app.ui.components.ChangelogDialog
+import com.verse.explorer.app.data.UpdateChecker
+import com.verse.explorer.app.ui.components.UpdateDialog
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.ModpackImportFlow
@@ -185,35 +186,35 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    // 进入主界面时展示一次版本更新内容弹窗，确认后记录版本号不再弹出
+    // 启动时自动检查更新：检测到新版本则弹窗提示；「忽略」后同一版本不再提示
     val context = LocalContext.current
-    var showChangelog by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     LaunchedEffect(Unit) {
+        val info = UpdateChecker.check() ?: return@LaunchedEffect
         val prefs = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
-        if (prefs.getInt("changelog_seen_version", 0) < BuildConfig.VERSION_CODE) showChangelog = true
+        if (prefs.getInt("update_ignored_version", 0) >= info.versionCode) return@LaunchedEffect
+        updateInfo = info
     }
-    if (showChangelog) {
-        ChangelogDialog(
-            versionName = "v${BuildConfig.VERSION_NAME}",
-            items = listOf(
-                "修复游戏内操控摇杆导致的闪退（含加载自定义触控布局、开启自动吸附时）",
-                "修复部分设备 Java 运行环境损坏导致游戏无法启动的问题（自动检测并重装）",
-                "修复外置登录（LittleSkin 等皮肤站）验证服务器连接失败的问题",
-                "修复外置登录选择角色后无响应的问题",
-                "修复外部导入的整合包（Forge / OptiFine）无法启动的问题",
-                "修复打开控制面板时可能闪退的问题",
-                "修复重启应用后主页卡片堆叠在左上角的问题（受影响的布局会自动恢复）",
-                "新增 ZL2 / Zalith 格式触控布局的导入支持",
-                "修复元数据缺失的模组导致模组管理页闪退",
-                "整合包模组文件下载新增镜像源，下载更稳",
-                "下载版本信息阶段提速，移除失效镜像",
-                "软件问题反馈自动附带渲染诊断日志",
-                "开启「忽略刘海屏」后游戏画面覆盖刘海区域"
-            ),
-            onAcknowledge = {
+    updateInfo?.let { info ->
+        UpdateDialog(
+            versionName = "v${info.versionName}",
+            releaseDate = info.releaseDate,
+            items = info.changelog,
+            onIgnore = {
                 context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
-                    .edit().putInt("changelog_seen_version", BuildConfig.VERSION_CODE).apply()
-                showChangelog = false
+                    .edit().putInt("update_ignored_version", info.versionCode).apply()
+                updateInfo = null
+            },
+            onGoUpdate = {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            Uri.parse(info.downloadUrl)
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+                updateInfo = null
             }
         )
     }

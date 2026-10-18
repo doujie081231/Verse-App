@@ -268,6 +268,14 @@ public class DefaultLauncher extends Launcher {
 
         res.add("-javaagent:" + FCLPath.LIB_PATCHER_PATH);
 
+        // 外置登录（authlib-injector）：皮肤站账号必须注入 agent 改写 Yggdrasil 端点，
+        // agent 参数即验证服务器 API 根；否则游戏仍连 Mojang，认证会失败。
+        String authlibServerUrl = options.getAuthlibServerUrl();
+        if (authlibServerUrl != null && !authlibServerUrl.isEmpty()) {
+            res.add("-javaagent:" + FCLPath.AUTHLIB_INJECTOR + "=" + authlibServerUrl);
+            res.add("-Dauthlibinjector.side=client");
+        }
+
         Set<String> classpath = repository.getClasspath(version);
         replaceJnaWithLocal(classpath);
         replaceLwjglWithLocal(classpath);

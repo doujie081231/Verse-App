@@ -17,7 +17,9 @@ data class GameLaunchParams(
     val uuid: String,
     val isMultiplayer: Boolean,
     val accessToken: String,
-    val userType: String
+    val userType: String,
+    /** 外置登录（皮肤站）验证服务器 API 根；非外置账号为 null */
+    val authlibServerUrl: String? = null
 ) {
     /** Minecraft 主版本号（如 "26.3" → 26，"1.21.1" → 1），用于 RenderPearl/Vulkan 等按版本门控 */
     val mcVersionMajor: Int

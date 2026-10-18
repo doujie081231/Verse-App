@@ -22,6 +22,7 @@ public class FCLPath {
     public static String PLUGIN_DIR;
     public static String LIB_PATCHER_PATH;
     public static String MIO_LAUNCH_WRAPPER;
+    public static String AUTHLIB_INJECTOR;
 
     public static void loadPaths(Context context, String gameDirPath) {
         CONTEXT = context;
@@ -45,6 +46,7 @@ public class FCLPath {
         PLUGIN_DIR = FILES_DIR + "/plugins";
         LIB_PATCHER_PATH = PLUGIN_DIR + "/MioLibPatcher.jar";
         MIO_LAUNCH_WRAPPER = PLUGIN_DIR + "/MioLaunchWrapper.jar";
+        AUTHLIB_INJECTOR = PLUGIN_DIR + "/authlib-injector.jar";
 
         init(LOG_DIR);
         init(CACHE_DIR);

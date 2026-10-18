@@ -358,6 +358,8 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             pluginDir.mkdirs()
             deployed += copyAssetIfMissing("game/MioLaunchWrapper.jar", File(pluginDir, "MioLaunchWrapper.jar"))
             deployed += copyAssetIfMissing("game/MioLibPatcher.jar", File(pluginDir, "MioLibPatcher.jar"))
+            // 外置登录（皮肤站）启动注入依赖该 agent，随运行时资源一并部署
+            deployed += copyAssetIfMissing("game/authlib-injector.jar", File(pluginDir, "authlib-injector.jar"))
 
             // 按版本子目录部署 3.3.3（旧 MC ≤26.1 用）与 3.4.1（26.2+ SDL 链用）各一套，
             // 每套含 jar + natives/<arch>/。DefaultLauncher 按版本 JSON 解析出的 LWJGL 版本选择目录。

@@ -43,6 +43,7 @@ public class LaunchOptions implements Serializable {
     private String renderer;
     private String uuid;
     private boolean debugLog;
+    private String authlibServerUrl;
 
     public File getGameDir() { return gameDir; }
 
@@ -79,6 +80,9 @@ public class LaunchOptions implements Serializable {
     public String getUuid() { return uuid; }
 
     public boolean isDebugLog() { return debugLog; }
+
+    /** 外置登录（authlib-injector）验证服务器 API 根；非外置账号为 null */
+    public String getAuthlibServerUrl() { return authlibServerUrl; }
 
     /** 详细启动参数摘要（诊断日志用） */
     public String fullSummary() {
@@ -134,5 +138,7 @@ public class LaunchOptions implements Serializable {
         public Builder setUUid(String uuid) { options.uuid = uuid; return this; }
 
         public Builder setDebugLog(boolean debugLog) { options.debugLog = debugLog; return this; }
+
+        public Builder setAuthlibServerUrl(String authlibServerUrl) { options.authlibServerUrl = authlibServerUrl; return this; }
     }
 }

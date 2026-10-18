@@ -790,6 +790,7 @@ class GameLaunchOrchestrator(
             .setGameArguments(verSettings.minecraftArgs.split(" ").filter { it.isNotBlank() })
             .setServerIp(verSettings.serverIp)
             .setDebugLog(debugLog)
+            .setAuthlibServerUrl(params.authlibServerUrl)
             .create()
     }
 

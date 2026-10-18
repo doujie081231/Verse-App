@@ -495,6 +495,38 @@ internal fun AddAccountSheet(
                                         unfocusedLabelColor = VerseColors.PcTextSecondary
                                     )
                                 )
+                                // 登录进度与错误就地显示：登录期间留在本表单页，
+                                // 失败原因直接回显，避免只看到空白加载页而误判为“点了没反应”
+                                if (isAuthenticating) {
+                                    Spacer(Modifier.height(10.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        RoseLoader(
+                                            modifier = Modifier.size(14.dp),
+                                            size = 14.dp,
+                                            color = VerseColors.PcAccent
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            authStatus.ifEmpty { "正在登录..." },
+                                            fontSize = 11.sp,
+                                            color = VerseColors.PcTextSecondary
+                                        )
+                                    }
+                                }
+                                if (authError != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = VerseColors.PcRed.copy(alpha = 0.08f)
+                                    ) {
+                                        Text(
+                                            authError!!,
+                                            fontSize = 11.sp,
+                                            color = VerseColors.PcRed,
+                                            modifier = Modifier.padding(10.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -642,7 +674,6 @@ internal fun AddAccountSheet(
                                     if (authlibServerUrl.isNotBlank() && authlibUsername.isNotBlank() && authlibPassword.isNotBlank()) {
                                         scope.launch {
                                             isAuthenticating = true
-                                            step = 2
                                             authStatus = "正在验证..."
                                             authError = null
                                             try {

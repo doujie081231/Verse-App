@@ -153,6 +153,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val isMultiplayer = intent.getBooleanExtra("multiplayerMode", false)
             val accessToken = intent.getStringExtra("accessToken") ?: "0"
             val userType = intent.getStringExtra("userType") ?: "mojang"
+            val authlibServerUrl = intent.getStringExtra("authlibServerUrl")
 
             VerseLogger.info("GameActivity.onCreate: intent 参数", "GameActivity")
             VerseLogger.info("  versionId=$versionId, gameDir=$gameDirPath", "GameActivity")
@@ -235,7 +236,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                     uuid = uuid,
                     isMultiplayer = isMultiplayer,
                     accessToken = accessToken,
-                    userType = userType
+                    userType = userType,
+                    authlibServerUrl = authlibServerUrl
                 )
             )
 

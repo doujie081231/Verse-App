@@ -131,6 +131,11 @@ class GameLaunchController(private val context: Context) {
                         "MOJANG" -> "mojang"
                         else -> "mojang"
                     })
+                    // 外置登录：把验证服务器 API 根透传给启动链，供 authlib-injector 注入
+                    putExtra(
+                        "authlibServerUrl",
+                        if (account.type.name == "AUTHLIB") account.serverUrl else null
+                    )
                     if (multiplayerArgs != null) {
                         putExtra("multiplayerMode", true)
                         multiplayerArgs.forEach { (k, v) -> putExtra(k, v) }

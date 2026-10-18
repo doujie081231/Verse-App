@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.R
+import com.verse.explorer.app.BuildConfig
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.UpdateChecker
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.launcher.renderer.RendererManager
@@ -38,6 +40,7 @@ import com.verse.explorer.app.ui.components.PcDropdownRow
 import com.verse.explorer.app.ui.components.PcSwitchRow
 import com.verse.explorer.app.ui.components.PcTextInput
 import com.verse.explorer.app.ui.components.PcTextInputRow
+import com.verse.explorer.app.ui.components.UpdateDialog
 import com.verse.explorer.app.ui.components.pcTextFieldColors
 import com.verse.explorer.app.ui.theme.ActionMenuSide
 import com.verse.explorer.app.ui.theme.ColorThemeType
@@ -103,6 +106,9 @@ fun SettingsScreen(navController: NavHostController) {
     var bgBlur by remember { mutableIntStateOf(VersePersonalization.backgroundBlur) }
     var bgBlurType by remember { mutableStateOf(VersePersonalization.backgroundBlurType) }
     var bgVideoVolume by remember { mutableIntStateOf(VersePersonalization.videoVolume) }
+    // 版本更新检查（关于页手动触发）
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var aboutUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     val scope = rememberCoroutineScope()
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -1018,6 +1024,39 @@ fun SettingsScreen(navController: NavHostController) {
                     item { AboutContent() }
 
                     item {
+                        PcCard(title = "版本更新") {
+                            Column {
+                                Text(
+                                    text = "当前版本 v${BuildConfig.VERSION_NAME}",
+                                    fontSize = 12.sp,
+                                    color = VerseColors.PcTextSecondary
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                PcButton(
+                                    text = if (checkingUpdate) "检查中..." else "检查更新",
+                                    onClick = {
+                                        if (!checkingUpdate) {
+                                            scope.launch {
+                                                checkingUpdate = true
+                                                val info = UpdateChecker.check()
+                                                checkingUpdate = false
+                                                if (info != null) {
+                                                    aboutUpdateInfo = info
+                                                } else {
+                                                    Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    },
+                                    enabled = !checkingUpdate,
+                                    variant = PcButtonVariant.OUTLINE,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+
+                    item {
                         PcButton(
                             text = "恢复默认设置",
                             onClick = { resetAll() },
@@ -1045,6 +1084,26 @@ fun SettingsScreen(navController: NavHostController) {
             item { Spacer(Modifier.height(20.dp)) }
         }
     }
+
+        aboutUpdateInfo?.let { info ->
+            UpdateDialog(
+                versionName = "v${info.versionName}",
+                releaseDate = info.releaseDate,
+                items = info.changelog,
+                onIgnore = { aboutUpdateInfo = null },
+                onGoUpdate = {
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(info.downloadUrl)
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                    aboutUpdateInfo = null
+                }
+            )
+        }
 
         if (showColorPicker) {
             ColorPickerOverlay(
