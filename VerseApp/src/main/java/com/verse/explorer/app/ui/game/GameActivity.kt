@@ -824,7 +824,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 )
             }
             cursorView = cursor
-            applyCursorStyle()
 
             val density = resources.displayMetrics.density
 
@@ -848,6 +847,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             ))
             this.addContentView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             touchOverlay = overlay
+            // 挂载后再应用指针尺寸：addView 传入的 LayoutParams 会覆盖先前设置的值，
+            // 若提前设置会导致 ImageView 按图片原始像素（大图）渲染成巨大光标
+            applyCursorStyle()
 
             // 指针捕获（相对移动）接 inputHandler；hover/按钮/滚轮由 Activity 层
             // dispatchGenericMotionEvent 统一分发，避免双份处理
