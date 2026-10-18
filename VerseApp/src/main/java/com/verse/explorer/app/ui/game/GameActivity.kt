@@ -116,7 +116,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     fun applyCursorStyle() {
         val view = cursorView ?: return
-        val size = (MenuSetting.mouseSize * 2 * resources.displayMetrics.density).toInt()
+        // 指针尺寸按 mouseSize(dp) 等比换算像素（不再二次放大），与参照实现的尺寸语义一致
+        val size = (MenuSetting.mouseSize * resources.displayMetrics.density).toInt()
         view.layoutParams = FrameLayout.LayoutParams(
             if (size > 0) size else 1,
             if (size > 0) size else 1

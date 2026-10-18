@@ -854,12 +854,23 @@ class AuthlibAuthenticator {
     private fun postJson(url: String, jsonBody: String): Triple<Boolean, Int, String> {
         val request = Request.Builder()
             .url(url)
+            // 部分验证服务器会校验请求来源标识，缺失时可能直接返回 5xx
+            .header("User-Agent", "authlib-injector/1.2.5")
+            .header("Accept", "application/json")
             .post(jsonBody.toRequestBody("application/json".toMediaType()))
             .build()
         client.newCall(request).execute().use { response ->
             return Triple(response.isSuccessful, response.code, response.body?.string() ?: "")
         }
     }
+
+    /**
+     * 认证失败提示：5xx 通常是验证服务器自身异常（与请求格式无关），单独给出可读提示，
+     * 并附带接口地址，便于用户/维护者定位。
+     */
+    private fun authErrorPrefix(code: Int, url: String): String =
+        if (code >= 500) "验证服务器返回异常 (HTTP $code)：$url"
+        else "登录失败 (HTTP $code)：$url"
 
     suspend fun authenticate(
         serverUrl: String,
@@ -884,7 +895,10 @@ class AuthlibAuthenticator {
 
             val (ok, code, respBody) = postJson("${apiRoot}authserver/authenticate", body.toString())
             if (!ok) {
-                return@withContext AuthResult(success = false, error = "登录失败: HTTP $code $respBody")
+                return@withContext AuthResult(
+                    success = false,
+                    error = "${authErrorPrefix(code, "${apiRoot}authserver/authenticate")} $respBody"
+                )
             }
 
             val json = gson.fromJson(respBody, JsonObject::class.java)
@@ -964,7 +978,10 @@ class AuthlibAuthenticator {
             }
             val (ok, code, respBody) = postJson("${apiRoot}authserver/refresh", body.toString())
             if (!ok) {
-                return AuthResult(success = false, error = "选择角色失败: HTTP $code $respBody")
+                return AuthResult(
+                    success = false,
+                    error = "选择角色失败：" + authErrorPrefix(code, "${apiRoot}authserver/refresh") + " $respBody"
+                )
             }
             val json = gson.fromJson(respBody, JsonObject::class.java)
                 ?: return AuthResult(success = false, error = "选择角色失败: 响应无效")

@@ -171,7 +171,7 @@ object FeedbackRepository {
             val body = resp.body?.string() ?: ""
             when (resp.code) {
                 in 200..299 -> return null
-                429 -> return "今日已提交过反馈，请明日再试"
+                429 -> return "今日反馈已达上限（10 条），请明日再试"
                 403 -> {
                     return when {
                         body.contains("invalid signature") -> "提交校验失败，请刷新验证码后重试"

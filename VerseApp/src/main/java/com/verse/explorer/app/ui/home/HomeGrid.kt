@@ -109,28 +109,20 @@ fun VerseHomeGrid(
         val columns = state.geometry.columns
         // 几何默认值为 4 列/20dp，视为尚未完成实际测量
         if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
-        val seeds = listOf(
-            CardSeed(
-                id = "system_account",
-                typeId = HomeCards.ACCOUNT_CARD_TYPE_ID,
-                layout = CardRect("system_account", (columns - 6) / 2, 1, 6, 6)
-            ),
-            CardSeed(
-                id = "system_current_version",
-                typeId = HomeCards.CURRENT_VERSION_CARD_TYPE_ID,
-                layout = CardRect("system_current_version", (columns - 12) / 2, 9, 12, 3)
-            ),
-            CardSeed(
-                id = "system_launch",
-                typeId = HomeCards.LAUNCH_CARD_TYPE_ID,
-                layout = CardRect("system_launch", (columns - 8) / 2, 13, 8, 3)
-            )
-        )
+        val seeds = systemCardSeeds(columns)
         state.seed(types = HomeCards.userCardTypes, seeds = seeds, storedColumns = 0)
         ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
         ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
         ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
         seededFirstLayout = true
+    }
+
+    // 退化布局自愈：首帧异常窗口宽度曾把全部卡片钳到左列并被持久化，
+    // 真实列数测量完成后检测到该特征时，把固定功能卡片重新居中还原
+    LaunchedEffect(state.geometry.columns, seededFirstLayout) {
+        if (!seededFirstLayout) return@LaunchedEffect
+        if (state.geometry.columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
+        repairDegenerateLayout(state, state.geometry.columns)
     }
 
     // 布局结算后持久化
@@ -198,6 +190,53 @@ private fun ensureSystemCard(state: CardGridState, type: com.verse.explorer.card
     if (state.cards.none { it.id == id }) {
         state.addCard(type, id)
     }
+}
+
+/**
+ * 固定功能卡片的居中布局：跨度按实际列数自适应（窄屏时退化为整行），
+ * 居中偏移不会出现负坐标，避免窄屏首帧把卡片挤到左列。
+ */
+private fun systemCardLayouts(columns: Int): Map<String, CardRect> {
+    val accountSpan = 6.coerceAtMost(columns)
+    val versionSpan = 12.coerceAtMost(columns)
+    val launchSpan = 8.coerceAtMost(columns)
+    val accountY = 1
+    val versionY = accountY + accountSpan + 2
+    val launchY = versionY + 3 + 1
+    return mapOf(
+        "system_account" to CardRect(
+            "system_account", (columns - accountSpan) / 2, accountY, accountSpan, accountSpan
+        ),
+        "system_current_version" to CardRect(
+            "system_current_version", (columns - versionSpan) / 2, versionY, versionSpan, 3
+        ),
+        "system_launch" to CardRect(
+            "system_launch", (columns - launchSpan) / 2, launchY, launchSpan, 3
+        )
+    )
+}
+
+private fun systemCardSeeds(columns: Int): List<CardSeed> =
+    systemCardLayouts(columns).map { (id, rect) ->
+        CardSeed(
+            id = id,
+            typeId = when (id) {
+                "system_account" -> HomeCards.ACCOUNT_CARD_TYPE_ID
+                "system_current_version" -> HomeCards.CURRENT_VERSION_CARD_TYPE_ID
+                else -> HomeCards.LAUNCH_CARD_TYPE_ID
+            },
+            layout = rect
+        )
+    }
+
+/**
+ * 修复退化布局：首帧异常窗口宽度会把全部卡片钳制到左列并持久化，
+ * 加载后若检测到「所有卡片都贴左列」（且不止一张卡），把固定功能卡片重新居中。
+ */
+private fun repairDegenerateLayout(state: CardGridState, columns: Int) {
+    if (state.cards.size < 2) return
+    if (state.cards.any { it.layout.x != 0 }) return
+    state.applyLayouts(systemCardLayouts(columns))
 }
 
 @Composable

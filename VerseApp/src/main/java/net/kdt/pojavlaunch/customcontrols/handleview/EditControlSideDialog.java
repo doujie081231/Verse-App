@@ -180,11 +180,26 @@ public class EditControlSideDialog extends SideDialogView {
 
         for (int i = 0; i < data.keycodes.length; i++) {
             if (data.keycodes[i] < 0) {
-                mKeycodeSpinners[i].setSelection(data.keycodes[i] + mSpecialArray.size());
+                setSpinnerSelectionSafe(mKeycodeSpinners[i], data.keycodes[i] + mSpecialArray.size());
             } else {
-                mKeycodeSpinners[i].setSelection(EfficientAndroidLWJGLKeycode.getIndexByValue(data.keycodes[i]) + mSpecialArray.size());
+                setSpinnerSelectionSafe(mKeycodeSpinners[i], EfficientAndroidLWJGLKeycode.getIndexByValue(data.keycodes[i]) + mSpecialArray.size());
             }
         }
+    }
+
+    /**
+     * 安全设置下拉选中项：索引越界（负值或超出列表长度）时钳制到有效范围，
+     * 避免 AdapterView 直接忽略越界 setSelection 导致下拉显示空白/选不中。
+     */
+    private void setSpinnerSelectionSafe(Spinner spinner, int index) {
+        if (spinner == null || spinner.getAdapter() == null) {
+            return;
+        }
+        int count = spinner.getAdapter().getCount();
+        if (count <= 0) {
+            return;
+        }
+        spinner.setSelection(Math.max(0, Math.min(index, count - 1)));
     }
 
     /**

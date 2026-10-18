@@ -373,6 +373,22 @@ class CardGridState internal constructor(
         return card
     }
 
+    /**
+     * 覆盖指定卡片的落位（用于修复首帧异常宽度导致的退化布局），随后持久化。
+     */
+    fun applyLayouts(layouts: Map<String, CardRect>) {
+        if (layouts.isEmpty() || cards.isEmpty()) return
+        cards = cards.map { card ->
+            val target = layouts[card.id] ?: return@map card
+            card.copy(
+                layout = target,
+                reflowBase = ReflowBase(target.width, target.height, geometry.columns)
+            )
+        }
+        animateAll()
+        commitLayout()
+    }
+
     /** 移除一张卡片，其余布局保持原样 */
     fun removeCard(id: String) {
         val removed = cards.firstOrNull { it.id == id } ?: return
