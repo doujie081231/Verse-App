@@ -44,6 +44,14 @@ object MenuSetting {
         const val ENABLE_GYROSCOPE = "enableGyroscope"
         const val INVERT_GYROSCOPE = "invertGyroscope"
         const val GYROSCOPE_SENSITIVITY = "gyroscopeSensitivity"
+        const val GYROSCOPE_SAMPLE_RATE = "gyroscopeSampleRate"
+        const val GYROSCOPE_SMOOTHING = "gyroscopeSmoothing"
+        const val GYROSCOPE_SMOOTHING_WINDOW = "gyroscopeSmoothingWindow"
+        const val GESTURE_CONTROL = "gestureControl"
+        const val GESTURE_TAP_MOUSE_ACTION = "gestureTapMouseAction"
+        const val GESTURE_LONG_PRESS_MOUSE_ACTION = "gestureLongPressMouseAction"
+        const val GESTURE_LONG_PRESS_DELAY = "gestureLongPressDelay"
+        const val MOUSE_LONG_PRESS_DELAY = "mouseLongPressDelay"
         const val MOUSE_MOVE_MODE = "mouseMoveMode"
         const val MOUSE_SENSITIVITY = "mouseSensitivity"
         const val MOUSE_SENSITIVITY_CURSOR = "mouseSensitivityCursor"
@@ -78,6 +86,14 @@ object MenuSetting {
     var isEnableGyroscope: Boolean = false
     var isInvertGyroscope: Boolean = false
     var gyroscopeSensitivity: Int = 10
+    var gyroscopeSampleRate: Int = 16        // 采样间隔（ms）
+    var isGyroscopeSmoothing: Boolean = true
+    var gyroscopeSmoothingWindow: Int = 4
+    var isGestureControl: Boolean = false
+    var gestureTapMouseAction: Int = 0        // GestureActionType.MOUSE_RIGHT
+    var gestureLongPressMouseAction: Int = 1 // GestureActionType.MOUSE_LEFT
+    var gestureLongPressDelay: Int = 300
+    var mouseLongPressDelay: Int = 300
     var mouseMoveMode: Int = 0        // MouseMoveMode.CLICK
     var mouseSensitivity: Double = 1.0
     var mouseSensitivityCursor: Double = 2.0
@@ -147,6 +163,14 @@ object MenuSetting {
         isEnableGyroscope = obj[Key.ENABLE_GYROSCOPE]?.asBoolean ?: false
         isInvertGyroscope = obj[Key.INVERT_GYROSCOPE]?.asBoolean ?: false
         gyroscopeSensitivity = obj[Key.GYROSCOPE_SENSITIVITY]?.asInt ?: 10
+        gyroscopeSampleRate = obj[Key.GYROSCOPE_SAMPLE_RATE]?.asInt ?: 16
+        isGyroscopeSmoothing = obj[Key.GYROSCOPE_SMOOTHING]?.asBoolean ?: true
+        gyroscopeSmoothingWindow = obj[Key.GYROSCOPE_SMOOTHING_WINDOW]?.asInt ?: 4
+        isGestureControl = obj[Key.GESTURE_CONTROL]?.asBoolean ?: false
+        gestureTapMouseAction = obj[Key.GESTURE_TAP_MOUSE_ACTION]?.asInt ?: 0
+        gestureLongPressMouseAction = obj[Key.GESTURE_LONG_PRESS_MOUSE_ACTION]?.asInt ?: 1
+        gestureLongPressDelay = obj[Key.GESTURE_LONG_PRESS_DELAY]?.asInt ?: 300
+        mouseLongPressDelay = obj[Key.MOUSE_LONG_PRESS_DELAY]?.asInt ?: 300
         mouseMoveMode = obj[Key.MOUSE_MOVE_MODE]?.asInt ?: 0
         mouseSensitivity = obj[Key.MOUSE_SENSITIVITY]?.asDouble ?: 1.0
         mouseSensitivityCursor = obj[Key.MOUSE_SENSITIVITY_CURSOR]?.asDouble ?: 2.0
@@ -192,6 +216,14 @@ object MenuSetting {
             addProperty(Key.ENABLE_GYROSCOPE, isEnableGyroscope)
             addProperty(Key.INVERT_GYROSCOPE, isInvertGyroscope)
             addProperty(Key.GYROSCOPE_SENSITIVITY, gyroscopeSensitivity)
+            addProperty(Key.GYROSCOPE_SAMPLE_RATE, gyroscopeSampleRate)
+            addProperty(Key.GYROSCOPE_SMOOTHING, isGyroscopeSmoothing)
+            addProperty(Key.GYROSCOPE_SMOOTHING_WINDOW, gyroscopeSmoothingWindow)
+            addProperty(Key.GESTURE_CONTROL, isGestureControl)
+            addProperty(Key.GESTURE_TAP_MOUSE_ACTION, gestureTapMouseAction)
+            addProperty(Key.GESTURE_LONG_PRESS_MOUSE_ACTION, gestureLongPressMouseAction)
+            addProperty(Key.GESTURE_LONG_PRESS_DELAY, gestureLongPressDelay)
+            addProperty(Key.MOUSE_LONG_PRESS_DELAY, mouseLongPressDelay)
             addProperty(Key.MOUSE_MOVE_MODE, mouseMoveMode)
             addProperty(Key.MOUSE_SENSITIVITY, mouseSensitivity)
             addProperty(Key.MOUSE_SENSITIVITY_CURSOR, mouseSensitivityCursor)

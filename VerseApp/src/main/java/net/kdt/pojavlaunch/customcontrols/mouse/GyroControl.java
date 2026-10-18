@@ -43,7 +43,8 @@ public class GyroControl implements SensorEventListener, GrabListener {
 
     /* Used to average the last values, if smoothing is enabled */
     private final float[][] mAngleBuffer = new float[
-            LauncherPreferences.PREF_GYRO_SMOOTHING ? 2 : 1
+            LauncherPreferences.PREF_GYRO_SMOOTHING
+                    ? Math.max(2, LauncherPreferences.PREF_GYRO_SMOOTHING_WINDOW) : 1
             ][3];
     private float xTotal = 0;
     private float yTotal = 0;

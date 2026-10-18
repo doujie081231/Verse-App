@@ -36,11 +36,20 @@ class GameInputHandler(
         const val MOUSE_SCROLL_UP = 1003
         const val MOUSE_SCROLL_DOWN = 1004
         private const val TAG = "GameInputHandler"
-        private const val HOLD_DELAY = 400L
         private const val CLICK_DELAY = 33L
         private const val TAP_MAX_TIME = 100L
         private const val TAP_MAX_DIST = 10f
+        // 手势动作枚举：0=鼠标右键 1=鼠标左键
+        private const val ACTION_MOUSE_RIGHT = 0
     }
+
+    /** 长按触发时长：手势控制开启时用「手势长按延迟」，否则用「鼠标长按延迟」 */
+    private fun longPressDelay(): Long =
+        (if (MenuSetting.isGestureControl) MenuSetting.gestureLongPressDelay
+        else MenuSetting.mouseLongPressDelay).toLong()
+
+    private fun gestureMouseKey(action: Int): Int =
+        if (action == ACTION_MOUSE_RIGHT) MOUSE_RIGHT else MOUSE_LEFT
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -68,7 +77,12 @@ class GameInputHandler(
     private val holdRunnable = Runnable {
         VerseLogger.debug("hold fire! gesture=${effectiveGestureMode()} grab=$isGrabbing cancelL=$cancelMouseLeft cancelR=$cancelMouseRight", "TouchDiag")
         if (!MenuSetting.isDisableGesture) {
-            if (effectiveGestureMode() == GestureMode.BUILD) {
+            if (MenuSetting.isGestureControl) {
+                // 手势控制：长按发送「手势长按动作」对应的鼠标按键
+                val key = gestureMouseKey(MenuSetting.gestureLongPressMouseAction)
+                sendKeyEvent(key, true)
+                if (key == MOUSE_LEFT) cancelMouseLeft = true else cancelMouseRight = true
+            } else if (effectiveGestureMode() == GestureMode.BUILD) {
                 sendKeyEvent(MOUSE_LEFT, true)
                 cancelMouseLeft = true
                 cancelMouseRight = false
@@ -361,7 +375,7 @@ class GameInputHandler(
                 downTime = System.currentTimeMillis()
                 lastGrabbedMoveTime = downTime
                 hasMoved = false
-                handler.postDelayed(holdRunnable, HOLD_DELAY)
+                handler.postDelayed(holdRunnable, longPressDelay())
                 VerseLogger.debug("gDown cur=$currentPointerID dX=${downX.toInt()} dY=${downY.toInt()} t=$downTime holdScheduled", "TouchDiag")
             }
             MotionEvent.ACTION_MOVE -> {
@@ -439,7 +453,12 @@ class GameInputHandler(
                 // 仅未滑动过的手指才判定 tap：滑动转视角的手指抬起不算点击（否则视角跳转）。
                 if (isTap) {
                     if (!MenuSetting.isDisableGesture) {
-                        if (effectiveGestureMode() == GestureMode.BUILD) {
+                        if (MenuSetting.isGestureControl) {
+                            // 手势控制：单击发送「手势单击动作」对应的鼠标按键
+                            val key = gestureMouseKey(MenuSetting.gestureTapMouseAction)
+                            sendKeyEvent(key, true)
+                            sendKeyEvent(key, false)
+                        } else if (effectiveGestureMode() == GestureMode.BUILD) {
                             sendKeyEvent(MOUSE_RIGHT, true)
                             sendKeyEvent(MOUSE_RIGHT, false)
                         } else {

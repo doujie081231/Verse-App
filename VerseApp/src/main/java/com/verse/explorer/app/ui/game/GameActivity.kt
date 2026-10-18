@@ -109,14 +109,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     var cursorView: android.widget.ImageView? = null
 
+    // 当前指针形状（由游戏侧 glfwSetCursor 上报），决定绘制哪张指针图片
+    @Volatile
+    private var currentCursorShape: com.verse.explorer.app.data.MousePointerSetting.Shape =
+        com.verse.explorer.app.data.MousePointerSetting.Shape.ARROW
+
     fun applyCursorStyle() {
         val view = cursorView ?: return
-        // 箭头图形尖热点在 (0,0)，显示尺寸随 mouseSize 线性缩放
         val size = (MenuSetting.mouseSize * 2 * resources.displayMetrics.density).toInt()
         view.layoutParams = FrameLayout.LayoutParams(
             if (size > 0) size else 1,
             if (size > 0) size else 1
         )
+        // 自定义指针图片优先，否则回退到对应形状的内置图片
+        val shape = currentCursorShape
+        val bitmap = com.verse.explorer.app.data.MousePointerSetting.loadBitmap(shape)
+        if (bitmap != null) {
+            view.setImageBitmap(bitmap)
+        } else {
+            view.setImageResource(shape.defaultRes)
+        }
     }
 
     val currentBridge: FCLBridge?
@@ -174,6 +186,16 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             setupImmersiveMode()
 
             MenuSetting.init(getFilesDir())
+            com.verse.explorer.app.data.MousePointerSetting.init(getFilesDir())
+            // 游戏侧通过 glfwSetCursor 上报指针形状，据此切换绘制用的指针图片
+            org.lwjgl.glfw.CallbackBridge.setCursorShapeListener { glfwShape ->
+                val shape = com.verse.explorer.app.data.MousePointerSetting.Shape.fromGlfw(glfwShape)
+                    ?: com.verse.explorer.app.data.MousePointerSetting.Shape.ARROW
+                if (shape != currentCursorShape) {
+                    currentCursorShape = shape
+                    runOnUiThread { applyCursorStyle() }
+                }
+            }
 
             TerracottaController.vpnPrepareLauncher = { _, intent ->
                 vpnPermissionLauncher.launch(intent)
@@ -762,12 +784,15 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val touchpad = Touchpad(this, null)
             org.lwjgl.glfw.CallbackBridge.addGrabListener(touchpad)
 
-            val gyro = GyroControl(this)
-            gyroControl = gyro
-            // 启动器控制设置持久化的陀螺仪项同步到运行时偏好
+            // 启动器控制设置持久化的陀螺仪项同步到运行时偏好（GyroControl 构造时即读取平滑窗口）
             LauncherPreferences.PREF_GYRO_INVERT_X = MenuSetting.isInvertGyroscope
             LauncherPreferences.PREF_GYRO_INVERT_Y = MenuSetting.isInvertGyroscope
             LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroscopeSensitivity * 0.5f
+            LauncherPreferences.PREF_GYRO_SAMPLE_RATE = MenuSetting.gyroscopeSampleRate
+            LauncherPreferences.PREF_GYRO_SMOOTHING = MenuSetting.isGyroscopeSmoothing
+            LauncherPreferences.PREF_GYRO_SMOOTHING_WINDOW = MenuSetting.gyroscopeSmoothingWindow
+            val gyro = GyroControl(this)
+            gyroControl = gyro
             if (MenuSetting.isEnableGyroscope) {
                 gyro.enable()
             }
@@ -827,11 +852,13 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // dispatchGenericMotionEvent 统一分发，避免双份处理
             overlay.setOnCapturedPointerListener { _, ev -> inputHandler.handleCapturedPointer(ev) }
 
-            // 箭头图形的热点（尖端）位于视图 (0,0)，view.x/y 直接等于逻辑光标位置即可对齐
+            // 指针热点（百分比）对齐逻辑光标位置，再叠加用户设置的偏移量
             inputHandler.cursorMoveListener = { x, y ->
                 cursorView?.let {
-                    it.x = x + MenuSetting.mouseOffsetX * density
-                    it.y = y + MenuSetting.mouseOffsetY * density
+                    val size = MenuSetting.mouseSize * 2 * density
+                    val hp = com.verse.explorer.app.data.MousePointerSetting.hotspot(currentCursorShape)
+                    it.x = x - size * hp[0] / 100f + MenuSetting.mouseOffsetX * density
+                    it.y = y - size * hp[1] / 100f + MenuSetting.mouseOffsetY * density
                 }
             }
 

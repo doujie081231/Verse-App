@@ -701,8 +701,37 @@ Java_org_lwjgl_glfw_GLFW_nglfwDestroyCursor(JNIEnv* env, jclass cls, jlong curso
     if (cursor) glfwDestroyCursor((GLFWcursor*)(intptr_t)cursor);
 }
 
+/* 缓存 CallbackBridge.onCursorShapeChanged 以便从 native 上报光标形状；查找失败静默跳过 */
+static void reportCursorShape(JNIEnv* env, jint shape) {
+    static jclass cbClass = nullptr;
+    static jmethodID cbMethod = nullptr;
+    if (cbClass == nullptr || cbMethod == nullptr) {
+        jclass local = env->FindClass("org/lwjgl/glfw/CallbackBridge");
+        if (local == nullptr) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            return;
+        }
+        cbClass = (jclass)env->NewGlobalRef(local);
+        env->DeleteLocalRef(local);
+        if (cbClass == nullptr) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            return;
+        }
+        cbMethod = env->GetStaticMethodID(cbClass, "onCursorShapeChanged", "(I)V");
+        if (cbMethod == nullptr) {
+            if (env->ExceptionCheck()) env->ExceptionClear();
+            return;
+        }
+    }
+    env->CallStaticVoidMethod(cbClass, cbMethod, shape);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+}
+
 JNIEXPORT void JNICALL
 Java_org_lwjgl_glfw_GLFW_nglfwSetCursor(JNIEnv* env, jclass cls, jlong window, jlong cursor) {
+    /* 标准光标句柄由 glfwCreateStandardCursor 以 shape+1 编码，此处还原形状并上报 UI；
+       自定义图片光标（glfwCreateCursor）与空句柄一律按默认箭头处理。 */
+    reportCursorShape(env, cursor != 0 ? (jint)(cursor - 1) : 0);
     if (window) glfwSetCursor((GLFWwindow*)(intptr_t)window, cursor ? (GLFWcursor*)(intptr_t)cursor : nullptr);
 }
 

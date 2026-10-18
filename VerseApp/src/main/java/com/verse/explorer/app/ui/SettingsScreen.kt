@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,9 +20,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -30,6 +37,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.R
 import com.verse.explorer.app.BuildConfig
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.MousePointerSetting
 import com.verse.explorer.app.data.UpdateChecker
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.PcButton
@@ -64,6 +72,8 @@ fun SettingsScreen(navController: NavHostController) {
     val settingsRepo = SettingsRepository
     // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
     MenuSetting.init(context.filesDir)
+    // 鼠标指针自定义图片与热点的持久化目录（幂等）
+    MousePointerSetting.init(context.filesDir)
     // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=控制设置 4=关于（原"其他"页已并入关于）
     var selectedPage by remember { mutableIntStateOf(0) }
     val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "关于")
@@ -1222,6 +1232,15 @@ private fun ControlSettingsContent(context: android.content.Context) {
     var enableGyroscope by remember { mutableStateOf(MenuSetting.isEnableGyroscope) }
     var invertGyroscope by remember { mutableStateOf(MenuSetting.isInvertGyroscope) }
     var gyroscopeSensitivity by remember { mutableIntStateOf(MenuSetting.gyroscopeSensitivity) }
+    var gyroscopeSampleRate by remember { mutableIntStateOf(MenuSetting.gyroscopeSampleRate) }
+    var gyroscopeSmoothing by remember { mutableStateOf(MenuSetting.isGyroscopeSmoothing) }
+    var gyroscopeSmoothingWindow by remember { mutableIntStateOf(MenuSetting.gyroscopeSmoothingWindow) }
+
+    var gestureControl by remember { mutableStateOf(MenuSetting.isGestureControl) }
+    var gestureTapAction by remember { mutableIntStateOf(MenuSetting.gestureTapMouseAction) }
+    var gestureLongPressAction by remember { mutableIntStateOf(MenuSetting.gestureLongPressMouseAction) }
+    var gestureLongPressDelay by remember { mutableIntStateOf(MenuSetting.gestureLongPressDelay) }
+    var mouseLongPressDelay by remember { mutableIntStateOf(MenuSetting.mouseLongPressDelay) }
 
     var lockMenuView by remember { mutableStateOf(MenuSetting.isLockMenuView) }
     var hideMenuView by remember { mutableStateOf(MenuSetting.isHideMenuView) }
@@ -1239,6 +1258,18 @@ private fun ControlSettingsContent(context: android.content.Context) {
     var gamepadDeadzone by remember { mutableIntStateOf((MenuSetting.gamepadDeadzone * 100).toInt()) }
 
     fun persist(key: String) = MenuSetting.notifyChange(key)
+
+    // 鼠标指针自定义图片：导入目标形状 + 刷新计数（导入/重置后刷新预览）
+    var pointerRefresh by remember { mutableIntStateOf(0) }
+    var importShape by remember { mutableStateOf<MousePointerSetting.Shape?>(null) }
+    val pointerImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val shape = importShape
+        importShape = null
+        if (uri == null || shape == null) return@rememberLauncherForActivityResult
+        val ok = MousePointerSetting.importImage(context, shape, uri)
+        Toast.makeText(context, if (ok) "指针图片已导入" else "指针图片导入失败", Toast.LENGTH_SHORT).show()
+        if (ok) pointerRefresh++
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1313,7 +1344,22 @@ private fun ControlSettingsContent(context: android.content.Context) {
                 MenuSetting.isPhysicalMouseMode = on
                 persist(MenuSetting.Key.PHYSICAL_MOUSE_MODE)
             }
+            PcSliderRow(
+                label = "鼠标长按延迟",
+                value = mouseLongPressDelay,
+                valueRange = 100..1000,
+                suffix = "ms"
+            ) { v ->
+                mouseLongPressDelay = v
+                MenuSetting.mouseLongPressDelay = v
+                persist(MenuSetting.Key.MOUSE_LONG_PRESS_DELAY)
+            }
         }
+
+        MousePointerCard(refreshed = pointerRefresh, onClickImport = { shape ->
+            importShape = shape
+            pointerImagePicker.launch("image/*")
+        })
 
         PcCard(title = "手势") {
             PcSwitchRow(
@@ -1352,6 +1398,44 @@ private fun ControlSettingsContent(context: android.content.Context) {
                 MenuSetting.isDisableLeftTouch = on
                 persist(MenuSetting.Key.DISABLE_LEFT_TOUCH)
             }
+            PcSwitchRow(
+                "手势控制",
+                "开启后点击/长按手势发送下方指定的鼠标按键动作",
+                gestureControl
+            ) { on ->
+                gestureControl = on
+                MenuSetting.isGestureControl = on
+                persist(MenuSetting.Key.GESTURE_CONTROL)
+            }
+            PcDropdownRow(
+                "单击动作",
+                gestureTapAction.toString(),
+                listOf("0" to "鼠标右键", "1" to "鼠标左键")
+            ) {
+                gestureTapAction = it.toInt()
+                MenuSetting.gestureTapMouseAction = gestureTapAction
+                persist(MenuSetting.Key.GESTURE_TAP_MOUSE_ACTION)
+            }
+            PcDropdownRow(
+                "长按动作",
+                gestureLongPressAction.toString(),
+                listOf("0" to "鼠标右键", "1" to "鼠标左键")
+            ) {
+                gestureLongPressAction = it.toInt()
+                MenuSetting.gestureLongPressMouseAction = gestureLongPressAction
+                persist(MenuSetting.Key.GESTURE_LONG_PRESS_MOUSE_ACTION)
+            }
+            PcSliderRow(
+                label = "手势长按延迟",
+                value = gestureLongPressDelay,
+                valueRange = 100..1000,
+                suffix = "ms",
+                enabled = gestureControl
+            ) { v ->
+                gestureLongPressDelay = v
+                MenuSetting.gestureLongPressDelay = v
+                persist(MenuSetting.Key.GESTURE_LONG_PRESS_DELAY)
+            }
         }
 
         PcCard(title = "陀螺仪") {
@@ -1386,6 +1470,38 @@ private fun ControlSettingsContent(context: android.content.Context) {
                 MenuSetting.gyroscopeSensitivity = v
                 persist(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
                 runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = v * 0.5f }
+            }
+            PcSliderRow(
+                label = "采样率",
+                value = gyroscopeSampleRate,
+                valueRange = 5..50,
+                suffix = "ms"
+            ) { v ->
+                gyroscopeSampleRate = v
+                MenuSetting.gyroscopeSampleRate = v
+                persist(MenuSetting.Key.GYROSCOPE_SAMPLE_RATE)
+                runCatching { LauncherPreferences.PREF_GYRO_SAMPLE_RATE = v }
+            }
+            PcSwitchRow(
+                "平滑陀螺仪数据",
+                "对陀螺仪读数取移动平均，减少抖动",
+                gyroscopeSmoothing
+            ) { on ->
+                gyroscopeSmoothing = on
+                MenuSetting.isGyroscopeSmoothing = on
+                persist(MenuSetting.Key.GYROSCOPE_SMOOTHING)
+                runCatching { LauncherPreferences.PREF_GYRO_SMOOTHING = on }
+            }
+            PcSliderRow(
+                label = "平滑窗口",
+                value = gyroscopeSmoothingWindow,
+                valueRange = 2..10,
+                enabled = gyroscopeSmoothing
+            ) { v ->
+                gyroscopeSmoothingWindow = v
+                MenuSetting.gyroscopeSmoothingWindow = v
+                persist(MenuSetting.Key.GYROSCOPE_SMOOTHING_WINDOW)
+                runCatching { LauncherPreferences.PREF_GYRO_SMOOTHING_WINDOW = v }
             }
         }
 
@@ -1517,4 +1633,210 @@ private fun ControlSettingsContent(context: android.content.Context) {
             }
         }
     }
+}
+
+/** 指针形状显示名 */
+private fun shapeLabel(shape: MousePointerSetting.Shape): String = when (shape) {
+    MousePointerSetting.Shape.ARROW -> "箭头"
+    MousePointerSetting.Shape.IBEAM -> "输入光标"
+    MousePointerSetting.Shape.CROSSHAIR -> "十字"
+    MousePointerSetting.Shape.HAND -> "手形"
+    MousePointerSetting.Shape.RESIZE_EW -> "左右调整"
+    MousePointerSetting.Shape.RESIZE_NS -> "上下调整"
+    MousePointerSetting.Shape.RESIZE_ALL -> "全向移动"
+    MousePointerSetting.Shape.NOT_ALLOWED -> "禁止"
+}
+
+/** 鼠标指针（各形状的自定义图片 / 热点）设置卡片 */
+@Composable
+private fun MousePointerCard(
+    refreshed: Int,
+    onClickImport: (MousePointerSetting.Shape) -> Unit
+) {
+    var localRefresh by remember { mutableIntStateOf(0) }
+    var hotspotShape by remember { mutableStateOf<MousePointerSetting.Shape?>(null) }
+    val tick = refreshed + localRefresh
+
+    PcCard(title = "鼠标指针") {
+        MousePointerSetting.Shape.entries.forEach { shape ->
+            MousePointerRow(
+                shape = shape,
+                refreshKey = tick,
+                onClickImport = onClickImport,
+                onEditHotspot = { hotspotShape = shape },
+                onReset = {
+                    MousePointerSetting.resetImage(shape)
+                    localRefresh++
+                }
+            )
+        }
+    }
+
+    hotspotShape?.let { shape ->
+        MouseHotspotDialog(shape = shape, onClose = { hotspotShape = null })
+    }
+}
+
+@Composable
+private fun MousePointerRow(
+    shape: MousePointerSetting.Shape,
+    refreshKey: Int,
+    onClickImport: (MousePointerSetting.Shape) -> Unit,
+    onEditHotspot: () -> Unit,
+    onReset: () -> Unit
+) {
+    val hasImage = MousePointerSetting.hasImage(shape)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PointerPreview(shape = shape, refreshKey = refreshKey, sizeDp = 36)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                shapeLabel(shape),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = VerseColors.PcTextPrimary
+            )
+            Text(
+                if (hasImage) "已使用自定义图片" else "使用内置图片",
+                fontSize = 11.sp,
+                color = if (hasImage) VerseColors.PcAccent else VerseColors.PcTextMuted
+            )
+        }
+        Text(
+            "导入",
+            fontSize = 12.sp,
+            color = VerseColors.PcAccent,
+            modifier = Modifier
+                .clickable { onClickImport(shape) }
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        )
+        Text(
+            "热点",
+            fontSize = 12.sp,
+            color = VerseColors.PcTextSecondary,
+            modifier = Modifier
+                .clickable { onEditHotspot() }
+                .padding(horizontal = 8.dp, vertical = 6.dp)
+        )
+        if (hasImage) {
+            Text(
+                "重置",
+                fontSize = 12.sp,
+                color = VerseColors.PcRed,
+                modifier = Modifier
+                    .clickable { onReset() }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+/** 指针图片预览：优先自定义图片，否则内置图片 */
+@Composable
+private fun PointerPreview(shape: MousePointerSetting.Shape, refreshKey: Int, sizeDp: Int) {
+    val bitmap = remember(shape, refreshKey) { MousePointerSetting.loadBitmap(shape) }
+    Box(modifier = Modifier.size(sizeDp.dp)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Image(
+                painter = painterResource(shape.defaultRes),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
+/** 指针热点编辑对话框：预览图上以红点标记热点，两个滑块编辑百分比坐标 */
+@Composable
+private fun MouseHotspotDialog(shape: MousePointerSetting.Shape, onClose: () -> Unit) {
+    val initial = remember(shape) { MousePointerSetting.hotspot(shape) }
+    var x by remember { mutableIntStateOf(initial[0]) }
+    var y by remember { mutableIntStateOf(initial[1]) }
+
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = {
+            Text(
+                "${shapeLabel(shape)}·指针热点",
+                color = VerseColors.PcTextPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    "热点是鼠标的实际作用点（点击/悬停命中位置），以图片宽高的百分比表示。",
+                    fontSize = 11.sp,
+                    color = VerseColors.PcTextMuted
+                )
+                Spacer(Modifier.height(10.dp))
+                Box(modifier = Modifier.size(120.dp)) {
+                    val bitmap = remember(shape) { MousePointerSetting.loadBitmap(shape) }
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Image(
+                            painter = painterResource(shape.defaultRes),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val cx = size.width * x / 100f
+                        val cy = size.height * y / 100f
+                        drawCircle(Color(0xFFC9350F), radius = 5.dp.toPx(), center = Offset(cx, cy))
+                        drawCircle(
+                            Color.White,
+                            radius = 4.dp.toPx(),
+                            center = Offset(cx, cy),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                    }
+                }
+                PcSliderRow(
+                    label = "热点 X",
+                    value = x,
+                    valueRange = 0..100,
+                    suffix = "%",
+                    onValueChange = { x = it }
+                )
+                PcSliderRow(
+                    label = "热点 Y",
+                    value = y,
+                    valueRange = 0..100,
+                    suffix = "%",
+                    onValueChange = { y = it }
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                MousePointerSetting.setHotspot(shape, x, y)
+                onClose()
+            }) { Text("保存", color = VerseColors.PcAccent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onClose) { Text("取消", color = VerseColors.PcTextSecondary) }
+        },
+        containerColor = VerseColors.PcBgSecondary
+    )
 }

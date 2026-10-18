@@ -27,6 +27,7 @@ public class LauncherPreferences {
     public static int PREF_GYRO_SAMPLE_RATE = 10;
     public static float PREF_GYRO_SENSITIVITY = 5.0f;
     public static boolean PREF_GYRO_SMOOTHING = false;
+    public static int PREF_GYRO_SMOOTHING_WINDOW = 4;
     public static int PREF_LONGPRESS_TRIGGER = 500;
 
     // 控制器

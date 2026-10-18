@@ -35,6 +35,28 @@ public class CallbackBridge {
     // 触控控件抓取监听（Pojav 触控模块迁移：ControlButton/Touchpad/HotbarView 等注册）
     private static final java.util.List<GrabListener> grabListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
+    /** 鼠标指针形状监听（原生 glfwSetCursor 上报的 GLFW 标准光标编号） */
+    private static volatile java.util.function.IntConsumer cursorShapeListener = null;
+
+    public static void setCursorShapeListener(java.util.function.IntConsumer listener) {
+        cursorShapeListener = listener;
+    }
+
+    /** 由原生侧（nglfwSetCursor）上报光标形状，转发到 UI 层以切换指针图片 */
+    @androidx.annotation.Keep
+    @SuppressWarnings("unused")
+    public static void onCursorShapeChanged(final int shape) {
+        sChoreographer.postFrameCallbackDelayed((time) -> {
+            java.util.function.IntConsumer listener = cursorShapeListener;
+            if (listener != null) {
+                try {
+                    listener.accept(shape);
+                } catch (Exception ignored) {
+                }
+            }
+        }, 16);
+    }
+
     public static void addGrabListener(GrabListener listener) {
         if (listener != null) {
             grabListeners.add(listener);

@@ -1348,7 +1348,8 @@ GLFWcursor* glfwCreateCursor(const GLFWimage* image, int xhot, int yhot) {
 }
 
 GLFWcursor* glfwCreateStandardCursor(int shape) {
-    return nullptr;
+    /* 将标准光标形状编码为非空句柄（shape+1），供 glfwSetCursor 还原形状并上报给 UI */
+    return (GLFWcursor*)(intptr_t)(shape + 1);
 }
 
 void glfwDestroyCursor(GLFWcursor* cursor) {
