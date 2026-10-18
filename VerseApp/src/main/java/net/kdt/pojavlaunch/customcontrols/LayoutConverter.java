@@ -22,6 +22,15 @@ public class LayoutConverter {
         try {
             JSONObject layoutJobj = new JSONObject(jsonLayoutData);
 
+            // ZL2 布局（layers/editorVersion 结构）：先经控制布局转换器转成仓库格式再加载
+            if (com.mio.controlconverter.CcConverter.INSTANCE.isZl2Layout(jsonLayoutData)) {
+                JsonObject fclJson = com.mio.controlconverter.CcConverter.INSTANCE.convertZlToFcl(
+                        JsonParser.parseString(jsonLayoutData).getAsJsonObject(), false, false, false);
+                CustomControls zlLayout = RepoLayoutConverter.convert(fclJson);
+                zlLayout.save(jsonPath);
+                return zlLayout;
+            }
+
             // 布局仓库下载的控制器（viewGroups 结构）转换为本应用 v8 格式后加载
             if (layoutJobj.has("viewGroups") && layoutJobj.has("controllerVersion")) {
                 JsonObject parsed = JsonParser.parseString(jsonLayoutData).getAsJsonObject();

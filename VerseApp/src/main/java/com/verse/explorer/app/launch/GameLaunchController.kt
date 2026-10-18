@@ -411,7 +411,7 @@ class GameLaunchController(private val context: Context) {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         android.widget.Toast.makeText(
                             context,
-                            "设备缺失本版本必需的 Vulkan 依赖：$missing，该版本可能无法启动",
+                            "当前设备图形能力有限，可能无法运行此版本；可尝试在版本设置中更换渲染器",
                             android.widget.Toast.LENGTH_LONG
                         ).show()
                     }

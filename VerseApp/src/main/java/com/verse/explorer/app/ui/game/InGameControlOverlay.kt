@@ -809,7 +809,15 @@ class InGameControlOverlay(
             this.adapter = adapter
             if (initialIndex in items.indices) setSelection(initialIndex)
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                // AdapterView 在 attach 时会自动回调一次 onItemSelected；该次并非用户操作，
+                // 若触发 loadLayout 会重载当前布局并把摇杆 detach（库内 100ms 回调时父容器
+                // 已为 null → NPE 崩溃），因此首回调只记录、仅在位置变化时视为用户选择
+                private var lastSelected: Int? = null
+
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val last = lastSelected
+                    lastSelected = position
+                    if (last == null || last == position) return
                     onSelected(position)
                 }
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}

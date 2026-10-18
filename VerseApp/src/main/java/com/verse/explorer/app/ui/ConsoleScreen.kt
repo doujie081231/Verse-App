@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -189,9 +190,12 @@ fun ConsoleScreen(navController: NavHostController) {
         }.onFailure { it.printStackTrace() }.getOrNull()
     }
 
-    // 选择截图/视频
+    // 选择截图/视频：用系统照片选择器（Photo Picker）。
+    // SAF 的 OpenMultipleDocuments 携带 ["image/*","video/*"] 多 MIME 过滤在部分
+    // 国产 ROM 上选不出媒体文件（选择器空列表），Photo Picker 原生支持图片/视频
+    // 且低版本自动回退系统选择器。
     val pickMedia = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
+        ActivityResultContracts.PickMultipleVisualMedia(FEEDBACK_MAX_FILES)
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val current = mediaFiles.toMutableList()
@@ -594,7 +598,11 @@ fun ConsoleScreen(navController: NavHostController) {
                             border = BorderStroke(1.dp, VerseColors.PcBorder),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { pickMedia.launch(arrayOf("image/*", "video/*")) }
+                                .clickable {
+                                    pickMedia.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                                    )
+                                }
                         ) {
                             Column(
                                 modifier = Modifier.padding(vertical = 22.dp),

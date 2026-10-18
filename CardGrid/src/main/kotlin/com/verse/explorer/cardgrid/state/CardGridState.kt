@@ -235,13 +235,27 @@ class CardGridState internal constructor(
         val pending = pendingSeeds ?: return false
         pendingSeeds = null
         val typeIdById = pending.associate { it.id to it.typeId }
+        val raw = pending.map { it.layout }
+        // 历史上窗口首帧异常宽度曾把布局塌缩成多卡同堆原点的坏数据并被持久化；
+        // 检测到堆叠特征时放弃按位恢复，改按阅读顺序重新打包位置（跨度保留）
+        val collapsed = raw.size >= 2 && raw.count { it.x == 0 && it.y == 0 } >= 2
         val layouts = if (pendingColumns == newColumns || pendingColumns <= 0) {
-            GridEngine.validate(pending.map { it.layout }, newColumns) { rect ->
-                typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
+            if (collapsed) {
+                GridEngine.reflow(
+                    cards = raw,
+                    oldColumns = newColumns,
+                    columns = newColumns
+                ) { rect ->
+                    typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
+                }
+            } else {
+                GridEngine.validate(raw, newColumns) { rect ->
+                    typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
+                }
             }
         } else {
             GridEngine.reflow(
-                cards = pending.map { it.layout },
+                cards = raw,
                 oldColumns = pendingColumns,
                 columns = newColumns
             ) { rect ->
@@ -270,9 +284,15 @@ class CardGridState internal constructor(
 
     // ---------- 几何 ----------
 
-    /** 依据容器宽度更新网格，列数变化时触发整体重排 */
+    /**
+     * 依据容器宽度更新网格，列数变化时触发整体重排
+     */
     fun updateGeometry(widthDp: Float, density: Density) {
-        if (widthDp <= 0f) return // 宽度无效时忽略本次测量，避免瞬态零宽把网格重排进退化的几何
+        // 宽度无效时忽略本次测量，避免瞬态零宽把网格重排进退化的几何。
+        // 个别 ROM 开启忽略刘海/全屏后，重启首帧窗口宽度会短暂上报为异常小值
+        // （insets 未就绪），若按该宽度建立几何会把全部卡片 clamp 到原点堆叠，
+        // 且坏布局随即被持久化，之后无法自愈——宽度低于可测下限时一律不建立几何
+        if (widthDp <= 0f || widthDp < MIN_MEASURABLE_WIDTH_DP) return
         val wasReady = geometryReady
         val oldColumns = geometry.columns
         val newGeometry = computeGridGeometry(widthDp)
@@ -761,6 +781,9 @@ class CardGridState internal constructor(
     companion object {
         /** 缩放手柄热区半径（dp） */
         private const val EDGE_HIT_RADIUS_DP = 24f
+
+        /** 容器宽度的可测下限（dp）：低于此值视为 ROM 首帧异常测量，不建立几何 */
+        private const val MIN_MEASURABLE_WIDTH_DP = 96f
     }
 }
 

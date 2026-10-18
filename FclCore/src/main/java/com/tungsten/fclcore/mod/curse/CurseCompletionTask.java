@@ -19,6 +19,7 @@ package com.tungsten.fclcore.mod.curse;
 
 import com.google.gson.JsonParseException;
 import com.tungsten.fclcore.download.DefaultDependencyManager;
+import com.tungsten.fclcore.download.ModpackFileCandidates;
 import com.tungsten.fclcore.game.DefaultGameRepository;
 import com.tungsten.fclcore.mod.ModManager;
 import com.tungsten.fclcore.mod.ModpackCompletionException;
@@ -149,7 +150,7 @@ public final class CurseCompletionTask extends Task<Void> {
                             return Stream.empty();
                         }
 
-                        FileDownloadTask task = new FileDownloadTask(f.getUrl(), path);
+                        FileDownloadTask task = new FileDownloadTask(ModpackFileCandidates.of(f.getUrl()), path);
                         task.setCacheRepository(dependency.getCacheRepository());
                         task.setCaching(true);
                         return Stream.of(task.withCounter("fcl.modpack.download"));

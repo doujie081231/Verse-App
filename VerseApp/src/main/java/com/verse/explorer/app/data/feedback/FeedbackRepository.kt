@@ -68,12 +68,16 @@ object FeedbackRepository {
                         name.startsWith("launch") || name.contains("startup-timing") ||
                             name.startsWith("latest") || name.startsWith("terminal_export") ||
                             name.startsWith("game") || name.startsWith("native_debug") ||
-                            name.startsWith("verse_debug") || name.endsWith(".log")
+                            name.startsWith("verse_debug") || name.endsWith(".log") ||
+                            // 渲染/SDL 诊断链（verse_sdl / verse_glfw / verse_native / verse_jvm_out）：
+                            // GL 后端创建失败等渲染问题必须附带
+                            name.startsWith("verse_")
                     // 下载问题同样附带主日志（下载失败/校验失败都会写入主日志）
                     "download" ->
                         name.contains("modpack-import") || name.contains("updater-download") ||
                             name.contains("loader-install") || name.endsWith(".install") ||
-                            name.startsWith("latest") || name.startsWith("launch")
+                            name.startsWith("latest") || name.startsWith("launch") ||
+                            name.startsWith("verse_")
                     else -> false
                 }
                 if (keep && f.exists() && f.length() > 0 && f.length() <= 20 * 1024 * 1024) {
@@ -87,7 +91,13 @@ object FeedbackRepository {
         val picked = grouped.values.flatMap { group ->
             group.sortedWith(
                 compareByDescending<File> { f ->
-                    if (f.name.startsWith("latest") || f.name.startsWith("launch")) 1 else 0
+                    // 主日志与渲染诊断链优先保留，避免被其它日志挤出每目录配额
+                    val n = f.name
+                    when {
+                        n.startsWith("latest") || n.startsWith("launch") -> 2
+                        n.startsWith("verse_") -> 1
+                        else -> 0
+                    }
                 }.thenByDescending { it.lastModified() }
             ).take(4)
         }
@@ -137,8 +147,11 @@ object FeedbackRepository {
         var index = 0
         for (f in logFiles) {
             if (index >= 10) break
+            // .log 扩展名会被站点网关静态规则拦截（下载返回 403），
+            // 上传时统一改挂 .txt 后缀，保证后台可正常取回日志
+            val uploadName = if (f.name.endsWith(".log")) f.name + ".txt" else f.name
             bodyBuilder.addFormDataPart(
-                "file$index", f.name,
+                "file$index", uploadName,
                 f.readBytes().toRequestBody("application/octet-stream".toMediaType())
             )
             index++

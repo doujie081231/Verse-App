@@ -128,10 +128,13 @@ fun InstalledModsScreen(
                     } else {
                         withContext(Dispatchers.IO) { manager.addMod(activity, uri, name) }
                         showToast("已导入 $name")
-                        reload()
+                        // 元数据解析异常只提示不中断（坏 mod 文件不应带崩页面）
+                        runCatching { reload() }.onFailure {
+                            showToast("模组列表刷新失败：${it.message ?: "未知错误"}")
+                        }
                     }
-                } catch (e: Exception) {
-                    showToast("导入失败：${e.message ?: "未知错误"}")
+                } catch (e: Throwable) {
+                    showToast("导入失败：${e.message ?: e.javaClass.simpleName}")
                 }
             }
         }
@@ -272,7 +275,7 @@ fun InstalledModsScreen(
             titleContentColor = VerseColors.PcTextPrimary,
             textContentColor = VerseColors.PcTextSecondary,
             title = { Text("删除模组", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
-            text = { Text("确定删除「${mod.name.ifBlank { mod.fileName }}」吗？该文件将从模组目录中移除。", fontSize = 13.sp) },
+            text = { Text("确定删除「${(mod.name ?: mod.fileName)?.ifBlank { null } ?: "未知模组"}」吗？该文件将从模组目录中移除。", fontSize = 13.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
@@ -304,16 +307,19 @@ fun InstalledModsScreen(
             textContentColor = VerseColors.PcTextSecondary,
             title = {
                 Column {
-                    Text(mod.name.ifBlank { mod.fileName }, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text((mod.name ?: mod.fileName)?.ifBlank { null } ?: "未知模组", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Text(loaderLabel(mod.modLoaderType), fontSize = 11.sp, color = VerseColors.PcAccent)
                 }
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    InfoRow("Mod ID", mod.id)
-                    if (mod.version.isNotBlank()) InfoRow("版本", mod.version)
-                    if (mod.gameVersion.isNotBlank()) InfoRow("游戏版本", mod.gameVersion)
-                    if (mod.authors.isNotBlank()) InfoRow("作者", mod.authors)
+                    InfoRow("Mod ID", mod.id ?: "")
+                    val verInfo = mod.version ?: ""
+                    if (verInfo.isNotBlank()) InfoRow("版本", verInfo)
+                    val gameVerInfo = mod.gameVersion ?: ""
+                    if (gameVerInfo.isNotBlank()) InfoRow("游戏版本", gameVerInfo)
+                    val authorInfo = mod.authors ?: ""
+                    if (authorInfo.isNotBlank()) InfoRow("作者", authorInfo)
                     val desc = mod.description.toString()
                     if (desc.isNotBlank()) InfoRow("简介", desc)
                     InfoRow("文件", mod.file.fileName.toString())
@@ -410,7 +416,7 @@ private fun InstalledModCard(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = mod.name.ifBlank { mod.fileName },
+                        text = (mod.name ?: mod.fileName)?.ifBlank { null } ?: "未知模组",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (mod.isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted,
                         fontWeight = FontWeight.SemiBold,
@@ -435,14 +441,16 @@ private fun InstalledModCard(
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (mod.version.isNotBlank()) {
-                        Text(mod.version, fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                    val cardVersion = mod.version ?: ""
+                    if (cardVersion.isNotBlank()) {
+                        Text(cardVersion, fontSize = 11.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
                         Text("·", fontSize = 11.sp, color = VerseColors.PcTextMuted)
                         Spacer(Modifier.width(8.dp))
                     }
-                    if (mod.authors.isNotBlank()) {
-                        Text(mod.authors, fontSize = 11.sp, color = VerseColors.PcTextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val cardAuthors = mod.authors ?: ""
+                    if (cardAuthors.isNotBlank()) {
+                        Text(cardAuthors, fontSize = 11.sp, color = VerseColors.PcTextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.width(8.dp))
                     }
                     Text(
@@ -491,12 +499,12 @@ private fun InstalledModCard(
 @Composable
 private fun ModIconBox(
     modFile: java.nio.file.Path,
-    logoPath: String,
-    loader: ModLoaderType
+    logoPath: String?,
+    loader: ModLoaderType?
 ) {
     var bitmap by remember(modFile.toString(), logoPath) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(modFile, logoPath) {
-        if (logoPath.isNotBlank()) {
+        if (!logoPath.isNullOrBlank()) {
             bitmap = withContext(Dispatchers.IO) { readModIcon(modFile, logoPath) }
         }
     }
@@ -534,7 +542,9 @@ private fun readModIcon(modFile: java.nio.file.Path, logoPath: String): ImageBit
     }.getOrNull()
 }
 
-private fun loaderLabel(type: ModLoaderType): String = when (type) {
+// 整合包内元数据缺失的 mod（无 fabric.mod.json/mods.toml 等）会让 FCL 的
+// LocalModFile 字段（Java 平台类型）返回 null，加载器/版本/作者一律按可空处理
+private fun loaderLabel(type: ModLoaderType?): String = when (type) {
     ModLoaderType.FORGE -> "Forge"
     ModLoaderType.NEO_FORGED -> "NeoForge"
     ModLoaderType.FABRIC -> "Fabric"
@@ -543,6 +553,7 @@ private fun loaderLabel(type: ModLoaderType): String = when (type) {
     ModLoaderType.PACK -> "数据包"
     ModLoaderType.CLEANROOM -> "Cleanroom"
     ModLoaderType.UNKNOWN -> "未知"
+    null -> "未知"
 }
 
 /** 读取内容 URI 的显示名（无 DISPLAY_NAME 时退回 lastPathSegment，保证有可落盘的文件名） */

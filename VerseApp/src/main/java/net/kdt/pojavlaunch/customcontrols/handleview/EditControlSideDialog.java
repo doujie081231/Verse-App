@@ -426,6 +426,11 @@ public class EditControlSideDialog extends SideDialogView {
             mKeycodeSpinners[i].setOnItemSelectedListener((SimpleItemSelectedListener) (parent, view, position, id) -> {
                 // Side note, spinner listeners are fired later than all the other ones.
                 // Meaning the internalChanges bool is useless here.
+                // AdapterView fires onItemSelected once on attach even for hidden spinners;
+                // single-key buttons only own keycodes[0], so guard against out-of-bounds writes.
+                if (mCurrentlyEditedButton == null || finalI >= mCurrentlyEditedButton.getProperties().keycodes.length) {
+                    return;
+                }
                 if (position < mSpecialArray.size()) {
                     mCurrentlyEditedButton.getProperties().keycodes[finalI] = mKeycodeSpinners[finalI].getSelectedItemPosition() - mSpecialArray.size();
                 } else {

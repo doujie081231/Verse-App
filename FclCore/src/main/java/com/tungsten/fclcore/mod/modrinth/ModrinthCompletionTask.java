@@ -18,6 +18,7 @@
 package com.tungsten.fclcore.mod.modrinth;
 
 import com.tungsten.fclcore.download.DefaultDependencyManager;
+import com.tungsten.fclcore.download.ModpackFileCandidates;
 import com.tungsten.fclcore.game.DefaultGameRepository;
 import com.tungsten.fclcore.mod.ModManager;
 import com.tungsten.fclcore.mod.ModpackCompletionException;
@@ -117,7 +118,7 @@ public class ModrinthCompletionTask extends Task<Void> {
                 continue;
             if (modsDirectory.equals(filePath.getParent()) && this.modManager.hasSimpleMod(FileUtils.getName(filePath)))
                 continue;
-            FileDownloadTask task = new FileDownloadTask(file.getDownloads(), filePath.toFile());
+            FileDownloadTask task = new FileDownloadTask(ModpackFileCandidates.of(file.getDownloads()), filePath.toFile());
             task.setCacheRepository(dependency.getCacheRepository());
             task.setCaching(true);
             dependencies.add(task.withCounter("fcl.modpack.download"));

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -41,6 +42,8 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
+import com.verse.explorer.app.BuildConfig
+import com.verse.explorer.app.ui.components.ChangelogDialog
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.ModpackImportFlow
@@ -52,6 +55,7 @@ import soup.compose.material.motion.animation.materialSharedAxisXIn
 import soup.compose.material.motion.animation.materialSharedAxisXOut
 import soup.compose.material.motion.animation.rememberSlideDistance
 import android.net.Uri
+import android.content.Context
 import android.os.Build
 
 sealed class Screen(
@@ -180,6 +184,35 @@ fun MainScreen(
     }
 
     val showSidebar = currentRoute in allSidebarRoutes
+
+    // 进入主界面时展示一次版本更新内容弹窗，确认后记录版本号不再弹出
+    val context = LocalContext.current
+    var showChangelog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
+        if (prefs.getInt("changelog_seen_version", 0) < BuildConfig.VERSION_CODE) showChangelog = true
+    }
+    if (showChangelog) {
+        ChangelogDialog(
+            versionName = "v${BuildConfig.VERSION_NAME}",
+            items = listOf(
+                "修复外部导入的整合包（Forge / OptiFine）无法启动的问题",
+                "修复打开控制面板时可能闪退的问题",
+                "修复重启应用后主页卡片堆叠在左上角的问题（受影响的布局会自动恢复）",
+                "新增 ZL2 / Zalith 格式触控布局的导入支持",
+                "修复元数据缺失的模组导致模组管理页闪退",
+                "整合包模组文件下载新增镜像源，下载更稳",
+                "下载版本信息阶段提速，移除失效镜像",
+                "软件问题反馈自动附带渲染诊断日志",
+                "开启「忽略刘海屏」后游戏画面覆盖刘海区域"
+            ),
+            onAcknowledge = {
+                context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
+                    .edit().putInt("changelog_seen_version", BuildConfig.VERSION_CODE).apply()
+                showChangelog = false
+            }
+        )
+    }
 
     // Material 动效库的 SharedAxis 滑动距离（组合层解析一次，过渡 lambda 内不可调用组合函数）
     val navSlideDistance = rememberSlideDistance()

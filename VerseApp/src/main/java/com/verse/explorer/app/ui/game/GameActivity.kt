@@ -187,6 +187,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val gameRoot = FrameLayout(this)
             if (!SettingsRepository.getIgnoreNotch()) {
                 gameRoot.setPadding(DisplayNotch.cutoutLeft(this), 0, 0, 0)
+            } else if (android.os.Build.VERSION.SDK_INT >= 28) {
+                // 忽略刘海：窗口延伸进刘海区（横屏左右打孔必须 ALWAYS，SHORT_EDGES 只管竖屏端部）
+                window.attributes.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
             gameRoot.addView(textureView, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -482,8 +486,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         val buttons = runCatching { layout.getButtonChildren() }.getOrNull() ?: return emptySet()
         val hit = mutableSetOf<Int>()
         for (i in 0 until ev.pointerCount) {
-            val x = ev.getRawX(i)
-            val y = ev.getRawY(i)
+            // 用窗口坐标（getX/getY）与按钮位置（同为窗口坐标）判定；
+            // getRawX 是屏幕坐标，横屏刘海设备窗口未延伸进刘海区时两坐标系
+            // 相差刘海宽度，命中判定整体偏移导致按键指针漏捕获（按键失灵）
+            val x = ev.getX(i)
+            val y = ev.getY(i)
             for (iface in buttons) {
                 val v = iface.getControlView() ?: continue
                 if (v.visibility != View.VISIBLE) continue
@@ -590,11 +597,20 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         if (inputHandler.onKeyDown(keyCode, event)) return true
+        // 游戏内返回键 = 给游戏发一对 ESC（呼出暂停菜单），不退出界面；
+        // 软键盘开启时返回键交给字符输入视图收起键盘
+        if (keyCode == android.view.KeyEvent.KEYCODE_BACK && touchCharInput?.isEnabled != true) {
+            if (event?.action != android.view.KeyEvent.ACTION_UP) return true
+            inputHandler.onKeyDown(android.view.KeyEvent.KEYCODE_ESCAPE, null)
+            inputHandler.onKeyUp(android.view.KeyEvent.KEYCODE_ESCAPE, null)
+            return true
+        }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         if (inputHandler.onKeyUp(keyCode, event)) return true
+        if (keyCode == android.view.KeyEvent.KEYCODE_BACK && touchCharInput?.isEnabled != true) return true
         return super.onKeyUp(keyCode, event)
     }
 

@@ -52,6 +52,11 @@ internal class ClasspathBuilder(private val context: Context) {
             }
         }
 
+        // 继承链合并：Forge/OptiFine 等派生版本的 libraries 只有安装器塞的少量启动库，
+        // vanilla 库（oshi/guava/authlib...）全部在 inheritsFrom 指向的父版本 json 里。
+        // 缺了会表现为游戏内 NoClassDefFoundError: oshi/SystemInfo 后退出（code=1）。
+        addInheritedLibraries(config, classpath)
+
         // JNA jar（runtime/jna）
         val jnaJar = File(runtimeDir, "jna/jna.jar")
         if (jnaJar.exists() && jnaJar.length() > 1024) {
@@ -95,6 +100,43 @@ internal class ClasspathBuilder(private val context: Context) {
         val cp = classpath.joinToString(File.pathSeparator)
         Log.d(TAG, "Classpath: $cp")
         return cp
+    }
+
+    /**
+     * 沿 inheritsFrom 链合并父版本 json 的 libraries（跳过顶层版本，已由
+     * config.version.libraries 覆盖）。同一 artifact 只入 classpath 一次，
+     * 保留与顶层相同的过滤规则：跳过 natives jar、文件必须已下载。
+     */
+    private fun addInheritedLibraries(config: LaunchConfiguration, classpath: MutableList<String>) {
+        val gson = com.google.gson.Gson()
+        val seen = HashSet<String>()
+        val queue = ArrayDeque<String>()
+        queue.addLast(config.version.id)
+        seen.add(config.version.id)
+        while (queue.isNotEmpty()) {
+            val id = queue.removeFirst()
+            val jsonFile = File(config.gameDir, "versions/$id/$id.json")
+            if (!jsonFile.exists()) continue
+            try {
+                val obj = gson.fromJson(jsonFile.readText(), com.google.gson.JsonObject::class.java)
+                obj.getAsJsonArray("libraries")?.forEach { element ->
+                    val lib = element.asJsonObject
+                    val name = lib.get("name")?.asString ?: return@forEach
+                    if (name.contains(":natives-")) return@forEach
+                    val path = lib.getAsJsonObject("downloads")?.getAsJsonObject("artifact")?.get("path")?.asString
+                        ?: return@forEach
+                    val libFile = File(config.librariesDir, path)
+                    if (libFile.exists() && libFile.length() > 0 && libFile.absolutePath !in classpath) {
+                        classpath.add(libFile.absolutePath)
+                    }
+                }
+                obj.get("inheritsFrom")?.asString?.let { parent ->
+                    if (seen.add(parent)) queue.addLast(parent)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "inherit merge failed for $id: ${e.message}")
+            }
+        }
     }
 
     fun findVersionJar(config: LaunchConfiguration): File? {
