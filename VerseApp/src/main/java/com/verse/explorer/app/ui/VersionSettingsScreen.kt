@@ -237,8 +237,99 @@ fun VersionSettingsScreen(
                     }
 
                     if (!settings.usesGlobal) {
-                        // ── Java ──
-                        PcCard(title = "Java") {
+                        GroupTitle("版本设置")
+                        PcCard {
+                            PcSwitchRow(
+                                "版本隔离",
+                                "该版本使用独立运行目录（saves/mods 等随版本存放）",
+                                settings.isolateGameDir
+                            ) { update { s -> s.copy(isolateGameDir = it) } }
+                            PcSwitchRow(
+                                "不检查游戏完整性",
+                                "跳过启动前的游戏文件完整性检查以加快启动",
+                                settings.notCheckGame
+                            ) { update { s -> s.copy(notCheckGame = it) } }
+                            PcSwitchRow(
+                                "不检查模组",
+                                "启动时不对模组文件做完整性校验",
+                                settings.notCheckMod
+                            ) { update { s -> s.copy(notCheckMod = it) } }
+                        }
+                        PcCard {
+                            PcDropdownRow(
+                                "渲染器",
+                                settings.renderer,
+                                listOf(
+                                    "" to "跟随全局设置",
+                                    "nggl4es" to "nggl4es（Krypton）",
+                                    "gl4es" to "gl4es 1.1.4",
+                                    "mobileglues" to "MobileGlues"
+                                )
+                            ) { update { s -> s.copy(renderer = it) } }
+                            PcDropdownRow(
+                                "Vulkan 驱动器",
+                                if (settings.vkDriverSystem) "system" else "turnip",
+                                listOf(
+                                    "system" to "系统驱动",
+                                    "turnip" to "Turnip（Adreno 专用）"
+                                )
+                            ) { update { s -> s.copy(vkDriverSystem = it == "system") } }
+                            PcDropdownRow(
+                                "图形 API",
+                                settings.graphicsBackend,
+                                listOf(
+                                    "default" to "自动（默认）",
+                                    "opengl" to "OpenGL",
+                                    "vulkan" to "Vulkan"
+                                )
+                            ) { update { s -> s.copy(graphicsBackend = it) } }
+                        }
+                        if (controllerNames.isNotEmpty() || settings.forceResolution) {
+                            PcCard {
+                                if (controllerNames.isNotEmpty()) {
+                                    PcDropdownRow(
+                                        "触控布局",
+                                        settings.controller,
+                                        listOf("" to "默认布局") + controllerNames.map { it to it }
+                                    ) { update { s -> s.copy(controller = it) } }
+                                }
+                                PcSwitchRow(
+                                    "强制分辨率",
+                                    "使用固定窗口尺寸启动，不跟随窗口比例缩放",
+                                    settings.forceResolution
+                                ) { update { s -> s.copy(forceResolution = it) } }
+                                if (settings.forceResolution) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = if (settings.width > 0) settings.width.toString() else "",
+                                            onValueChange = { v -> update { s -> s.copy(width = v.filter { c -> c.isDigit() }.take(5).toIntOrNull() ?: 0) } },
+                                            label = { Text("宽度", fontSize = 12.sp) },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                            colors = pcTextFieldColors()
+                                        )
+                                        OutlinedTextField(
+                                            value = if (settings.height > 0) settings.height.toString() else "",
+                                            onValueChange = { v -> update { s -> s.copy(height = v.filter { c -> c.isDigit() }.take(5).toIntOrNull() ?: 0) } },
+                                            label = { Text("高度", fontSize = 12.sp) },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.weight(1f),
+                                            colors = pcTextFieldColors()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        GroupTitle("游戏设置")
+                        PcCard {
                             PcDropdownRow(
                                 "Java 运行时",
                                 settings.java,
@@ -249,10 +340,6 @@ fun VersionSettingsScreen(
                                 "跳过启动前对定向 Java 运行时的完整性校验",
                                 settings.notCheckJVM
                             ) { update { s -> s.copy(notCheckJVM = it) } }
-                        }
-
-                        // ── 内存 ──
-                        PcCard(title = "内存") {
                             PcSwitchRow(
                                 "自动分配内存",
                                 "按启动时的实时可用内存自动计算",
@@ -267,9 +354,7 @@ fun VersionSettingsScreen(
                                 }
                             }
                         }
-
-                        // ── 启动参数 ──
-                        PcCard(title = "启动参数") {
+                        PcCard {
                             PcTextInputRow(
                                 "JVM 参数（空格分隔）",
                                 settings.javaArgs,
@@ -280,51 +365,15 @@ fun VersionSettingsScreen(
                                 settings.minecraftArgs,
                                 "--width 1280 ..."
                             ) { update { s -> s.copy(minecraftArgs = it) } }
-                        }
-
-                        // ── 游戏 ──
-                        PcCard(title = "游戏") {
                             PcTextInputRow(
                                 "启动后进入服务器",
                                 settings.serverIp,
                                 "ip 或 ip:端口"
                             ) { update { s -> s.copy(serverIp = it) } }
-                            PcSwitchRow(
-                                "版本隔离",
-                                "该版本使用独立运行目录（saves/mods 等随版本存放）",
-                                settings.isolateGameDir
-                            ) { update { s -> s.copy(isolateGameDir = it) } }
                         }
 
-                        // ── 图形 ──
-                        PcCard(title = "图形") {
-                            PcDropdownRow(
-                                "图形 API",
-                                settings.graphicsBackend,
-                                listOf(
-                                    "default" to "自动（默认）",
-                                    "opengl" to "OpenGL",
-                                    "vulkan" to "Vulkan"
-                                )
-                            ) { update { s -> s.copy(graphicsBackend = it) } }
-                            PcDropdownRow(
-                                "Vulkan 驱动器",
-                                if (settings.vkDriverSystem) "system" else "turnip",
-                                listOf(
-                                    "system" to "系统驱动",
-                                    "turnip" to "Turnip（Adreno 专用）"
-                                )
-                            ) { update { s -> s.copy(vkDriverSystem = it == "system") } }
-                            PcDropdownRow(
-                                "渲染器",
-                                settings.renderer,
-                                listOf(
-                                    "" to "跟随全局设置",
-                                    "nggl4es" to "nggl4es（Krypton）",
-                                    "gl4es" to "gl4es 1.1.4",
-                                    "mobileglues" to "MobileGlues"
-                                )
-                            ) { update { s -> s.copy(renderer = it) } }
+                        GroupTitle("其他")
+                        PcCard {
                             PcSwitchRow(
                                 "输出调试日志",
                                 "游戏内输出详细调试日志，便于排查问题",
@@ -332,69 +381,8 @@ fun VersionSettingsScreen(
                             ) { update { s -> s.copy(debugLog = it) } }
                         }
 
-                        // ── 检查 ──
-                        PcCard(title = "检查") {
-                            PcSwitchRow(
-                                "不检查游戏完整性",
-                                "跳过启动前的游戏文件完整性检查以加快启动",
-                                settings.notCheckGame
-                            ) { update { s -> s.copy(notCheckGame = it) } }
-                            PcSwitchRow(
-                                "不检查模组",
-                                "启动时不对模组文件做完整性校验",
-                                settings.notCheckMod
-                            ) { update { s -> s.copy(notCheckMod = it) } }
-                        }
-
-                        // ── 分辨率 ──
-                        PcCard(title = "分辨率") {
-                            PcSwitchRow(
-                                "强制分辨率",
-                                "使用固定窗口尺寸启动，不跟随窗口比例缩放",
-                                settings.forceResolution
-                            ) { update { s -> s.copy(forceResolution = it) } }
-                            if (settings.forceResolution) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = if (settings.width > 0) settings.width.toString() else "",
-                                        onValueChange = { v -> update { s -> s.copy(width = v.filter { c -> c.isDigit() }.take(5).toIntOrNull() ?: 0) } },
-                                        label = { Text("宽度", fontSize = 12.sp) },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f),
-                                        colors = pcTextFieldColors()
-                                    )
-                                    OutlinedTextField(
-                                        value = if (settings.height > 0) settings.height.toString() else "",
-                                        onValueChange = { v -> update { s -> s.copy(height = v.filter { c -> c.isDigit() }.take(5).toIntOrNull() ?: 0) } },
-                                        label = { Text("高度", fontSize = 12.sp) },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.weight(1f),
-                                        colors = pcTextFieldColors()
-                                    )
-                                }
-                            }
-                        }
-
-                        // ── 控制布局 ──
-                        if (controllerNames.isNotEmpty()) {
-                            PcCard(title = "控制布局") {
-                                PcDropdownRow(
-                                    "触控布局",
-                                    settings.controller,
-                                    listOf("" to "默认布局") + controllerNames.map { it to it }
-                                ) { update { s -> s.copy(controller = it) } }
-                            }
-                        }
-
-                        // ── 重置 ──
-                        PcCard(title = "重置") {
+                        GroupTitle("操作")
+                        PcCard {
                             PcSwitchRow(
                                 "恢复跟随全局",
                                 "清除本版本的全部独立设置，回到全局启动设置",
@@ -412,6 +400,17 @@ fun VersionSettingsScreen(
             }
         }
     }
+}
+
+/** 设置分组标题（主题色小字，统领下方卡片组） */
+@Composable
+private fun GroupTitle(text: String) {
+    Text(
+        text = text,
+        color = VerseColors.PcAccent,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+    )
 }
 
 @Composable

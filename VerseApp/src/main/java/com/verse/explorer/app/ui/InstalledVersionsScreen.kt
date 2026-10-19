@@ -547,7 +547,8 @@ private fun InstalledVersionItem(
                     )
                 }
 
-                // 置顶星标
+                // 置顶星标 + 更多操作菜单（其余操作全部收纳进菜单，保持条目整洁）
+                var menuExpanded by remember { mutableStateOf(false) }
                 IconButton(
                     onClick = { onTogglePin(!meta.pinned) },
                     modifier = Modifier.size(30.dp)
@@ -559,38 +560,6 @@ private fun InstalledVersionItem(
                         modifier = Modifier.size(16.dp)
                     )
                 }
-
-                // 主页固定（把版本作为主页卡片显示/移除）
-                IconButton(
-                    onClick = { onToggleHome(!pinnedToHome) },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.Home,
-                        contentDescription = if (pinnedToHome) "从主页移除" else "固定到主页",
-                        tint = if (pinnedToHome) VerseColors.PcAccent else VerseColors.PcTextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(Modifier.width(2.dp))
-                // 齿轮（版本设置）
-                IconButton(
-                    onClick = onSettings,
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(VerseColors.PcBgTertiary)
-                ) {
-                    Icon(
-                        Icons.Outlined.Settings,
-                        contentDescription = "版本设置",
-                        tint = VerseColors.PcTextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(Modifier.width(2.dp))
-                // 更多操作菜单（展开状态由条目自持）
-                var menuExpanded by remember { mutableStateOf(false) }
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
@@ -608,6 +577,26 @@ private fun InstalledVersionItem(
                         onDismissRequest = { menuExpanded = false }
                     ) {
                         DropdownMenuItem(
+                            text = { Text("版本设置", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.Settings, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onSettings() }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    if (pinnedToHome) "从主页移除" else "固定到主页",
+                                    fontSize = 13.sp
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.Home,
+                                    null, Modifier.size(16.dp)
+                                )
+                            },
+                            onClick = { menuExpanded = false; onToggleHome(!pinnedToHome) }
+                        )
+                        DropdownMenuItem(
                             text = { Text("重命名", fontSize = 13.sp) },
                             leadingIcon = { Icon(Icons.Outlined.DriveFileRenameOutline, null, Modifier.size(16.dp)) },
                             onClick = { menuExpanded = false; onRename() }
@@ -617,6 +606,7 @@ private fun InstalledVersionItem(
                             leadingIcon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(16.dp)) },
                             onClick = { menuExpanded = false; onExport() }
                         )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         DropdownMenuItem(
                             text = { Text("打开版本目录", fontSize = 13.sp) },
                             leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
@@ -657,20 +647,13 @@ private fun InstalledVersionItem(
                             leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
                             onClick = { menuExpanded = false; onOpenFolder("crash-reports") }
                         )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        DropdownMenuItem(
+                            text = { Text("删除版本", fontSize = 13.sp, color = VerseColors.PcRed) },
+                            leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(16.dp), tint = VerseColors.PcRed) },
+                            onClick = { menuExpanded = false; onDelete() }
+                        )
                     }
-                }
-                Spacer(Modifier.width(6.dp))
-                // 删除
-                IconButton(
-                    onClick = onDelete,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = "删除",
-                        tint = VerseColors.PcTextMuted,
-                        modifier = Modifier.size(16.dp)
-                    )
                 }
             }
         }
