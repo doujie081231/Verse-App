@@ -50,12 +50,13 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
 
     @Override
     public boolean postDelayed(Runnable action, long delayMillis) {
-        // 摇杆库在 attach 后延时 100ms 把 ForwardLockView 加入父容器且不判空：
+        // 摇杆库在 attach 后延时 100ms 把 ForwardLockView 加入父容器，且不判父容器是否为空：
         // 该窗口内重载布局会 detach 本视图，回调运行时 getParent() 为 null 直接 NPE。
-        // 包一层 attached 校验，视图已脱离布局时跳过回调（废弃实例无需再加锁视图）。
+        // 库自身 1000ms 的 removeView 回调判了子视图 attached 并 try/catch，此处对齐同一做法：
+        // 仅当「已附着窗口」且「父容器非空」时才执行，二者缺一即跳过（废弃实例无需再加锁视图）。
         if (delayMillis == 100) {
             return super.postDelayed(() -> {
-                if (isAttachedToWindow()) action.run();
+                if (isAttachedToWindow() && getParent() != null) action.run();
             }, delayMillis);
         }
         return super.postDelayed(action, delayMillis);
