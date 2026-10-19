@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.VersionMetaRepository
 import com.verse.explorer.app.data.VersionSettingsRepository
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.PcDropdownRow
@@ -189,6 +190,29 @@ fun VersionSettingsScreen(
                                 tint = VerseColors.PcAccent,
                                 modifier = Modifier.size(16.dp)
                             )
+                        }
+                    }
+
+                    // ── 版本信息（摘要与备注：展示用，与启动设置无关，不受独立设置开关影响） ──
+                    var meta by remember(versionId) {
+                        mutableStateOf(VersionMetaRepository.get(context, versionId))
+                    }
+                    PcCard(title = "版本信息") {
+                        PcTextInputRow(
+                            "版本摘要",
+                            meta.summary,
+                            "一句话描述，显示在版本列表"
+                        ) { v ->
+                            meta = meta.copy(summary = v)
+                            VersionMetaRepository.setSummary(context, versionId, v)
+                        }
+                        PcTextInputRow(
+                            "自定义信息",
+                            meta.customInfo,
+                            "版本备注"
+                        ) { v ->
+                            meta = meta.copy(customInfo = v)
+                            VersionMetaRepository.setCustomInfo(context, versionId, v)
                         }
                     }
 

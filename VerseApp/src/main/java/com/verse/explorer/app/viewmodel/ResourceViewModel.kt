@@ -3,6 +3,7 @@ package com.verse.explorer.app.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.verse.explorer.app.data.ModTranslationMapper
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.core.resource.ModrinthSearchHit
 import com.verse.explorer.core.resource.ResourceRepository
@@ -42,6 +43,7 @@ class ResourceViewModel(
     private val pageSize = 15
 
     init {
+        ModTranslationMapper.init(application)
         search()
     }
 
@@ -110,12 +112,23 @@ class ResourceViewModel(
         val loaders = if (state.selectedLoader != "全部") listOf(state.selectedLoader.lowercase()) else emptyList()
         val gameVersions = if (state.selectedVersion != "全部") listOf(state.selectedVersion) else emptyList()
 
+        // 中文查询先经本地翻译表转换为英文关键词（资源 API 不支持中文检索）；
+        // 未命中时仍按原查询请求，保持行为可预期
+        val effectiveQuery = run {
+            val raw = query.trim()
+            if (raw.isNotEmpty() && raw.any { it in '\u4e00'..'\u9fff' }) {
+                ModTranslationMapper.searchZh(raw).firstOrNull() ?: raw
+            } else {
+                raw
+            }
+        }
+
         return repository.search(
-            query = query,
+            query = effectiveQuery,
             projectType = projectType,
             loaders = loaders,
             gameVersions = gameVersions,
-            sort = if (query.isEmpty()) "downloads" else "relevance",
+            sort = if (effectiveQuery.isEmpty()) "downloads" else "relevance",
             limit = pageSize,
             offset = offset,
             source = state.selectedSource

@@ -1600,6 +1600,44 @@ private fun ControlSettingsContent(context: android.content.Context) {
             }
         }
 
+        PcCard(title = "手柄") {
+            // 手柄输入模式与 FCL/SDL 侧共用 "launcher" 偏好（gamepad_input_mode）：
+            // SDL_DIRECT=手柄事件直通 SDL 游戏层；MAPPED=预留给控制布局映射
+            var gamepadInputMode by remember {
+                mutableStateOf(
+                    context.getSharedPreferences("launcher", android.content.Context.MODE_PRIVATE)
+                        .getString("gamepad_input_mode", "MAPPED") ?: "MAPPED"
+                )
+            }
+            PcDropdownRow(
+                "手柄输入模式",
+                gamepadInputMode,
+                listOf(
+                    "SDL_DIRECT" to "SDL 直通",
+                    "MAPPED" to "控制布局映射（预留）"
+                )
+            ) {
+                gamepadInputMode = it
+                context.getSharedPreferences("launcher", android.content.Context.MODE_PRIVATE)
+                    .edit().putString("gamepad_input_mode", it).apply()
+            }
+            Text(
+                "手柄事件由 SDL 游戏层直通处理；死区随游戏内控制面板同步。",
+                fontSize = 11.sp,
+                color = VerseColors.PcTextMuted
+            )
+            PcSliderRow(
+                label = "手柄死区",
+                value = gamepadDeadzone,
+                valueRange = 0..100,
+                suffix = "%"
+            ) { v ->
+                gamepadDeadzone = v
+                MenuSetting.gamepadDeadzone = v / 100.0
+                persist(MenuSetting.Key.GAMEPAD_DEADZONE)
+            }
+        }
+
         PcCard(title = "控制面板") {
             PcSwitchRow(
                 "自动吸附",
@@ -1620,16 +1658,6 @@ private fun ControlSettingsContent(context: android.content.Context) {
                 autoFitDist = v
                 MenuSetting.autoFitDist = v
                 persist(MenuSetting.Key.AUTO_FIT_DIST)
-            }
-            PcSliderRow(
-                label = "手柄死区",
-                value = gamepadDeadzone,
-                valueRange = 0..100,
-                suffix = "%"
-            ) { v ->
-                gamepadDeadzone = v
-                MenuSetting.gamepadDeadzone = v / 100.0
-                persist(MenuSetting.Key.GAMEPAD_DEADZONE)
             }
         }
     }

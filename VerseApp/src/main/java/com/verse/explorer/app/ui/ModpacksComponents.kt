@@ -76,8 +76,10 @@ internal fun ResourceSearchCard(
             }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // 汉化名命中时以中文名为主标题、英文原名退居 meta 行
+                val zhName = com.verse.explorer.app.data.ModTranslationMapper.translateBySlug(hit.slug)
                 Text(
-                    text = hit.title,
+                    text = zhName ?: hit.title,
                     style = MaterialTheme.typography.bodyMedium,
                     color = VerseColors.PcTextPrimary,
                     fontWeight = FontWeight.Medium,
@@ -86,6 +88,17 @@ internal fun ResourceSearchCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (zhName != null && hit.title.isNotBlank()) {
+                        Text(
+                            text = hit.title,
+                            fontSize = 10.sp,
+                            color = VerseColors.PcTextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     hit.loaders.firstOrNull()?.let { loader ->
                         Surface(
                             shape = RoundedCornerShape(3.dp),

@@ -93,6 +93,10 @@ fun ModDetailScreen(
     val repository = remember {
         ResourceRepository(context.applicationContext as Application)
     }
+    // 详情标题汉化依赖翻译表（可能未经资源列表页直接进入详情）
+    LaunchedEffect(Unit) {
+        com.verse.explorer.app.data.ModTranslationMapper.init(context.applicationContext)
+    }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     var project by remember { mutableStateOf<ResourceDetail?>(null) }
@@ -712,8 +716,10 @@ fun ModDetailScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
+                            // 汉化名命中时标题显示中文名
+                            val projZh = com.verse.explorer.app.data.ModTranslationMapper.translateBySlug(proj.slug)
                             Text(
-                                proj.title.ifEmpty { projectId },
+                                projZh ?: proj.title.ifEmpty { projectId },
                                 color = VerseColors.PcTextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,

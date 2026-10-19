@@ -1,6 +1,8 @@
 package com.verse.explorer.app.ui
 
+import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -15,11 +17,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,13 +42,17 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.app.data.VersionMetaRepository
 import com.verse.explorer.app.ui.components.ModpackImportFlow
+import com.verse.explorer.app.ui.components.PcCompactSearchField
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionType
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  *
@@ -62,6 +73,38 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
+    // 版本列表管理：搜索过滤 / 元数据（摘要·自定义信息·置顶）/ 重命名 / 导出 / 打开目录
+    var searchText by remember { mutableStateOf("") }
+    var metaVersion by remember { mutableIntStateOf(0) }
+    var renameTarget by remember { mutableStateOf<String?>(null) }
+    var renameText by remember { mutableStateOf("") }
+    var exportTarget by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        val id = exportTarget
+        exportTarget = null
+        if (uri == null || id == null) return@rememberLauncherForActivityResult
+        val gameDir = GameConfig.getGameDir(context)
+        val versionDir = File(GameConfig.getVersionsDir(gameDir), id)
+        runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { out ->
+                ZipOutputStream(out.buffered()).use { zip ->
+                    zipDirectory(versionDir, versionDir, zip)
+                }
+            } ?: error("无法写入所选位置")
+        }.onSuccess {
+            android.widget.Toast.makeText(context, "已导出 $id", android.widget.Toast.LENGTH_SHORT).show()
+        }.onFailure {
+            android.widget.Toast.makeText(context, "导出失败：${it.message}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // 元数据缓存：搜索/排序/条目展示共用，metaVersion 自增触发刷新
+    val metaMap = remember(localVersions, metaVersion) {
+        localVersions.associate { it.id to VersionMetaRepository.get(context, it.id) }
+    }
+
     // 本地导入整合包：SAF 打开内部存储挑选 .zip/.mrpack 文件
     var importUri by remember { mutableStateOf<Uri?>(null) }
     val importPicker = rememberLauncherForActivityResult(
@@ -70,8 +113,15 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         if (uri != null) importUri = uri
     }
 
-    val moddedVersions = localVersions.filter { isModdedVersion(it) }
-    val vanillaVersions = localVersions.filterNot { isModdedVersion(it) }
+    val query = searchText.trim().lowercase()
+    val moddedVersions = localVersions
+        .filter { isModdedVersion(it) }
+        .filter { matchesSearch(it, query, metaMap) }
+        .sortedWith(compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }.thenBy { it.id.lowercase() })
+    val vanillaVersions = localVersions
+        .filterNot { isModdedVersion(it) }
+        .filter { matchesSearch(it, query, metaMap) }
+        .sortedWith(compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }.thenBy { it.id.lowercase() })
 
     Box(
         modifier = Modifier
@@ -138,6 +188,16 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            if (localVersions.isNotEmpty()) {
+                PcCompactSearchField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    placeholder = "搜索版本名称或摘要",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
             if (localVersions.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
@@ -158,6 +218,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                 version = version,
                                 selected = version.id == currentLaunchVersionId,
                                 pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
+                                meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
                                 onSelect = {
                                     SettingsRepository.setCustomSetting("last_version", version.id)
                                     currentLaunchVersionId = version.id
@@ -172,6 +233,19 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                     } else {
                                         com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
                                     }
+                                },
+                                onRename = {
+                                    renameTarget = version.id
+                                    renameText = version.id
+                                },
+                                onExport = {
+                                    exportTarget = version.id
+                                    exportLauncher.launch("${version.id}.zip")
+                                },
+                                onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
+                                onTogglePin = { pinned ->
+                                    VersionMetaRepository.setPinned(context, version.id, pinned)
+                                    metaVersion++
                                 },
                                 onDelete = { showDeleteConfirm = version.id }
                             )
@@ -201,6 +275,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                 version = version,
                                 selected = version.id == currentLaunchVersionId,
                                 pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
+                                meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
                                 onSelect = {
                                     SettingsRepository.setCustomSetting("last_version", version.id)
                                     currentLaunchVersionId = version.id
@@ -215,6 +290,19 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                     } else {
                                         com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
                                     }
+                                },
+                                onRename = {
+                                    renameTarget = version.id
+                                    renameText = version.id
+                                },
+                                onExport = {
+                                    exportTarget = version.id
+                                    exportLauncher.launch("${version.id}.zip")
+                                },
+                                onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
+                                onTogglePin = { pinned ->
+                                    VersionMetaRepository.setPinned(context, version.id, pinned)
+                                    metaVersion++
                                 },
                                 onDelete = { showDeleteConfirm = version.id }
                             )
@@ -244,6 +332,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                 TextButton(
                     onClick = {
                         viewModel.deleteVersion(showDeleteConfirm!!)
+                        VersionMetaRepository.remove(context, showDeleteConfirm!!)
                         showDeleteConfirm = null
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcRed)
@@ -258,20 +347,71 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             }
         )
     }
+
+    // 重命名版本：目录、版本 json 文件名与 json 内 id 字段、当前选中记录、元数据一并迁移
+    renameTarget?.let { oldId ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            containerColor = VerseColors.PcBgCard,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
+            shape = RoundedCornerShape(12.dp),
+            title = { Text("重命名版本", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { v -> renameText = v.filter { c -> !c.isWhitespace() }.take(64) },
+                    label = { Text("新名称") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newId = renameText.trim()
+                        if (newId.isNotEmpty() && newId != oldId && runCatching {
+                                renameVersion(context, oldId, newId)
+                            }.isSuccess
+                        ) {
+                            if (settingsLastVersion() == oldId) {
+                                SettingsRepository.setCustomSetting("last_version", newId)
+                            }
+                            if (currentLaunchVersionId == oldId) currentLaunchVersionId = newId
+                            VersionMetaRepository.rename(context, oldId, newId)
+                            viewModel.loadLocalVersions()
+                            metaVersion++
+                        }
+                        renameTarget = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcAccent)
+                ) { Text("确定", fontWeight = FontWeight.SemiBold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) {
+                    Text("取消", color = VerseColors.PcTextSecondary)
+                }
+            }
+        )
+    }
 }
 
 /**
- *  图标(52dp, 透明底) + 名称 + badge + meta + 右侧「齿轮 + 删除」
- *  选中版本：accent 边框 + 左上角 ✓ 角标
+ *  图标(52dp, 透明底) + 名称 + badge + meta(类型·日期·摘要) + 右侧「主页固定 + 齿轮 + 更多 + 删除」
+ *  选中版本：accent 边框 + 左上角 ✓ 角标；置顶版本：星标角标
  */
 @Composable
 private fun InstalledVersionItem(
     version: MinecraftVersion,
     selected: Boolean,
     pinnedToHome: Boolean,
+    meta: VersionMetaRepository.VersionMeta,
     onSelect: () -> Unit,
     onSettings: () -> Unit,
     onToggleHome: (Boolean) -> Unit,
+    onRename: () -> Unit,
+    onExport: () -> Unit,
+    onOpenFolder: (String) -> Unit,
+    onTogglePin: (Boolean) -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
@@ -396,9 +536,27 @@ private fun InstalledVersionItem(
                     }
                     Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "${versionTypeLabel(version)} · ${formatDate(version.releaseTime)}",
+                        text = buildString {
+                            append("${versionTypeLabel(version)} · ${formatDate(version.releaseTime)}")
+                            if (meta.summary.isNotBlank()) append(" · ${meta.summary}")
+                        },
                         fontSize = 12.sp,
-                        color = VerseColors.PcTextMuted
+                        color = VerseColors.PcTextMuted,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+
+                // 置顶星标
+                IconButton(
+                    onClick = { onTogglePin(!meta.pinned) },
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        if (meta.pinned) Icons.Filled.Star else Icons.Outlined.StarOutline,
+                        contentDescription = if (meta.pinned) "取消置顶" else "置顶",
+                        tint = if (meta.pinned) VerseColors.PcYellow else VerseColors.PcTextMuted,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
 
@@ -429,6 +587,77 @@ private fun InstalledVersionItem(
                         tint = VerseColors.PcTextMuted,
                         modifier = Modifier.size(16.dp)
                     )
+                }
+                Spacer(Modifier.width(2.dp))
+                // 更多操作菜单（展开状态由条目自持）
+                var menuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.MoreVert,
+                            contentDescription = "更多操作",
+                            tint = VerseColors.PcTextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("重命名", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.DriveFileRenameOutline, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onRename() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("导出 (.zip)", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onExport() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开版本目录", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开 saves", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("saves") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开 mods", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("mods") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开 resourcepacks", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("resourcepacks") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开 shaderpacks", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("shaderpacks") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开截图", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("screenshots") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开日志", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("logs") }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打开崩溃报告", fontSize = 13.sp) },
+                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
+                            onClick = { menuExpanded = false; onOpenFolder("crash-reports") }
+                        )
+                    }
                 }
                 Spacer(Modifier.width(6.dp))
                 // 删除
@@ -494,3 +723,97 @@ private fun formatDate(dateStr: String): String {
 }
 
 private fun settingsLastVersion(): String? = SettingsRepository.getCustomSetting("last_version")
+
+/** 搜索匹配：版本 id、加载器提示或版本摘要含查询串即命中（空查询全通过） */
+private fun matchesSearch(
+    version: MinecraftVersion,
+    query: String,
+    metaMap: Map<String, VersionMetaRepository.VersionMeta>
+): Boolean {
+    if (query.isEmpty()) return true
+    val summary = metaMap[version.id]?.summary?.lowercase() ?: ""
+    return version.id.lowercase().contains(query) ||
+        (version.loaderHint?.lowercase()?.contains(query) ?: false) ||
+        summary.contains(query)
+}
+
+/**
+ * 重命名版本目录：目录与 <id>.json 改名，版本 json 内的 id 字段同步更新，
+ * 目标名已存在或目录缺失时抛错由调用方提示。
+ */
+private fun renameVersion(context: android.content.Context, oldId: String, newId: String) {
+    val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
+    val oldDir = File(versionsDir, oldId)
+    val newDir = File(versionsDir, newId)
+    require(oldDir.isDirectory) { "版本目录不存在" }
+    require(!newDir.exists()) { "目标名称已存在" }
+    val invalidChars = Regex("""[\\/:*?"<>|]""")
+    require(!invalidChars.containsMatchIn(newId)) { "名称含非法字符" }
+
+    val oldJson = File(oldDir, "$oldId.json")
+    if (oldJson.isFile) {
+        val text = oldJson.readText()
+        val updated = Regex("""("id"\s*:\s*")(${Regex.escape(oldId)})(")""")
+            .replace(text) { m -> "${m.groupValues[1]}$newId${m.groupValues[3]}" }
+        oldJson.writeText(updated)
+        if (!oldJson.renameTo(File(oldDir, "$newId.json"))) {
+            oldJson.writeText(text)
+            error("版本 json 改名失败")
+        }
+    }
+    if (!oldDir.renameTo(newDir)) {
+        error("版本目录改名失败")
+    }
+}
+
+/** 递归压缩目录（entry 名相对 rootDir） */
+private fun zipDirectory(dir: File, rootDir: File, zip: ZipOutputStream) {
+    dir.listFiles()?.forEach { f ->
+        if (f.isDirectory) {
+            zipDirectory(f, rootDir, zip)
+        } else {
+            val entryName = f.relativeTo(rootDir).invariantSeparatorsPath
+            zip.putNextEntry(ZipEntry(entryName))
+            f.inputStream().use { it.copyTo(zip) }
+            zip.closeEntry()
+        }
+    }
+}
+
+/**
+ * 用系统文件管理器打开版本内目录：
+ * 游戏目录位于共享存储时经 DocumentsContract 构造目录 URI 打开；
+ * 私有目录或打开失败时回退为复制路径到剪贴板提示。
+ */
+private fun openVersionFolder(context: android.content.Context, versionId: String, subFolder: String) {
+    val gameDir = GameConfig.getGameDir(context)
+    val target = File(GameConfig.getVersionsDir(gameDir), versionId)
+        .let { if (subFolder.isNotBlank()) File(it, subFolder) else it }
+    if (!target.exists()) target.mkdirs()
+
+    val fallback = {
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        clipboard.setPrimaryClip(
+            android.content.ClipData.newPlainText("path", target.absolutePath)
+        )
+        android.widget.Toast.makeText(
+            context, "未找到可用的文件管理器，路径已复制：${target.absolutePath}",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+    }
+
+    runCatching {
+        val storagePath = target.absolutePath
+        val prefix = "/storage/emulated/0/"
+        require(storagePath.startsWith(prefix)) { "目录不在共享存储" }
+        val documentId = "primary:${storagePath.removePrefix(prefix)}"
+        val uri = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents", documentId
+        )
+        val intent = Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }.onFailure { fallback() }
+}

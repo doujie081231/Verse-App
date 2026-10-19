@@ -415,8 +415,13 @@ private fun InstalledModCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // 汉化名命中时以中文名展示，原名退为副行
+                    val zhName = com.verse.explorer.app.data.ModTranslationMapper.translateFileName(
+                        mod.file.fileName?.toString() ?: ""
+                    )
                     Text(
-                        text = (mod.name ?: mod.fileName)?.ifBlank { null } ?: "未知模组",
+                        text = zhName
+                            ?: (mod.name ?: mod.fileName)?.ifBlank { null } ?: "未知模组",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (mod.isActive) VerseColors.PcTextPrimary else VerseColors.PcTextMuted,
                         fontWeight = FontWeight.SemiBold,
