@@ -5,47 +5,90 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.AddBox
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.DriveFileRenameOutline
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileOpen
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.StarOutline
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersionMetaRepository
-import com.verse.explorer.app.ui.components.ModpackImportFlow
-import com.verse.explorer.app.ui.components.PcCompactSearchField
+import com.verse.explorer.app.data.VersePersonalization
+import com.verse.explorer.app.ui.components.DisabledAlpha
+import com.verse.explorer.app.ui.components.EdgeDirection
+import com.verse.explorer.app.ui.components.IconTextButton
+import com.verse.explorer.app.ui.components.LittleTextLabel
+import com.verse.explorer.app.ui.components.MarqueeText
+import com.verse.explorer.app.ui.components.ScalingLabel
+import com.verse.explorer.app.ui.components.TextRailItem
+import com.verse.explorer.app.ui.components.fadeEdge
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.verse.explorer.app.ui.theme.cardColor
+import com.verse.explorer.app.ui.theme.onCardColor
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
@@ -55,15 +98,31 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
+ * 已安装版本管理页（1:1 复刻 ZL2 ui/screens/content/VersionsManageScreen.kt 的右侧版本列表栏）。
  *
- * 从主页点击版本卡片进入。手机端为单一游戏文件夹，因此：
- *  - 移除「版本文件夹选择器」（folder-selector）
- *  - 移除「添加已有文件夹」（add-external-folder）
+ * 结构对位关系：
+ *  - 顶部悬浮操作栏 = ZL2 VersionsLayout 顶部 Row（左侧 Surface 内「刷新 / 安装」，
+ *    右侧 Surface 内横向滚动的版本分类 ALL / 原版 / 模组）
+ *  - 列表条目 = ZL2 VersionItemLayout（Surface + RadioButton + 图标 + 名称/摘要/信息行 +
+ *    置顶 / 设置 / 更多菜单）
+ *  - 空列表 = ZL2 的居中 ScalingLabel
  *
- *  - 模组版本 / 基础版本 分组
- *  - 版本项：图标 + 名称 + 加载器 badge + meta(类型 · 日期)
- *  - 右侧：设置齿轮（进版本设置） + 删除按钮
+ * 数据层沿用 Verse 现有实现（VersionsViewModel / VersionMetaRepository / VersionCardManager），
+ * 未移植 ZL2 的多游戏路径菜单（Verse 手机端为单一游戏目录）。
  */
+
+/** 版本分类（对位 ZL2 VersionCategory） */
+enum class VersionCategory(val label: String) {
+    /** 全部 */
+    ALL("全部"),
+
+    /** 原版 */
+    VANILLA("原版"),
+
+    /** 带有模组加载器 */
+    MODLOADER("模组")
+}
+
 @Composable
 fun InstalledVersionsScreen(navController: NavHostController) {
     val context = LocalContext.current
@@ -72,13 +131,12 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
-
-    // 版本列表管理：搜索过滤 / 元数据（摘要·自定义信息·置顶）/ 重命名 / 导出 / 打开目录
-    var searchText by remember { mutableStateOf("") }
     var metaVersion by remember { mutableIntStateOf(0) }
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var renameText by remember { mutableStateOf("") }
     var exportTarget by remember { mutableStateOf<String?>(null) }
+    var category by remember { mutableStateOf(VersionCategory.ALL) }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri ->
@@ -100,7 +158,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         }
     }
 
-    // 元数据缓存：搜索/排序/条目展示共用，metaVersion 自增触发刷新
+    // 元数据缓存：置顶 / 摘要 / 自定义信息，metaVersion 自增触发刷新
     val metaMap = remember(localVersions, metaVersion) {
         localVersions.associate { it.id to VersionMetaRepository.get(context, it.id) }
     }
@@ -113,27 +171,30 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         if (uri != null) importUri = uri
     }
 
-    val query = searchText.trim().lowercase()
-    val moddedVersions = localVersions
-        .filter { isModdedVersion(it) }
-        .filter { matchesSearch(it, query, metaMap) }
-        .sortedWith(compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }.thenBy { it.id.lowercase() })
-    val vanillaVersions = localVersions
-        .filterNot { isModdedVersion(it) }
-        .filter { matchesSearch(it, query, metaMap) }
-        .sortedWith(compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }.thenBy { it.id.lowercase() })
+    val allCount = localVersions.size
+    val vanillaCount = remember(localVersions) { localVersions.count { !isModdedVersion(it) } }
+    val modloaderCount = remember(localVersions) { localVersions.count { isModdedVersion(it) } }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-    ) {
+    val displayedVersions = remember(localVersions, category, metaMap) {
+        when (category) {
+            VersionCategory.ALL -> localVersions
+            VersionCategory.VANILLA -> localVersions.filterNot { isModdedVersion(it) }
+            VersionCategory.MODLOADER -> localVersions.filter { isModdedVersion(it) }
+        }.sortedWith(
+            compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }
+                .thenBy { it.id.lowercase() }
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // 顶部返回栏（Verse 导航所需，视觉沿用 ZL2 的透明标题风格）
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                    .padding(start = 12.dp, end = 12.dp, top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 IconButton(
                     onClick = { navController.navigateUp() },
@@ -142,174 +203,173 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
-                        tint = VerseColors.PcTextPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Text(
-                    text = "已安装版本",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.PcTextPrimary,
-                    modifier = Modifier.weight(1f)
+                MarqueeText(
+                    modifier = Modifier.weight(1f),
+                    text = "版本管理",
+                    style = MaterialTheme.typography.titleMedium
                 )
-                IconButton(
-                    onClick = {
-                        importPicker.launch(
-                            arrayOf(
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/octet-stream",
-                                "*/*"
-                            )
-                        )
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.FileOpen,
-                        contentDescription = "导入整合包",
-                        tint = VerseColors.PcTextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(
-                    onClick = { viewModel.loadLocalVersions() },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Refresh,
-                        contentDescription = "刷新",
-                        tint = VerseColors.PcTextSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Box(modifier = Modifier.fillMaxSize()) {
+                val listState = rememberLazyListState()
 
-            if (localVersions.isNotEmpty()) {
-                PcCompactSearchField(
-                    value = searchText,
-                    onValueChange = { searchText = it },
-                    placeholder = "搜索版本名称或摘要",
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            if (localVersions.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "暂无已安装版本，请前往「下载」页安装一个吧",
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 13.sp
-                    )
-                }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp)
-                ) {
-                    if (moddedVersions.isNotEmpty()) {
-                        items(moddedVersions) { version ->
-                            InstalledVersionItem(
-                                version = version,
-                                selected = version.id == currentLaunchVersionId,
-                                pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
-                                meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
-                                onSelect = {
-                                    SettingsRepository.setCustomSetting("last_version", version.id)
-                                    currentLaunchVersionId = version.id
-                                    navController.navigateUp()
-                                },
-                                onSettings = {
-                                    navController.navigate("version_settings/${version.id}")
-                                },
-                                onToggleHome = { pinned ->
-                                    if (pinned) {
-                                        com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
-                                    } else {
-                                        com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
-                                    }
-                                },
-                                onRename = {
-                                    renameTarget = version.id
-                                    renameText = version.id
-                                },
-                                onExport = {
-                                    exportTarget = version.id
-                                    exportLauncher.launch("${version.id}.zip")
-                                },
-                                onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
-                                onTogglePin = { pinned ->
-                                    VersionMetaRepository.setPinned(context, version.id, pinned)
-                                    metaVersion++
-                                },
-                                onDelete = { showDeleteConfirm = version.id }
+                    if (displayedVersions.isNotEmpty()) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .fadeEdge(state = listState, length = 32.dp),
+                            contentPadding = PaddingValues(
+                                start = 12.dp,
+                                top = 12.dp,
+                                end = 12.dp,
+                                bottom = 12.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            state = listState,
+                        ) {
+                            items(displayedVersions, key = { it.id }) { version ->
+                                VersionItemLayout(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    version = version,
+                                    selected = version.id == currentLaunchVersionId,
+                                    meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
+                                    pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
+                                    onSelected = {
+                                        SettingsRepository.setCustomSetting("last_version", version.id)
+                                        currentLaunchVersionId = version.id
+                                    },
+                                    onSettingsClick = {
+                                        navController.navigate("version_settings/${version.id}")
+                                    },
+                                    onToggleHome = { pinned ->
+                                        if (pinned) {
+                                            com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
+                                        } else {
+                                            com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
+                                        }
+                                    },
+                                    onRenameClick = {
+                                        renameTarget = version.id
+                                        renameText = version.id
+                                    },
+                                    onExportClick = {
+                                        exportTarget = version.id
+                                        exportLauncher.launch("${version.id}.zip")
+                                    },
+                                    onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
+                                    onTogglePin = { pinned ->
+                                        VersionMetaRepository.setPinned(context, version.id, pinned)
+                                        metaVersion++
+                                    },
+                                    onDeleteClick = { showDeleteConfirm = version.id }
+                                )
+                            }
+                        }
+                    } else {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            ScalingLabel(
+                                modifier = Modifier.align(Alignment.Center),
+                                text = "暂无已安装版本"
                             )
                         }
                     }
 
-                    if (vanillaVersions.isNotEmpty()) {
-                        item {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Spacer(Modifier.height(12.dp))
+                    // 悬浮操作栏（对位 ZL2 VersionsLayout 顶部操作栏）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .zIndex(1f)
+                    ) {
+                        val blur = VersePersonalization.backgroundBlur
+                        val cardBg = cardColor()
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(all = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                color = cardBg,
+                                contentColor = onCardColor(),
+                                shape = MaterialTheme.shapes.large,
+                            ) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp)
+                                    modifier = Modifier
+                                        .backgroundGlass(blur, cardBg)
+                                        .padding(all = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("\u26A0 ", fontSize = 12.sp, color = VerseColors.PcTextMuted)
-                                    Text(
-                                        text = "基础版本 (${vanillaVersions.size})",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = VerseColors.PcTextMuted
+                                    IconTextButton(
+                                        onClick = { viewModel.loadLocalVersions() },
+                                        imageVector = Icons.Outlined.Refresh,
+                                        text = "刷新"
+                                    )
+                                    IconTextButton(
+                                        onClick = {
+                                            importPicker.launch(
+                                                arrayOf(
+                                                    "application/zip",
+                                                    "application/x-zip-compressed",
+                                                    "application/octet-stream",
+                                                    "*/*"
+                                                )
+                                            )
+                                        },
+                                        imageVector = Icons.Outlined.Download,
+                                        text = "安装新版本"
+                                    )
+                                }
+                            }
+
+                            // 版本分类
+                            Surface(
+                                modifier = Modifier.weight(1f, fill = false),
+                                color = cardBg,
+                                contentColor = onCardColor(),
+                                shape = MaterialTheme.shapes.large,
+                            ) {
+                                val scrollState = rememberScrollState()
+                                Row(
+                                    modifier = Modifier
+                                        .backgroundGlass(blur, cardBg)
+                                        .fadeEdge(
+                                            state = scrollState,
+                                            length = 32.dp,
+                                            direction = EdgeDirection.Horizontal
+                                        )
+                                        .horizontalScroll(state = scrollState)
+                                        .padding(all = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    VersionCategoryItem(
+                                        value = VersionCategory.ALL,
+                                        versionsCount = allCount,
+                                        selected = category == VersionCategory.ALL,
+                                        onClick = { category = VersionCategory.ALL }
+                                    )
+                                    VersionCategoryItem(
+                                        value = VersionCategory.VANILLA,
+                                        versionsCount = vanillaCount,
+                                        selected = category == VersionCategory.VANILLA,
+                                        onClick = { category = VersionCategory.VANILLA }
+                                    )
+                                    VersionCategoryItem(
+                                        value = VersionCategory.MODLOADER,
+                                        versionsCount = modloaderCount,
+                                        selected = category == VersionCategory.MODLOADER,
+                                        onClick = { category = VersionCategory.MODLOADER }
                                     )
                                 }
                             }
                         }
-                        items(vanillaVersions) { version ->
-                            InstalledVersionItem(
-                                version = version,
-                                selected = version.id == currentLaunchVersionId,
-                                pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
-                                meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
-                                onSelect = {
-                                    SettingsRepository.setCustomSetting("last_version", version.id)
-                                    currentLaunchVersionId = version.id
-                                    navController.navigateUp()
-                                },
-                                onSettings = {
-                                    navController.navigate("version_settings/${version.id}")
-                                },
-                                onToggleHome = { pinned ->
-                                    if (pinned) {
-                                        com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
-                                    } else {
-                                        com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
-                                    }
-                                },
-                                onRename = {
-                                    renameTarget = version.id
-                                    renameText = version.id
-                                },
-                                onExport = {
-                                    exportTarget = version.id
-                                    exportLauncher.launch("${version.id}.zip")
-                                },
-                                onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
-                                onTogglePin = { pinned ->
-                                    VersionMetaRepository.setPinned(context, version.id, pinned)
-                                    metaVersion++
-                                },
-                                onDelete = { showDeleteConfirm = version.id }
-                            )
-                        }
                     }
                 }
-            }
         }
     }
 
@@ -322,11 +382,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     if (showDeleteConfirm != null) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
-            containerColor = VerseColors.PcBgCard,
-            titleContentColor = VerseColors.PcTextPrimary,
-            textContentColor = VerseColors.PcTextSecondary,
-            shape = RoundedCornerShape(12.dp),
-            title = { Text("删除版本", fontWeight = FontWeight.Bold) },
+            containerColor = cardColor(),
+            titleContentColor = onCardColor(),
+            shape = MaterialTheme.shapes.large,
+            title = { Text("删除版本", style = MaterialTheme.typography.titleLarge) },
             text = { Text("确定要删除 Minecraft ${showDeleteConfirm} 吗？此操作不可撤销。") },
             confirmButton = {
                 TextButton(
@@ -334,16 +393,11 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                         viewModel.deleteVersion(showDeleteConfirm!!)
                         VersionMetaRepository.remove(context, showDeleteConfirm!!)
                         showDeleteConfirm = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcRed)
-                ) {
-                    Text("删除", fontWeight = FontWeight.SemiBold)
-                }
+                    }
+                ) { Text("删除") }
             },
             dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = null }) {
-                    Text("取消", color = VerseColors.PcTextSecondary)
-                }
+                TextButton(onClick = { showDeleteConfirm = null }) { Text("取消") }
             }
         )
     }
@@ -352,11 +406,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     renameTarget?.let { oldId ->
         AlertDialog(
             onDismissRequest = { renameTarget = null },
-            containerColor = VerseColors.PcBgCard,
-            titleContentColor = VerseColors.PcTextPrimary,
-            textContentColor = VerseColors.PcTextSecondary,
-            shape = RoundedCornerShape(12.dp),
-            title = { Text("重命名版本", fontWeight = FontWeight.Bold) },
+            containerColor = cardColor(),
+            titleContentColor = onCardColor(),
+            shape = MaterialTheme.shapes.large,
+            title = { Text("重命名版本", style = MaterialTheme.typography.titleLarge) },
             text = {
                 OutlinedTextField(
                     value = renameText,
@@ -379,317 +432,262 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             if (currentLaunchVersionId == oldId) currentLaunchVersionId = newId
                             VersionMetaRepository.rename(context, oldId, newId)
                             viewModel.loadLocalVersions()
-                            metaVersion++
                         }
+                        metaVersion++
                         renameTarget = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = VerseColors.PcAccent)
-                ) { Text("确定", fontWeight = FontWeight.SemiBold) }
+                    }
+                ) { Text("确定") }
             },
             dismissButton = {
-                TextButton(onClick = { renameTarget = null }) {
-                    Text("取消", color = VerseColors.PcTextSecondary)
-                }
+                TextButton(onClick = { renameTarget = null }) { Text("取消") }
             }
         )
     }
 }
 
 /**
- *  图标(52dp, 透明底) + 名称 + badge + meta(类型·日期·摘要) + 右侧「主页固定 + 齿轮 + 更多 + 删除」
- *  选中版本：accent 边框 + 左上角 ✓ 角标；置顶版本：星标角标
+ * 版本条目（1:1 对位 ZL2 VersionItemLayout）。
+ *
+ * RadioButton（选中态） + 版本图标 + 名称/摘要/信息行 + 置顶 + 设置 + 更多菜单。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun InstalledVersionItem(
+private fun VersionItemLayout(
     version: MinecraftVersion,
     selected: Boolean,
-    pinnedToHome: Boolean,
     meta: VersionMetaRepository.VersionMeta,
-    onSelect: () -> Unit,
-    onSettings: () -> Unit,
-    onToggleHome: (Boolean) -> Unit,
-    onRename: () -> Unit,
-    onExport: () -> Unit,
-    onOpenFolder: (String) -> Unit,
-    onTogglePin: (Boolean) -> Unit,
-    onDelete: () -> Unit
+    pinnedToHome: Boolean,
+    modifier: Modifier = Modifier,
+    influencedByBackground: Boolean = true,
+    color: Color = cardColor(influencedByBackground),
+    contentColor: Color = onCardColor(),
+    blur: Int = VersePersonalization.backgroundBlur,
+    onSelected: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
+    onToggleHome: (Boolean) -> Unit = {},
+    onRenameClick: () -> Unit = {},
+    onExportClick: () -> Unit = {},
+    onOpenFolder: (String) -> Unit = {},
+    onTogglePin: (Boolean) -> Unit = {},
+    onDeleteClick: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-    // 整合包作者图标优先（安装整合包时写入 versions/<id>/modpack_icon.png）
-    val packIconBitmap = remember(version.id) {
-        try {
-            val packIcon = File(
-                GameConfig.getVersionsDir(GameConfig.getGameDir(context)),
-                version.id
-            ).resolve("modpack_icon.png")
-            if (packIcon.exists() && packIcon.length() > 0) {
-                android.graphics.BitmapFactory.decodeFile(packIcon.absolutePath)?.asImageBitmap()
-            } else null
-        } catch (e: Exception) { null }
+    val scale = remember { Animatable(initialValue = 0.95f) }
+    LaunchedEffect(Unit) {
+        scale.animateTo(targetValue = 1f, animationSpec = tween(durationMillis = 200))
     }
-    // 加载器同时按版本 json 内容识别（loaderHint），覆盖整合包等名称不含加载器关键词的版本。
-    val lower = version.id.lowercase()
-    val hint = version.loaderHint?.lowercase()
-    val loaderIconPath = hint?.let { h ->
-        when (h) {
-            "fabric" -> "icons/loader_icon_fabric.png"
-            "quilt" -> "icons/loader_icon_quilt.png"
-            "neoforge" -> "icons/loader_icon_neoforge.png"
-            "forge" -> "icons/loader_icon_forge.png"
-            "optifine" -> "icons/loader_icon_optifine.png"
-            else -> null
+
+    Surface(
+        modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
+        color = color,
+        contentColor = contentColor,
+        shape = MaterialTheme.shapes.large,
+        onClick = {
+            if (selected) return@Surface
+            onSelected()
         }
-    } ?: when {
-        lower.contains("fabric") -> "icons/loader_icon_fabric.png"
-        lower.contains("quilt") -> "icons/loader_icon_quilt.png"
-        lower.contains("neoforge") -> "icons/loader_icon_neoforge.png"
-        lower.contains("forge") -> "icons/loader_icon_forge.png"
-        lower.contains("optifine") -> "icons/loader_icon_optifine.png"
-        else -> null
-    }
-    val iconAssetPath = loaderIconPath ?: when (version.type) {
-        VersionType.SNAPSHOT -> "icons/version_icon_cobblestone.png"
-        VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
-        else -> "icons/version_icon_grass.png"
-    }
-    val assetBitmap = remember(iconAssetPath) {
-        try {
-            context.assets.open(iconAssetPath).use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
-            }
-        } catch (e: Exception) { null }
-    }
-    val iconBitmap = packIconBitmap ?: assetBitmap
-
-    val (badge, badgeColor) = loaderBadge(version)
-
-    Box {
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(RoundedCornerShape(topStart = 8.dp))
-                    .background(VerseColors.PcAccent),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("✓", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcAccentText)
-            }
-        }
-
-        Surface(
+    ) {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onSelect
-                ),
-            shape = RoundedCornerShape(8.dp),
-            color = if (selected) VerseColors.PcAccent.copy(alpha = 0.08f) else VerseColors.PcGlassCardBg,
-            border = BorderStroke(
-                1.dp,
-                if (selected) VerseColors.PcAccent else VerseColors.PcBorder
-            )
+                .clip(shape = MaterialTheme.shapes.large)
+                .backgroundGlass(blur, color, influencedByBackground)
+                .padding(all = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            RadioButton(
+                selected = selected,
+                onClick = {
+                    if (selected) return@RadioButton
+                    onSelected()
+                }
+            )
+
+            // 版本信息（对位 ZL2 CommonVersionInfoLayout）
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 图标（52dp）
-                Box(
-                    modifier = Modifier.size(52.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (iconBitmap != null) {
-                        Image(
-                            bitmap = iconBitmap,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            contentScale = ContentScale.Fit
+                VersionIcon(version = version, size = 34.dp)
+
+                Column(modifier = Modifier.weight(1f)) {
+                    MarqueeText(
+                        text = version.id,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    if (meta.summary.isNotBlank()) {
+                        MarqueeText(
+                            text = meta.summary,
+                            style = MaterialTheme.typography.labelMedium
                         )
                     }
-                }
-                Spacer(Modifier.width(12.dp))
-
-                // 名称 + badge + meta
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = version.id,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = VerseColors.PcTextPrimary,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Surface(shape = RoundedCornerShape(3.dp), color = badgeColor.copy(alpha = 0.15f)) {
+                    FlowRow(
+                        modifier = Modifier.alpha(0.7f),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        val baseVersion = version.inheritsFrom
+                        if (!baseVersion.isNullOrBlank()) {
                             Text(
-                                text = badge,
-                                fontSize = 10.sp,
-                                color = badgeColor,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                text = baseVersion,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        val hint = version.loaderHint
+                        if (!hint.isNullOrBlank()) {
+                            Text(
+                                text = hint,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        if (baseVersion.isNullOrBlank() && hint.isNullOrBlank()) {
+                            LittleTextLabel(
+                                text = versionTypeLabel(version),
+                                textStyle = MaterialTheme.typography.labelSmall
                             )
                         }
                     }
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = buildString {
-                            append("${versionTypeLabel(version)} · ${formatDate(version.releaseTime)}")
-                            if (meta.summary.isNotBlank()) append(" · ${meta.summary}")
-                        },
-                        fontSize = 12.sp,
-                        color = VerseColors.PcTextMuted,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                }
+            }
+
+            // 置顶（对位 ZL2：图钉图标旋转 45°）
+            IconButton(
+                onClick = { onTogglePin(!meta.pinned) }
+            ) {
+                Crossfade(targetState = meta.pinned) { pinned ->
+                    Icon(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .rotate(45.0f),
+                        imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = "置顶"
+                    )
+                }
+            }
+
+            // 版本设置
+            IconButton(onClick = onSettingsClick) {
+                Icon(
+                    modifier = Modifier.size(24.dp),
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = "版本设置"
+                )
+            }
+
+            // 更多操作
+            Box {
+                var menuExpanded by remember { mutableStateOf(false) }
+
+                IconButton(onClick = { menuExpanded = !menuExpanded }) {
+                    Icon(
+                        modifier = Modifier.size(24.dp),
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = "更多"
                     )
                 }
 
-                // 置顶星标 + 更多操作菜单（其余操作全部收纳进菜单，保持条目整洁）
-                var menuExpanded by remember { mutableStateOf(false) }
-                IconButton(
-                    onClick = { onTogglePin(!meta.pinned) },
-                    modifier = Modifier.size(30.dp)
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    shape = MaterialTheme.shapes.large,
+                    shadowElevation = 3.dp,
+                    onDismissRequest = { menuExpanded = false }
                 ) {
-                    Icon(
-                        if (meta.pinned) Icons.Filled.Star else Icons.Outlined.StarOutline,
-                        contentDescription = if (meta.pinned) "取消置顶" else "置顶",
-                        tint = if (meta.pinned) VerseColors.PcYellow else VerseColors.PcTextMuted,
-                        modifier = Modifier.size(16.dp)
+                    DropdownMenuItem(
+                        text = { Text("重命名") },
+                        leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            onRenameClick()
+                            menuExpanded = false
+                        }
                     )
-                }
-                Box {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            Icons.Outlined.MoreVert,
-                            contentDescription = "更多操作",
-                            tint = VerseColors.PcTextMuted,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("版本设置", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.Settings, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onSettings() }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (pinnedToHome) "从主页移除" else "固定到主页",
-                                    fontSize = 13.sp
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.Home,
-                                    null, Modifier.size(16.dp)
-                                )
-                            },
-                            onClick = { menuExpanded = false; onToggleHome(!pinnedToHome) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("重命名", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.DriveFileRenameOutline, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onRename() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("导出 (.zip)", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.IosShare, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onExport() }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        DropdownMenuItem(
-                            text = { Text("打开版本目录", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开 saves", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("saves") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开 mods", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("mods") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开 resourcepacks", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("resourcepacks") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开 shaderpacks", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("shaderpacks") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开截图", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("screenshots") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开日志", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("logs") }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("打开崩溃报告", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(16.dp)) },
-                            onClick = { menuExpanded = false; onOpenFolder("crash-reports") }
-                        )
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        DropdownMenuItem(
-                            text = { Text("删除版本", fontSize = 13.sp, color = VerseColors.PcRed) },
-                            leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(16.dp), tint = VerseColors.PcRed) },
-                            onClick = { menuExpanded = false; onDelete() }
-                        )
-                    }
+                    DropdownMenuItem(
+                        text = { Text(if (pinnedToHome) "从主页移除" else "添加到主页卡片") },
+                        leadingIcon = {
+                            Icon(
+                                if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.AddBox,
+                                null, Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            onToggleHome(!pinnedToHome)
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("导出 (.zip)") },
+                        leadingIcon = { Icon(Icons.Outlined.FolderZip, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            onExportClick()
+                            menuExpanded = false
+                        }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    DropdownMenuItem(
+                        text = { Text("打开版本目录") },
+                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            onOpenFolder("")
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("打开 mods") },
+                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            onOpenFolder("mods")
+                            menuExpanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("打开 saves") },
+                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            onOpenFolder("saves")
+                            menuExpanded = false
+                        }
+                    )
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    DropdownMenuItem(
+                        text = { Text("删除版本", color = VerseColors.PcRed) },
+                        leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(20.dp), tint = VerseColors.PcRed) },
+                        onClick = {
+                            onDeleteClick()
+                            menuExpanded = false
+                        }
+                    )
                 }
             }
         }
     }
 }
 
-/** 加载器 badge：优先取版本 json 识别的加载器（loaderHint），再退化为名称关键词判定。 */
-private fun loaderBadge(version: MinecraftVersion): Pair<String, Color> {
-    val hint = version.loaderHint?.lowercase()
-    if (!hint.isNullOrBlank()) {
-        return when (hint) {
-            "fabric" -> "Fabric" to VerseColors.ForgeColor
-            "quilt" -> "Quilt" to VerseColors.PcAccent
-            "neoforge" -> "NeoForge" to VerseColors.PcOrange
-            "forge" -> "Forge" to VerseColors.PcOrange
-            "optifine" -> "OptiFine" to VerseColors.PcYellow
-            else -> "原版" to VerseColors.PcTextSecondary
-        }
-    }
-    val lower = version.id.lowercase()
-    return when {
-        lower.contains("modpack") || lower.contains("整合") -> "整合包" to VerseColors.PcGreen
-        lower.contains("fabric") -> "Fabric" to VerseColors.ForgeColor
-        lower.contains("neoforge") -> "NeoForge" to VerseColors.PcOrange
-        lower.contains("forge") -> "Forge" to VerseColors.PcOrange
-        lower.contains("optifine") -> "OptiFine" to VerseColors.PcYellow
-        else -> "原版" to VerseColors.PcTextSecondary
-    }
-}
-
-/** 是否为模组版本：版本 json 识别出加载器，或 id 命中加载器/整合包关键词 */
-private fun isModdedVersion(version: MinecraftVersion): Boolean {
-    if (!version.loaderHint.isNullOrBlank()) return true
-    val lower = version.id.lowercase()
-    return lower.contains("fabric") || lower.contains("forge") || lower.contains("neoforge") ||
-        lower.contains("optifine") || lower.contains("liteloader") || lower.contains("modpack") || lower.contains("整合")
+/** 版本分类条目（对位 ZL2 VersionCategoryItem） */
+@Composable
+private fun VersionCategoryItem(
+    modifier: Modifier = Modifier,
+    value: VersionCategory,
+    versionsCount: Int,
+    selected: Boolean,
+    shape: Shape = MaterialTheme.shapes.large,
+    selectedContentColor: Color = MaterialTheme.colorScheme.onSurface,
+    unselectedContentColor: Color = MaterialTheme.colorScheme.onSurface,
+    style: TextStyle = MaterialTheme.typography.labelMedium,
+    enabled: Boolean = true,
+    onClick: () -> Unit = {}
+) {
+    TextRailItem(
+        modifier = modifier,
+        text = {
+            Text(text = value.label, style = style)
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(text = "($versionsCount)", style = style)
+        },
+        onClick = onClick,
+        selected = selected,
+        shape = shape,
+        selectedContentColor = selectedContentColor,
+        unselectedContentColor = unselectedContentColor,
+        enabled = enabled
+    )
 }
 
 private fun versionTypeLabel(version: MinecraftVersion): String {
@@ -701,23 +699,14 @@ private fun versionTypeLabel(version: MinecraftVersion): String {
     }
 }
 
-private fun formatDate(dateStr: String): String {
-    return if (dateStr.length >= 10) dateStr.substring(0, 10) else dateStr
-}
-
 private fun settingsLastVersion(): String? = SettingsRepository.getCustomSetting("last_version")
 
-/** 搜索匹配：版本 id、加载器提示或版本摘要含查询串即命中（空查询全通过） */
-private fun matchesSearch(
-    version: MinecraftVersion,
-    query: String,
-    metaMap: Map<String, VersionMetaRepository.VersionMeta>
-): Boolean {
-    if (query.isEmpty()) return true
-    val summary = metaMap[version.id]?.summary?.lowercase() ?: ""
-    return version.id.lowercase().contains(query) ||
-        (version.loaderHint?.lowercase()?.contains(query) ?: false) ||
-        summary.contains(query)
+/** 是否为模组版本：版本 json 识别出加载器，或 id 命中加载器/整合包关键词 */
+private fun isModdedVersion(version: MinecraftVersion): Boolean {
+    if (!version.loaderHint.isNullOrBlank()) return true
+    val lower = version.id.lowercase()
+    return lower.contains("fabric") || lower.contains("forge") || lower.contains("neoforge") ||
+        lower.contains("optifine") || lower.contains("liteloader") || lower.contains("modpack") || lower.contains("整合")
 }
 
 /**
