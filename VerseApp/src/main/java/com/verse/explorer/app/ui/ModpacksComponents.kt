@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.verse.explorer.app.data.ModTranslationMapper
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
@@ -31,6 +32,9 @@ import com.verse.explorer.core.resource.ModrinthApi
 import com.verse.explorer.core.resource.ModrinthProject
 import com.verse.explorer.core.resource.ModrinthSearchHit
 import com.verse.explorer.core.resource.ModrinthVersion
+
+/** 列表缩略图解码尺寸（像素）：36dp 缩略图按 4x 上限解码，避免按原图分辨率解码 */
+private const val ICON_DECODE_SIZE_PX = 144
 
 /**
  * 资源搜索结果卡片（对齐版本下载页列表行的密度：单行紧凑布局），
@@ -41,6 +45,21 @@ internal fun ResourceSearchCard(
     hit: ModrinthSearchHit,
     onClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    // 行组件是模组/整合包/材质包/光影四个列表共用的项，快速滚动时会被反复重组：
+    // 汉化查表与文案拼装按命中结果缓存，缩略图限定解码尺寸并关闭淡入过渡以上限化开销
+    val zhName = remember(hit.slug) { ModTranslationMapper.translateBySlug(hit.slug) }
+    val metaText = remember(hit.downloads, hit.author) {
+        "${formatDownloadCount(hit.downloads)} 下载 · ${hit.author}"
+    }
+    val iconRequest = remember(hit.iconUrl) {
+        hit.iconUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            coil.request.ImageRequest.Builder(context)
+                .data(url)
+                .size(ICON_DECODE_SIZE_PX)
+                .build()
+        }
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -63,9 +82,9 @@ internal fun ResourceSearchCard(
                     .background(VerseColors.PcBgActive),
                 contentAlignment = Alignment.Center
             ) {
-                if (!hit.iconUrl.isNullOrBlank()) {
+                if (iconRequest != null) {
                     AsyncImage(
-                        model = hit.iconUrl,
+                        model = iconRequest,
                         contentDescription = null,
                         modifier = Modifier
                             .size(36.dp)
@@ -77,7 +96,6 @@ internal fun ResourceSearchCard(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 // 汉化名命中时以中文名为主标题、英文原名退居 meta 行
-                val zhName = com.verse.explorer.app.data.ModTranslationMapper.translateBySlug(hit.slug)
                 Text(
                     text = zhName ?: hit.title,
                     style = MaterialTheme.typography.bodyMedium,
@@ -128,7 +146,7 @@ internal fun ResourceSearchCard(
                         Spacer(modifier = Modifier.width(6.dp))
                     }
                     Text(
-                        text = "${formatDownloadCount(hit.downloads)} 下载 · ${hit.author}",
+                        text = metaText,
                         style = MaterialTheme.typography.labelSmall,
                         color = VerseColors.PcTextMuted,
                         fontSize = 11.sp,

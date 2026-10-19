@@ -67,7 +67,9 @@ private class VerseRunGameRepository(base: File, private val runDir: File) :
 @Composable
 fun InstalledModsScreen(
     versionId: String,
-    navController: NavHostController
+    navController: NavHostController,
+    /** 内嵌在「管理版本」页作为子页时隐藏自带页头 */
+    embedded: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -146,33 +148,35 @@ fun InstalledModsScreen(
                 .fillMaxSize()
                 .padding(horizontal = 12.dp)
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            if (!embedded) {
+                Spacer(modifier = Modifier.height(12.dp))
 
-            // 页头：返回 + 标题 + 版本名（与版本设置页同布局）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.ArrowBack, contentDescription = "返回", tint = VerseColors.PcTextPrimary)
+                // 页头：返回 + 标题 + 版本名（与版本设置页同布局）
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Outlined.ArrowBack, contentDescription = "返回", tint = VerseColors.PcTextPrimary)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "模组管理",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = VerseColors.PcTextPrimary
+                        )
+                        Text(
+                            text = versionId,
+                            fontSize = 11.sp,
+                            color = VerseColors.PcTextMuted
+                        )
+                    }
                 }
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "模组管理",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = VerseColors.PcTextPrimary
-                    )
-                    Text(
-                        text = versionId,
-                        fontSize = 11.sp,
-                        color = VerseColors.PcTextMuted
-                    )
-                }
+
+                Spacer(modifier = Modifier.height(10.dp))
             }
-
-            Spacer(modifier = Modifier.height(10.dp))
 
             // 工具行：计数 + 导入模组
             Row(

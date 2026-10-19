@@ -139,9 +139,15 @@ fun VerseHomeGrid(
         }
     }
 
-    // 与版本卡片记录保持同步：记录存在而网格缺卡时补齐
+    // 与版本卡片记录保持同步：记录已删除的版本卡片撤出网格，记录存在而网格缺卡时补齐。
+    // 记录尚未从持久化载入时（列表为空）不撤卡，避免启动首帧把已固定卡片全部清掉。
     LaunchedEffect(Unit) {
         VersionCardManager.cards.collect { states ->
+            if (!VersionCardManager.isInitialized()) return@collect
+            val recordIds = states.map { it.record.cardId }.toSet()
+            state.cards
+                .filter { it.type.typeId == HomeCards.VERSION_CARD_TYPE_ID && it.id !in recordIds }
+                .forEach { state.removeCard(it.id) }
             states.forEach { cardState ->
                 if (state.cards.none { it.id == cardState.record.cardId }) {
                     state.addCard(HomeCards.versionCardType(), cardState.record.cardId)

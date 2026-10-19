@@ -26,7 +26,9 @@ class GameInputHandler(
     private val bridgeProvider: () -> FCLBridge?,
     private val context: Context? = null,
     private val hitResultTypeProvider: () -> Int = { FCLBridge.HIT_RESULT_TYPE_UNKNOWN },
-    private val captureViewProvider: () -> android.view.View? = { null }
+    private val captureViewProvider: () -> android.view.View? = { null },
+    /** 游戏内菜单/控制面板是否可见：据此选用「菜单内」而非「游戏内」的手柄绑定表 */
+    private val menuVisibleProvider: () -> Boolean = { false }
 ) {
 
     companion object {
@@ -479,7 +481,7 @@ class GameInputHandler(
                 return true
             }
         }
-        val glfwKey = androidKeyToGlfw(keyCode)
+        val glfwKey = resolveKey(keyCode)
         if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
             val keyChar = if (!isGrabbing) (event?.unicodeChar ?: 0) else 0
             bridge.pushEventKey(glfwKey, keyChar, true)
@@ -496,12 +498,32 @@ class GameInputHandler(
                 return true
             }
         }
-        val glfwKey = androidKeyToGlfw(keyCode)
+        val glfwKey = resolveKey(keyCode)
         if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
             bridge.pushEventKey(glfwKey, 0, false)
             return true
         }
         return false
+    }
+
+    /**
+     * 按键解析：键盘按键走原有键盘映射；手柄按键（键盘映射无法识别）再按
+     * 「游戏内 / 菜单内」绑定表二次映射，未绑定或目标键不可映射时返回 GLFW_KEY_UNKNOWN。
+     */
+    private fun resolveKey(keyCode: Int): Int {
+        val direct = androidKeyToGlfw(keyCode)
+        if (direct != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) return direct
+        val ctx = context ?: return LwjglGlfwKeycode.GLFW_KEY_UNKNOWN
+        val mode = if (menuVisibleProvider()) {
+            com.verse.explorer.app.data.GamepadBindingsRepository.Mode.MENU
+        } else {
+            com.verse.explorer.app.data.GamepadBindingsRepository.Mode.IN_GAME
+        }
+        val bound = com.verse.explorer.app.data.GamepadBindingsRepository.get(ctx, mode, keyCode)
+        if (bound == com.verse.explorer.app.data.GamepadBindingsRepository.UNBOUND) {
+            return LwjglGlfwKeycode.GLFW_KEY_UNKNOWN
+        }
+        return androidKeyToGlfw(bound)
     }
 
     private fun isMouseSource(event: KeyEvent?): Boolean {

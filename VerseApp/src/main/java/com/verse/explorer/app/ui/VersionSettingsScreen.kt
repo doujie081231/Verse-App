@@ -2,9 +2,15 @@ package com.verse.explorer.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -13,8 +19,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Flare
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Widgets
 import androidx.compose.material3.*
@@ -28,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,6 +53,8 @@ import com.verse.explorer.app.ui.components.CardTitleLayout
 import com.verse.explorer.app.ui.components.DisabledAlpha
 import com.verse.explorer.app.ui.components.IconTextButton
 import com.verse.explorer.app.ui.components.MarqueeText
+import com.verse.explorer.app.ui.components.PcButton
+import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.PcDropdownRow
 import com.verse.explorer.app.ui.components.PcSwitchRow
@@ -57,8 +72,10 @@ import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private typealias VS = VersionSettingsRepository.VersionSettings
@@ -196,7 +213,10 @@ fun VersionSettingsScreen(
         ) {
             // ══ 左栏：子页导航 ══
             Column(
-                modifier = Modifier.width(104.dp),
+                modifier = Modifier
+                    .width(104.dp)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 SubPageRailItem(ManagePage.OVERVIEW, page == ManagePage.OVERVIEW) {
@@ -213,9 +233,10 @@ fun VersionSettingsScreen(
                 Box(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                     HorizontalDivider(modifier = Modifier.width(44.dp))
                 }
-                SubPageRailItem(ManagePage.MODS, selected = false) {
-                    navController.navigate("installed_mods/$versionId")
-                }
+                listOf(ManagePage.MODS, ManagePage.RESOURCEPACKS, ManagePage.SHADERS, ManagePage.SAVES)
+                    .forEach { sub ->
+                        SubPageRailItem(sub, page == sub) { page = sub }
+                    }
             }
 
             // ══ 右侧内容 ══
@@ -258,7 +279,38 @@ fun VersionSettingsScreen(
                         }
                     )
 
-                    ManagePage.LOADER, ManagePage.MODS -> Unit
+                    ManagePage.MODS -> InstalledModsScreen(
+                        versionId = versionId,
+                        navController = navController,
+                        embedded = true
+                    )
+
+                    ManagePage.RESOURCEPACKS -> VersionFolderTab(
+                        versionId = versionId,
+                        subDir = "resourcepacks",
+                        isolateGameDir = settings.isolateGameDir,
+                        title = "材质包",
+                        importLabel = "导入材质包"
+                    )
+
+                    ManagePage.SHADERS -> VersionFolderTab(
+                        versionId = versionId,
+                        subDir = "shaderpacks",
+                        isolateGameDir = settings.isolateGameDir,
+                        title = "光影包",
+                        importLabel = "导入光影包"
+                    )
+
+                    ManagePage.SAVES -> VersionFolderTab(
+                        versionId = versionId,
+                        subDir = "saves",
+                        isolateGameDir = settings.isolateGameDir,
+                        title = "存档",
+                        importLabel = "导入存档",
+                        importAsFolder = true
+                    )
+
+                    ManagePage.LOADER -> Unit
                 }
             }
         }
@@ -383,7 +435,10 @@ private enum class ManagePage(val label: String, val icon: ImageVector) {
     OVERVIEW("版本概览", Icons.Outlined.Widgets),
     CONFIG("版本配置", Icons.Outlined.Build),
     LOADER("安装加载器", Icons.Outlined.Sync),
-    MODS("模组管理", Icons.Outlined.Extension)
+    MODS("模组管理", Icons.Outlined.Extension),
+    RESOURCEPACKS("材质包管理", Icons.Outlined.Palette),
+    SHADERS("光影包管理", Icons.Outlined.Flare),
+    SAVES("存档管理", Icons.Outlined.Inventory2)
 }
 
 /** 快捷操作文件夹：标签 → 版本目录下的子目录名 */
@@ -823,4 +878,221 @@ private fun SummaryLine(key: String, value: String) {
         Spacer(Modifier.weight(1f))
         Text(value, fontSize = 12.sp, color = VerseColors.PcTextSecondary)
     }
+}
+
+/**
+ * 版本资源目录子页：列出并管理该版本的一类资源目录（材质包 / 光影包 / 存档）。
+ * 未开版本隔离时取游戏根目录下的同名目录，与启动时实际使用的目录一致。
+ */
+@Composable
+private fun VersionFolderTab(
+    versionId: String,
+    subDir: String,
+    isolateGameDir: Boolean,
+    title: String,
+    importLabel: String,
+    /** 存档以目录为单位：导入 zip 时解压成子目录 */
+    importAsFolder: Boolean = false
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var entries by remember { mutableStateOf<List<File>>(emptyList()) }
+    var loading by remember { mutableStateOf(true) }
+    var pendingDelete by remember { mutableStateOf<File?>(null) }
+    var reloadTick by remember { mutableIntStateOf(0) }
+
+    val dir = remember(versionId, subDir, isolateGameDir) {
+        val gameDir = GameConfig.getGameDir(context)
+        val base = if (isolateGameDir) File(GameConfig.getVersionsDir(gameDir), versionId) else gameDir
+        File(base, subDir).apply { mkdirs() }
+    }
+
+    LaunchedEffect(dir, reloadTick) {
+        loading = true
+        entries = withContext(Dispatchers.IO) {
+            dir.listFiles()
+                ?.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
+                ?: emptyList()
+        }
+        loading = false
+    }
+
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val name = withContext(Dispatchers.IO) { queryDisplayName(context, uri) }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    if (importAsFolder && name.endsWith(".zip", ignoreCase = true)) {
+                        val target = File(dir, name.dropLast(4))
+                        context.contentResolver.openInputStream(uri)?.use { unzipInto(it, target) }
+                            ?: error("无法读取所选文件")
+                    } else {
+                        File(dir, name).outputStream().use { out ->
+                            context.contentResolver.openInputStream(uri)?.use { it.copyTo(out) }
+                                ?: error("无法读取所选文件")
+                        }
+                    }
+                }
+            }.onSuccess {
+                toast(context, "已导入 $name")
+            }.onFailure {
+                toast(context, "导入失败：${it.message ?: "未知错误"}")
+            }
+            reloadTick++
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                modifier = Modifier.weight(1f),
+                text = "$title（${entries.size} 项）",
+                style = MaterialTheme.typography.labelMedium,
+                color = VerseColors.PcTextMuted
+            )
+            PcButton(
+                text = "打开文件夹",
+                onClick = { openFolderPath(context, dir) },
+                variant = PcButtonVariant.OUTLINE
+            )
+            PcButton(
+                text = importLabel,
+                onClick = { importPicker.launch("*/*") },
+                variant = PcButtonVariant.OUTLINE
+            )
+        }
+
+        when {
+            loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                RoseLoader(modifier = Modifier.size(28.dp), size = 28.dp, color = VerseColors.PcAccent)
+            }
+
+            entries.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("该目录下暂无$title", fontSize = 13.sp, color = VerseColors.PcTextMuted)
+            }
+
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(entries, key = { it.absolutePath }) { entry ->
+                    FolderEntryRow(entry = entry, onDelete = { pendingDelete = entry })
+                }
+            }
+        }
+    }
+
+    pendingDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            containerColor = cardColor(),
+            titleContentColor = onCardColor(),
+            shape = MaterialTheme.shapes.large,
+            title = { Text("删除$title", style = MaterialTheme.typography.titleLarge) },
+            text = { Text("确定要删除「${target.name}」吗？此操作不可撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        runCatching { target.deleteRecursively() }
+                        pendingDelete = null
+                        reloadTick++
+                    }
+                ) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
+        )
+    }
+}
+
+/** 目录条目行：图标 + 名称 + 大小 + 删除 */
+@Composable
+private fun FolderEntryRow(entry: File, onDelete: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = VerseColors.PcBgCard,
+        border = BorderStroke(1.dp, VerseColors.PcBorder)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                modifier = Modifier.size(20.dp),
+                imageVector = if (entry.isDirectory) Icons.Outlined.Folder else Icons.Outlined.InsertDriveFile,
+                contentDescription = null,
+                tint = if (entry.isDirectory) VerseColors.PcAccent else VerseColors.PcTextMuted
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                MarqueeText(text = entry.name, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    modifier = Modifier.alpha(0.7f),
+                    text = if (entry.isDirectory) "文件夹" else formatFileSize(entry.length()),
+                    fontSize = 10.sp,
+                    color = VerseColors.PcTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onDelete) {
+                Icon(
+                    modifier = Modifier.size(20.dp),
+                    imageVector = Icons.Outlined.DeleteOutline,
+                    contentDescription = "删除",
+                    tint = VerseColors.PcOrange
+                )
+            }
+        }
+    }
+}
+
+/** 读取 SAF 所选文件的显示名 */
+private fun queryDisplayName(context: Context, uri: Uri): String {
+    var name: String? = null
+    runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) name = cursor.getString(index)
+        }
+    }
+    return name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "imported"
+}
+
+/** 解压 zip 到目标目录；条目路径越出目标目录时跳过 */
+private fun unzipInto(input: java.io.InputStream, targetDir: File) {
+    targetDir.mkdirs()
+    val canonicalRoot = targetDir.canonicalPath + File.separator
+    ZipInputStream(input.buffered()).use { zip ->
+        var entry = zip.nextEntry
+        while (entry != null) {
+            val outFile = File(targetDir, entry.name)
+            if (outFile.canonicalPath.startsWith(canonicalRoot)) {
+                if (entry.isDirectory) {
+                    outFile.mkdirs()
+                } else {
+                    outFile.parentFile?.mkdirs()
+                    outFile.outputStream().use { zip.copyTo(it) }
+                }
+            }
+            zip.closeEntry()
+            entry = zip.nextEntry
+        }
+    }
+}
+
+/** 文件大小缩写 */
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1024L * 1024 * 1024 -> "${bytes / (1024L * 1024 * 1024)} GB"
+    bytes >= 1024L * 1024 -> "${bytes / (1024L * 1024)} MB"
+    bytes >= 1024L -> "${bytes / 1024} KB"
+    else -> "$bytes B"
 }

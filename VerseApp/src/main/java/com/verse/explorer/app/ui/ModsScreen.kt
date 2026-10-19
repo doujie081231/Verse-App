@@ -237,10 +237,14 @@ private fun ModListItem(
     )
 }
 
-internal fun formatDownloadCount(count: Long): String {
-    return when {
-        count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format("%.1fK", count / 1_000.0)
-        else -> count.toString()
-    }
+internal fun formatDownloadCount(count: Long): String = when {
+    count >= 1_000_000 -> oneDecimal(count, 1_000_000, "M")
+    count >= 1_000 -> oneDecimal(count, 1_000, "K")
+    else -> count.toString()
+}
+
+/** 一位小数缩写：整数运算完成四舍五入，避免 String.format 的 Formatter 分配 */
+private fun oneDecimal(count: Long, unit: Long, suffix: String): String {
+    val tenths = (count + unit / 20) / (unit / 10)
+    return "${tenths / 10}.${tenths % 10}$suffix"
 }

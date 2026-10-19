@@ -75,7 +75,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         { orchestrator.fclBridge },
         this,
         { hitResultType },
-        captureViewProvider = { touchOverlay }
+        captureViewProvider = { touchOverlay },
+        menuVisibleProvider = { inGameControl?.isOverlayVisible() == true }
     )
     private lateinit var orchestrator: GameLaunchOrchestrator
     private lateinit var textureView: TextureView

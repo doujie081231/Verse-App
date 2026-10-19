@@ -398,6 +398,8 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                         } else {
                                             com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
                                         }
+                                        // 记录变更后重算条目状态，「添加到主页卡片 / 从主页移除」文案即时切换
+                                        metaVersion++
                                     },
                                     onRenameClick = {
                                         renameTarget = version.id
@@ -1006,7 +1008,7 @@ private fun RailPillButton(text: String, onClick: () -> Unit) {
     }
 }
 
-private fun toast(context: Context, text: String) {
+internal fun toast(context: Context, text: String) {
     android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
 }
 

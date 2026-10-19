@@ -26,12 +26,18 @@ object VersionCardManager {
     /** 全部版本卡片及其当前可用性状态 */
     val cards: StateFlow<List<VersionCardState>> = _cards.asStateFlow()
 
+    /** 是否已从持久化记录载入；未载入前订阅方不得据空列表判定记录已删除 */
+    fun isInitialized(): Boolean = initialized
+
+    private var initialized = false
+
     fun initialize(context: Context) {
         synchronized(this) {
-            if (_cards.value.isNotEmpty()) return
+            if (initialized) return
             val prefs = context.applicationContext
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             _cards.value = loadRecords(prefs).map { VersionCardState(it, VersionCardStatus.Loading) }
+            initialized = true
         }
     }
 

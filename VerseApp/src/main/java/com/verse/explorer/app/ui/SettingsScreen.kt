@@ -74,9 +74,9 @@ fun SettingsScreen(navController: NavHostController) {
     MenuSetting.init(context.filesDir)
     // 鼠标指针自定义图片与热点的持久化目录（幂等）
     MousePointerSetting.init(context.filesDir)
-    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=控制设置 4=关于（原"其他"页已并入关于）
+    // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=控制设置 4=手柄设置 5=关于（原"其他"页已并入关于）
     var selectedPage by remember { mutableIntStateOf(0) }
-    val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "关于")
+    val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "手柄设置", "关于")
     var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
     var maxMemory by remember { mutableFloatStateOf(settingsRepo.getMaxMemory().toFloat()) }
@@ -1030,8 +1030,13 @@ fun SettingsScreen(navController: NavHostController) {
                     item { ControlSettingsContent(context) }
                 }
 
-                // 关于子页：通用（原"其他"页并入）+ 版本信息 + 致谢 + 开源协议
+                // 手柄设置子页：手柄按键绑定（游戏内 / 菜单内）
                 4 -> {
+                    item { GamepadSettingsContent() }
+                }
+
+                // 关于子页：通用（原"其他"页并入）+ 版本信息 + 致谢 + 开源协议
+                5 -> {
                     item {
                         PcCard(title = "通用") {
                             PcSwitchRow("调试模式", "启用额外的调试信息和日志", debugMode) { debugMode = it }
@@ -1084,8 +1089,8 @@ fun SettingsScreen(navController: NavHostController) {
                 }
             }
 
-            // 保存设置按钮（关于页为纯展示信息，不提供保存操作；控制设置各项即时生效并持久化）
-            if (selectedPage != 4) item {
+            // 保存设置按钮（关于页为纯展示信息，不提供保存操作；控制设置/手柄设置各项即时生效并持久化）
+            if (selectedPage != 5) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
