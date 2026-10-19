@@ -112,8 +112,12 @@ public final class RepoLayoutConverter {
             }
             if (truthy(event.get("swipable"))) d.isSwipeable = true;
             if (!keycodes.isEmpty()) {
-                d.keycodes = new int[keycodes.size()];
-                for (int i = 0; i < keycodes.size(); i++) d.keycodes[i] = keycodes.get(i);
+                // d.keycodes 已由 ControlData 构造函数固定为 4 个槽位（空槽为 GLFW_KEY_UNKNOWN）。
+                // 这里只覆盖前若干槽、保留槽位长度，避免导入后按键槽位被截短，导致编辑面板
+                // 只能修改第一个键位（键码下拉的越界守卫会丢弃其余槽位的写入）。
+                for (int i = 0; i < keycodes.size() && i < d.keycodes.length; i++) {
+                    d.keycodes[i] = keycodes.get(i);
+                }
             }
         }
         return d;

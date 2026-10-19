@@ -8,6 +8,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import com.verse.explorer.app.data.GamepadBindingsRepository
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode
@@ -481,10 +482,12 @@ class GameInputHandler(
                 return true
             }
         }
-        val glfwKey = resolveKey(keyCode)
-        if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
+        val targets = resolveTargetKeys(keyCode)
+        if (targets.isNotEmpty()) {
             val keyChar = if (!isGrabbing) (event?.unicodeChar ?: 0) else 0
-            bridge.pushEventKey(glfwKey, keyChar, true)
+            targets.forEachIndexed { index, glfwKey ->
+                bridge.pushEventKey(glfwKey, if (index == 0) keyChar else 0, true)
+            }
             return true
         }
         return false
@@ -498,32 +501,32 @@ class GameInputHandler(
                 return true
             }
         }
-        val glfwKey = resolveKey(keyCode)
-        if (glfwKey != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) {
+        val targets = resolveTargetKeys(keyCode)
+        targets.forEach { glfwKey ->
             bridge.pushEventKey(glfwKey, 0, false)
-            return true
         }
-        return false
+        return targets.isNotEmpty()
     }
 
     /**
      * 按键解析：键盘按键走原有键盘映射；手柄按键（键盘映射无法识别）再按
-     * 「游戏内 / 菜单内」绑定表二次映射，未绑定或目标键不可映射时返回 GLFW_KEY_UNKNOWN。
+     * 「游戏内 / 菜单内」绑定表二次映射，返回该手柄按键绑定的全部目标键；
+     * 未绑定、目标键不可映射或手柄总开关关闭时返回空数组。
      */
-    private fun resolveKey(keyCode: Int): Int {
+    private fun resolveTargetKeys(keyCode: Int): IntArray {
         val direct = androidKeyToGlfw(keyCode)
-        if (direct != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) return direct
-        val ctx = context ?: return LwjglGlfwKeycode.GLFW_KEY_UNKNOWN
+        if (direct != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN) return intArrayOf(direct)
+        val ctx = context ?: return IntArray(0)
+        if (!GamepadBindingsRepository.isEnabled(ctx)) return IntArray(0)
         val mode = if (menuVisibleProvider()) {
-            com.verse.explorer.app.data.GamepadBindingsRepository.Mode.MENU
+            GamepadBindingsRepository.Mode.MENU
         } else {
-            com.verse.explorer.app.data.GamepadBindingsRepository.Mode.IN_GAME
+            GamepadBindingsRepository.Mode.IN_GAME
         }
-        val bound = com.verse.explorer.app.data.GamepadBindingsRepository.get(ctx, mode, keyCode)
-        if (bound == com.verse.explorer.app.data.GamepadBindingsRepository.UNBOUND) {
-            return LwjglGlfwKeycode.GLFW_KEY_UNKNOWN
-        }
-        return androidKeyToGlfw(bound)
+        return GamepadBindingsRepository.get(ctx, mode, keyCode)
+            .map { androidKeyToGlfw(it) }
+            .filter { it != LwjglGlfwKeycode.GLFW_KEY_UNKNOWN }
+            .toIntArray()
     }
 
     private fun isMouseSource(event: KeyEvent?): Boolean {

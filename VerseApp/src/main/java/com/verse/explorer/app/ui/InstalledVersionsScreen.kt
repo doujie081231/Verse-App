@@ -319,7 +319,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             )
                         },
                         imageVector = Icons.Outlined.Download,
-                        text = "安装新游戏"
+                        text = "导入整合包"
                     )
 
                     // 版本分类
