@@ -8,12 +8,25 @@ object GameConfig {
 
     const val GAME_DIR_NAME = "VerseExplorerX"
 
+    private const val DIR_PREFS = "verse_game_dirs"
+    private const val KEY_ACTIVE = "active"
+    private const val KEY_LIST = "added"
+
     val MOJANG_MIRRORS = listOf(
         MojangMirror("BMCLAPI 镜像", "https://bmclapi2.bangbang93.com", 0, isOfficial = false),
         MojangMirror("Mojang 官方", "https://piston-meta.mojang.com", 2, isOfficial = true)
     )
 
     fun getGameDir(context: Context): File {
+        activeDirPath(context)?.let { path ->
+            val dir = File(path)
+            if (dir.isDirectory || dir.mkdirs()) return dir
+        }
+        return getDefaultGameDir(context)
+    }
+
+    /** 内置默认游戏目录 */
+    fun getDefaultGameDir(context: Context): File {
         // 曾用共享根 /sdcard/VerseExplorerX 与外部私有 /sdcard/Android/data/...，
         // 二者在部分设备（ColorOS 等）的 FUSE 挂载上不可靠：共享根读取报
         // Permission denied（JVM 载不到主类 => 启动 exit 6），外部私有写入报
@@ -26,6 +39,49 @@ object GameConfig {
             return getExternalGameDir(context)
         }
     }
+
+    /** 当前激活的自定义游戏目录路径；未设置（使用内置目录）时为 null */
+    fun activeDirPath(context: Context): String? =
+        prefs(context).getString(KEY_ACTIVE, null)?.takeIf { it.isNotBlank() }
+
+    /** 切换激活的游戏目录；path 为空时回到内置默认目录 */
+    fun setActiveDirPath(context: Context, path: String?) {
+        val editor = prefs(context).edit()
+        if (path.isNullOrBlank()) editor.remove(KEY_ACTIVE) else editor.putString(KEY_ACTIVE, path)
+        editor.apply()
+    }
+
+    /** 用户添加的附加游戏目录（不含内置默认目录） */
+    fun getAddedDirs(context: Context): List<String> =
+        prefs(context).getString(KEY_LIST, null)
+            ?.split("\n")
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+    /** 添加游戏目录并切换为当前目录；重名/无效路径返回 false */
+    fun addGameDir(context: Context, path: String): Boolean {
+        val dir = File(path)
+        if (!dir.isDirectory) return false
+        if (path == getDefaultGameDir(context).absolutePath) return false
+        val current = getAddedDirs(context)
+        if (path in current) return false
+        prefs(context).edit().putString(KEY_LIST, (current + path).joinToString("\n")).apply()
+        setActiveDirPath(context, path)
+        return true
+    }
+
+    /** 移除附加游戏目录；若其为当前目录则回退内置默认目录。附加目录本身不做删除 */
+    fun removeGameDir(context: Context, path: String) {
+        val remaining = getAddedDirs(context).filterNot { it == path }
+        val editor = prefs(context).edit()
+        if (remaining.isEmpty()) editor.remove(KEY_LIST) else editor.putString(KEY_LIST, remaining.joinToString("\n"))
+        editor.apply()
+        if (activeDirPath(context) == path) setActiveDirPath(context, null)
+    }
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(DIR_PREFS, Context.MODE_PRIVATE)
 
     fun getExternalGameDir(context: Context): File {
         val externalBase = context.getExternalFilesDir(null)

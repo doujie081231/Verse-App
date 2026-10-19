@@ -251,10 +251,14 @@ internal fun HomeAvatar(
  * 其次加载器图标(hint/名称),最后按版本类型回退(grass/cobblestone/old)
  */
 @Composable
-internal fun VersionIcon(version: MinecraftVersion, size: androidx.compose.ui.unit.Dp) {
+internal fun VersionIcon(
+    version: MinecraftVersion,
+    size: androidx.compose.ui.unit.Dp,
+    iconKey: Int = 0
+) {
     val context = LocalContext.current
-    // 整合包作者图标(安装整合包时写入 versions/<id>/modpack_icon.png)
-    val packIconBitmap = remember(version.id) {
+    // 整合包作者图标(安装整合包时写入 versions/<id>/modpack_icon.png)；iconKey 变化（重设图标）时重新读取
+    val packIconBitmap = remember(version.id, iconKey) {
         try {
             val packIcon = File(
                 GameConfig.getVersionsDir(GameConfig.getGameDir(context)),

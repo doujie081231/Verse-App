@@ -1,5 +1,6 @@
 package com.verse.explorer.app.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -8,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,6 +32,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.AddBox
@@ -37,6 +41,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.FolderZip
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
@@ -71,13 +76,14 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersionMetaRepository
 import com.verse.explorer.app.data.VersePersonalization
+import com.verse.explorer.app.ui.components.BackgroundCard
 import com.verse.explorer.app.ui.components.DisabledAlpha
 import com.verse.explorer.app.ui.components.EdgeDirection
 import com.verse.explorer.app.ui.components.IconTextButton
@@ -89,7 +95,9 @@ import com.verse.explorer.app.ui.components.TextRailItem
 import com.verse.explorer.app.ui.components.fadeEdge
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.cardColor
+import com.verse.explorer.app.ui.theme.itemColor
 import com.verse.explorer.app.ui.theme.onCardColor
+import com.verse.explorer.app.ui.theme.onItemColor
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
@@ -137,6 +145,9 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     var renameText by remember { mutableStateOf("") }
     var exportTarget by remember { mutableStateOf<String?>(null) }
     var category by remember { mutableStateOf(VersionCategory.ALL) }
+    // 当前激活的游戏目录（null = 内置默认目录）
+    var activeDirPath by remember { mutableStateOf(GameConfig.activeDirPath(context)) }
+    var cleanupPlan by remember { mutableStateOf<CleanupPlan?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
@@ -172,6 +183,23 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         if (uri != null) importUri = uri
     }
 
+    // 添加游戏目录：SAF 目录选择器。启动链按真实文件路径读写游戏文件，
+    // 因此仅接受能还原成绝对路径的共享存储目录（内置默认目录始终可用）
+    val dirPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val path = treeUriToPath(uri)
+        when {
+            path == null -> toast(context, "仅支持选择本机共享存储中的目录")
+            !GameConfig.addGameDir(context, path) -> toast(context, "该目录不可用或已在列表中")
+            else -> {
+                activeDirPath = GameConfig.activeDirPath(context)
+                viewModel.loadLocalVersions()
+            }
+        }
+    }
+
     val allCount = localVersions.size
     val vanillaCount = remember(localVersions) { localVersions.count { !isModdedVersion(it) } }
     val modloaderCount = remember(localVersions) { localVersions.count { isModdedVersion(it) } }
@@ -187,34 +215,153 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         )
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // 顶部返回栏（Verse 导航所需，视觉沿用 ZL2 的透明标题风格）
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 12.dp, top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 顶栏：返回 / 主页 / 标题
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            IconButton(
+                onClick = { navController.navigateUp() },
+                modifier = Modifier.size(32.dp)
             ) {
-                IconButton(
-                    onClick = { navController.navigateUp() },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "返回",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                MarqueeText(
-                    modifier = Modifier.weight(1f),
-                    text = "版本管理",
-                    style = MaterialTheme.typography.titleMedium
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                    modifier = Modifier.size(20.dp)
                 )
             }
+            IconButton(
+                onClick = { navigateToTab(navController, Screen.Home.route) },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Home,
+                    contentDescription = "主页",
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            MarqueeText(
+                modifier = Modifier.weight(1f),
+                text = "版本列表",
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ══ 左栏：当前游戏目录 / 添加游戏目录 / 清理游戏文件 ══
+            Column(
+                modifier = Modifier
+                    .width(200.dp)
+                    .fillMaxHeight()
+            ) {
+                GameDirPill(
+                    activePath = activeDirPath,
+                    defaultPath = remember { GameConfig.getDefaultGameDir(context).absolutePath },
+                    addedDirs = GameConfig.getAddedDirs(context),
+                    onSwitch = { path ->
+                        GameConfig.setActiveDirPath(context, path)
+                        activeDirPath = GameConfig.activeDirPath(context)
+                        viewModel.loadLocalVersions()
+                    },
+                    onRemove = { path ->
+                        GameConfig.removeGameDir(context, path)
+                        activeDirPath = GameConfig.activeDirPath(context)
+                        viewModel.loadLocalVersions()
+                    },
+                    onOpen = { openFolderPath(context, GameConfig.getGameDir(context)) }
+                )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                RailPillButton(text = "添加游戏目录") { dirPicker.launch(null) }
+                Spacer(modifier = Modifier.height(10.dp))
+                RailPillButton(text = "清理游戏文件") {
+                    cleanupPlan = buildCleanupPlan(GameConfig.getGameDir(context))
+                }
+            }
+
+            // ══ 右侧卡片：工具条 + 版本列表 ══
+            BackgroundCard(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconTextButton(
+                        onClick = { viewModel.loadLocalVersions() },
+                        imageVector = Icons.Outlined.Refresh,
+                        text = "刷新"
+                    )
+                    IconTextButton(
+                        onClick = {
+                            importPicker.launch(
+                                arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/octet-stream",
+                                    "*/*"
+                                )
+                            )
+                        },
+                        imageVector = Icons.Outlined.Download,
+                        text = "安装新游戏"
+                    )
+
+                    // 版本分类
+                    val categoryScroll = rememberScrollState()
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fadeEdge(
+                                state = categoryScroll,
+                                length = 32.dp,
+                                direction = EdgeDirection.Horizontal
+                            )
+                            .horizontalScroll(state = categoryScroll),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        VersionCategoryItem(
+                            value = VersionCategory.ALL,
+                            versionsCount = allCount,
+                            selected = category == VersionCategory.ALL,
+                            onClick = { category = VersionCategory.ALL }
+                        )
+                        VersionCategoryItem(
+                            value = VersionCategory.VANILLA,
+                            versionsCount = vanillaCount,
+                            selected = category == VersionCategory.VANILLA,
+                            onClick = { category = VersionCategory.VANILLA }
+                        )
+                        VersionCategoryItem(
+                            value = VersionCategory.MODLOADER,
+                            versionsCount = modloaderCount,
+                            selected = category == VersionCategory.MODLOADER,
+                            onClick = { category = VersionCategory.MODLOADER }
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
                 val listState = rememberLazyListState()
 
                     if (displayedVersions.isNotEmpty()) {
@@ -278,99 +425,8 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                         }
                     }
 
-                    // 悬浮操作栏（对位 ZL2 VersionsLayout 顶部操作栏）
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .zIndex(1f)
-                    ) {
-                        val blur = VersePersonalization.backgroundBlur
-                        val cardBg = cardColor()
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(all = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Surface(
-                                color = cardBg,
-                                contentColor = onCardColor(),
-                                shape = MaterialTheme.shapes.large,
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .backgroundGlass(blur, cardBg)
-                                        .padding(all = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconTextButton(
-                                        onClick = { viewModel.loadLocalVersions() },
-                                        imageVector = Icons.Outlined.Refresh,
-                                        text = "刷新"
-                                    )
-                                    IconTextButton(
-                                        onClick = {
-                                            importPicker.launch(
-                                                arrayOf(
-                                                    "application/zip",
-                                                    "application/x-zip-compressed",
-                                                    "application/octet-stream",
-                                                    "*/*"
-                                                )
-                                            )
-                                        },
-                                        imageVector = Icons.Outlined.Download,
-                                        text = "安装新版本"
-                                    )
-                                }
-                            }
-
-                            // 版本分类
-                            Surface(
-                                modifier = Modifier.weight(1f, fill = false),
-                                color = cardBg,
-                                contentColor = onCardColor(),
-                                shape = MaterialTheme.shapes.large,
-                            ) {
-                                val scrollState = rememberScrollState()
-                                Row(
-                                    modifier = Modifier
-                                        .backgroundGlass(blur, cardBg)
-                                        .fadeEdge(
-                                            state = scrollState,
-                                            length = 32.dp,
-                                            direction = EdgeDirection.Horizontal
-                                        )
-                                        .horizontalScroll(state = scrollState)
-                                        .padding(all = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    VersionCategoryItem(
-                                        value = VersionCategory.ALL,
-                                        versionsCount = allCount,
-                                        selected = category == VersionCategory.ALL,
-                                        onClick = { category = VersionCategory.ALL }
-                                    )
-                                    VersionCategoryItem(
-                                        value = VersionCategory.VANILLA,
-                                        versionsCount = vanillaCount,
-                                        selected = category == VersionCategory.VANILLA,
-                                        onClick = { category = VersionCategory.VANILLA }
-                                    )
-                                    VersionCategoryItem(
-                                        value = VersionCategory.MODLOADER,
-                                        versionsCount = modloaderCount,
-                                        selected = category == VersionCategory.MODLOADER,
-                                        onClick = { category = VersionCategory.MODLOADER }
-                                    )
-                                }
-                            }
-                        }
-                    }
                 }
+            }
         }
     }
 
@@ -441,6 +497,48 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             },
             dismissButton = {
                 TextButton(onClick = { renameTarget = null }) { Text("取消") }
+            }
+        )
+    }
+
+    // 清理游戏文件：只清理下载残留与缺少版本 json 的孤立版本目录，逐项列出后再删
+    cleanupPlan?.let { plan ->
+        val total = plan.residue.size + plan.orphanVersions.size
+        AlertDialog(
+            onDismissRequest = { cleanupPlan = null },
+            containerColor = cardColor(),
+            titleContentColor = onCardColor(),
+            shape = MaterialTheme.shapes.large,
+            title = { Text("清理游戏文件", style = MaterialTheme.typography.titleLarge) },
+            text = {
+                Text(
+                    if (total == 0) {
+                        "没有可清理的文件"
+                    } else {
+                        buildString {
+                            append("将删除 ${plan.residue.size} 项下载残留（.part / .tmp / 分块缓存）")
+                            if (plan.orphanVersions.isNotEmpty()) {
+                                append("，以及 ${plan.orphanVersions.size} 个缺少版本 json 的版本目录：")
+                                append(plan.orphanVersions.take(8).joinToString("、") { it.name })
+                            }
+                        }
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = total > 0,
+                    onClick = {
+                        plan.residue.forEach { runCatching { it.deleteRecursively() } }
+                        plan.orphanVersions.forEach { runCatching { it.deleteRecursively() } }
+                        toast(context, "已清理 $total 项")
+                        cleanupPlan = null
+                        viewModel.loadLocalVersions()
+                    }
+                ) { Text("清理") }
+            },
+            dismissButton = {
+                TextButton(onClick = { cleanupPlan = null }) { Text("取消") }
             }
         )
     }
@@ -691,7 +789,7 @@ private fun VersionCategoryItem(
     )
 }
 
-private fun versionTypeLabel(version: MinecraftVersion): String {
+internal fun versionTypeLabel(version: MinecraftVersion): String {
     return when (version.type) {
         VersionType.SNAPSHOT -> "快照"
         VersionType.OLD_ALPHA -> "Old Alpha"
@@ -714,7 +812,7 @@ private fun isModdedVersion(version: MinecraftVersion): Boolean {
  * 重命名版本目录：目录与 <id>.json 改名，版本 json 内的 id 字段同步更新，
  * 目标名已存在或目录缺失时抛错由调用方提示。
  */
-private fun renameVersion(context: android.content.Context, oldId: String, newId: String) {
+internal fun renameVersion(context: Context, oldId: String, newId: String) {
     val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
     val oldDir = File(versionsDir, oldId)
     val newDir = File(versionsDir, newId)
@@ -740,7 +838,7 @@ private fun renameVersion(context: android.content.Context, oldId: String, newId
 }
 
 /** 递归压缩目录（entry 名相对 rootDir） */
-private fun zipDirectory(dir: File, rootDir: File, zip: ZipOutputStream) {
+internal fun zipDirectory(dir: File, rootDir: File, zip: ZipOutputStream) {
     dir.listFiles()?.forEach { f ->
         if (f.isDirectory) {
             zipDirectory(f, rootDir, zip)
@@ -753,23 +851,222 @@ private fun zipDirectory(dir: File, rootDir: File, zip: ZipOutputStream) {
     }
 }
 
-/**
- * 用系统文件管理器打开版本内目录：
- * 游戏目录位于共享存储时经 DocumentsContract 构造目录 URI 打开；
- * 私有目录或打开失败时回退为复制路径到剪贴板提示。
- */
-private fun openVersionFolder(context: android.content.Context, versionId: String, subFolder: String) {
-    val gameDir = GameConfig.getGameDir(context)
-    val target = File(GameConfig.getVersionsDir(gameDir), versionId)
-        .let { if (subFolder.isNotBlank()) File(it, subFolder) else it }
+/** 左栏游戏目录胶囊：显示当前激活目录，⋯ 菜单切换 / 移除 / 打开 */
+@Composable
+private fun GameDirPill(
+    activePath: String?,
+    defaultPath: String,
+    addedDirs: List<String>,
+    onSwitch: (String?) -> Unit,
+    onRemove: (String) -> Unit,
+    onOpen: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val currentPath = activePath ?: defaultPath
+    val title = if (activePath == null) "默认游戏目录" else File(currentPath).name.ifBlank { currentPath }
+    val color = itemColor()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = color,
+        contentColor = onItemColor(),
+        shape = MaterialTheme.shapes.large
+    ) {
+        Row(
+            modifier = Modifier
+                .backgroundGlass(VersePersonalization.backgroundBlur, color)
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                MarqueeText(text = title, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    modifier = Modifier.alpha(0.7f),
+                    text = currentPath,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        modifier = Modifier.size(20.dp),
+                        imageVector = Icons.Outlined.MoreHoriz,
+                        contentDescription = "游戏目录管理"
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    shape = MaterialTheme.shapes.large,
+                    shadowElevation = 3.dp,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    GameDirMenuItem(
+                        title = "默认游戏目录",
+                        path = defaultPath,
+                        selected = activePath == null,
+                        onClick = {
+                            menuExpanded = false
+                            onSwitch(null)
+                        }
+                    )
+                    addedDirs.forEach { path ->
+                        GameDirMenuItem(
+                            title = File(path).name.ifBlank { path },
+                            path = path,
+                            selected = activePath == path,
+                            onClick = {
+                                menuExpanded = false
+                                onSwitch(path)
+                            },
+                            onRemove = {
+                                menuExpanded = false
+                                onRemove(path)
+                            }
+                        )
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    DropdownMenuItem(
+                        text = { Text("打开游戏目录") },
+                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
+                        onClick = {
+                            menuExpanded = false
+                            onOpen()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** 游戏目录菜单条目：名称 + 路径，附加目录可单独移除 */
+@Composable
+private fun GameDirMenuItem(
+    title: String,
+    path: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onRemove: (() -> Unit)? = null
+) {
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(text = title, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    modifier = Modifier.alpha(0.6f),
+                    text = path,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        },
+        leadingIcon = if (selected) {
+            { Icon(Icons.Filled.Check, null, Modifier.size(20.dp)) }
+        } else null,
+        trailingIcon = if (onRemove == null) null else {
+            {
+                IconButton(onClick = onRemove) {
+                    Icon(
+                        modifier = Modifier.size(18.dp),
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = "移除该目录"
+                    )
+                }
+            }
+        },
+        onClick = onClick
+    )
+}
+
+/** 左栏药丸按钮 */
+@Composable
+private fun RailPillButton(text: String, onClick: () -> Unit) {
+    val shape = MaterialTheme.shapes.large
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        shape = shape
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .clickable(onClick = onClick)
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = text, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+private fun toast(context: Context, text: String) {
+    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+/** SAF 目录 URI → 共享存储绝对路径；非共享存储目录返回 null */
+private fun treeUriToPath(uri: Uri): String? {
+    if (uri.authority != "com.android.externalstorage.documents") return null
+    val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
+    val parts = docId.split(":")
+    if (parts.size < 2) return null
+    val volume = parts[0]
+    val relative = parts[1]
+    val base = if (volume.equals("primary", ignoreCase = true)) "/storage/emulated/0" else "/storage/$volume"
+    return if (relative.isBlank()) base else "$base/$relative"
+}
+
+/** 共享存储绝对路径 → DocumentsContract 文档 id；非共享存储返回 null */
+private fun storagePathToDocumentId(path: String): String? {
+    if (path == "/storage/emulated/0") return "primary:"
+    if (path.startsWith("/storage/emulated/0/")) return "primary:" + path.removePrefix("/storage/emulated/0/")
+    val match = Regex("""^/storage/([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})(?:/(.*))?$""").find(path) ?: return null
+    return "${match.groupValues[1]}:${match.groupValues[2]}"
+}
+
+/** 清理计划：下载残留项 + 缺少版本 json 的孤立版本目录 */
+private data class CleanupPlan(
+    val residue: List<File>,
+    val orphanVersions: List<File>
+)
+
+private val RESIDUE_SUFFIXES = listOf(".part", ".tmp", ".download")
+
+private fun buildCleanupPlan(gameDir: File): CleanupPlan {
+    val residue = mutableListOf<File>()
+    listOf("modpacks", "mods", "resourcepacks", "shaderpacks", "versions")
+        .forEach { collectResidue(File(gameDir, it), residue) }
+    val versionsDir = GameConfig.getVersionsDir(gameDir)
+    val orphan = versionsDir.listFiles { f -> f.isDirectory }
+        ?.filterNot { File(it, "${it.name}.json").isFile }
+        ?: emptyList()
+    return CleanupPlan(residue, orphan)
+}
+
+/** 递归收集下载残留：分块缓存目录与 .part/.tmp/.download 半截文件（跳过 assets/libraries） */
+private fun collectResidue(dir: File, out: MutableList<File>) {
+    dir.listFiles()?.forEach { f ->
+        when {
+            f.isDirectory && f.name == ".download_chunks" -> out.add(f)
+            f.isDirectory && f.name != "assets" && f.name != "libraries" -> collectResidue(f, out)
+            f.isFile && RESIDUE_SUFFIXES.any { f.name.endsWith(it) } -> out.add(f)
+        }
+    }
+}
+
+/** 用系统文件管理器打开目录；非共享存储或打开失败时回退为复制路径到剪贴板 */
+internal fun openFolderPath(context: Context, target: File) {
     if (!target.exists()) target.mkdirs()
 
     val fallback = {
-        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-            as android.content.ClipboardManager
-        clipboard.setPrimaryClip(
-            android.content.ClipData.newPlainText("path", target.absolutePath)
-        )
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("path", target.absolutePath))
         android.widget.Toast.makeText(
             context, "未找到可用的文件管理器，路径已复制：${target.absolutePath}",
             android.widget.Toast.LENGTH_LONG
@@ -777,10 +1074,7 @@ private fun openVersionFolder(context: android.content.Context, versionId: Strin
     }
 
     runCatching {
-        val storagePath = target.absolutePath
-        val prefix = "/storage/emulated/0/"
-        require(storagePath.startsWith(prefix)) { "目录不在共享存储" }
-        val documentId = "primary:${storagePath.removePrefix(prefix)}"
+        val documentId = storagePathToDocumentId(target.absolutePath) ?: error("目录不在共享存储")
         val uri = DocumentsContract.buildDocumentUri(
             "com.android.externalstorage.documents", documentId
         )
@@ -789,4 +1083,19 @@ private fun openVersionFolder(context: android.content.Context, versionId: Strin
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
     }.onFailure { fallback() }
+}
+
+/**
+ * 打开版本内目录：开启版本隔离时取版本目录下的子目录，否则取游戏目录下的对应子目录。
+ */
+internal fun openVersionFolder(
+    context: Context,
+    versionId: String,
+    subFolder: String,
+    isolate: Boolean = true
+) {
+    val gameDir = GameConfig.getGameDir(context)
+    val base = if (isolate) File(GameConfig.getVersionsDir(gameDir), versionId) else gameDir
+    val target = if (subFolder.isBlank()) base else File(base, subFolder)
+    openFolderPath(context, target)
 }

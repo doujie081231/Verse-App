@@ -355,7 +355,7 @@ fun MainScreen(
  * 保证返回键行为可预期、各页签状态独立,
  * 同时避免多层返回栈导致的行为不一致问题
  */
-private fun navigateToTab(navController: NavHostController, route: String) {
+internal fun navigateToTab(navController: NavHostController, route: String) {
     navController.navigate(route) {
         popUpTo(0) { inclusive = true }
         launchSingleTop = true
