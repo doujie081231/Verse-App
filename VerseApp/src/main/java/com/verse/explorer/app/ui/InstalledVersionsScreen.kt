@@ -1062,7 +1062,11 @@ private fun collectResidue(dir: File, out: MutableList<File>) {
     }
 }
 
-/** 用系统文件管理器打开目录；非共享存储或打开失败时回退为复制路径到剪贴板 */
+/**
+ * 打开目录：以「分享文件」的形式发起（分享面板让用户自选文件管理器接收目录 URI），
+ * 与直接 ACTION_VIEW 相比不受固定打开方式限制；分享不可用时回退 ACTION_VIEW，
+ * 仍不可用则把路径复制到剪贴板提示。
+ */
 internal fun openFolderPath(context: Context, target: File) {
     if (!target.exists()) target.mkdirs()
 
@@ -1075,16 +1079,32 @@ internal fun openFolderPath(context: Context, target: File) {
         ).show()
     }
 
+    val documentId = storagePathToDocumentId(target.absolutePath)
+    if (documentId == null) {
+        fallback()
+        return
+    }
+    val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", documentId)
+
+    // 分享形式打开：接收方拿到目录 URI，用户可在分享面板里选文件管理器
     runCatching {
-        val documentId = storagePathToDocumentId(target.absolutePath) ?: error("目录不在共享存储")
-        val uri = DocumentsContract.buildDocumentUri(
-            "com.android.externalstorage.documents", documentId
+        val send = Intent(Intent.ACTION_SEND)
+            .setType(DocumentsContract.Document.MIME_TYPE_DIR)
+            .putExtra(Intent.EXTRA_STREAM, uri)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(
+            Intent.createChooser(send, "打开文件夹")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
         )
-        val intent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-    }.onFailure { fallback() }
+    }.onFailure {
+        // 分享面板不可用（无接收方/系统限制）时回退为直接打开目录
+        runCatching {
+            val view = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(view)
+        }.onFailure { fallback() }
+    }
 }
 
 /**

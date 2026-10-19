@@ -95,7 +95,7 @@ fun ConsoleScreen(navController: NavHostController) {
     )
 
     var selectedType by remember { mutableStateOf("bug") }
-    // 默认选中启动问题：打开页面即可看到日志自动收集，「其他」不收集日志易被误认为检测不到
+    // 默认选中启动问题：打开页面即可看到日志自动收集；主日志（latest / launch）各分类都会随附
     var selectedCategory by remember { mutableStateOf("launch") }
     var title by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf("") }
@@ -144,12 +144,8 @@ fun ConsoleScreen(navController: NavHostController) {
         }
     }
 
-    // 分类变化 → 重新扫描日志
+    // 分类变化 → 重新扫描日志（主日志各分类都随附，因此「其他」也不再跳过扫描）
     fun scanLogs() {
-        if (selectedCategory == "other") {
-            autoLogFiles = emptyList()
-            return
-        }
         logsLoading = true
         autoLogFiles = emptyList()
         scope.launch(Dispatchers.IO) {

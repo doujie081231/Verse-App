@@ -21,6 +21,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
@@ -139,6 +140,20 @@ fun AccountsScreen(
                 .statusBarsPadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // 返回键：账户页可从主页账户卡片进入，提供显式返回入口
+                if (navController.previousBackStackEntry != null) {
+                    IconButton(
+                        onClick = { navController.navigateUp() },
+                        modifier = Modifier.padding(start = 8.dp, top = 2.dp).size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                            tint = VerseColors.PcTextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier

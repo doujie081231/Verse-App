@@ -63,20 +63,20 @@ object FeedbackRepository {
             dir.listFiles()?.forEach { f ->
                 if (!f.isFile) return@forEach
                 val name = f.name
-                val keep = when (category) {
+                // 主日志（latest / launch）识别：无论选哪个分类都随附上传，后台定位问题首要看它
+                val isMainLog = name.startsWith("latest") || name.startsWith("launch")
+                val keep = isMainLog || when (category) {
                     "launch" ->
-                        name.startsWith("launch") || name.contains("startup-timing") ||
-                            name.startsWith("latest") || name.startsWith("terminal_export") ||
+                        name.contains("startup-timing") ||
+                            name.startsWith("terminal_export") ||
                             name.startsWith("game") || name.startsWith("native_debug") ||
                             name.startsWith("verse_debug") || name.endsWith(".log") ||
                             // 渲染/SDL 诊断链（verse_sdl / verse_glfw / verse_native / verse_jvm_out）：
                             // GL 后端创建失败等渲染问题必须附带
                             name.startsWith("verse_")
-                    // 下载问题同样附带主日志（下载失败/校验失败都会写入主日志）
                     "download" ->
                         name.contains("modpack-import") || name.contains("updater-download") ||
                             name.contains("loader-install") || name.endsWith(".install") ||
-                            name.startsWith("latest") || name.startsWith("launch") ||
                             name.startsWith("verse_")
                     else -> false
                 }

@@ -76,6 +76,7 @@ object SettingsRepository {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_BACKGROUND_OPACITY = "background_opacity"
         private const val KEY_SIDEBAR_GLASS = "sidebar_liquid_glass"
+        private const val KEY_SIDEBAR_LABELS = "sidebar_show_labels"
         // 背景模糊半径（0..40，单位 Dp，0=关闭）与模糊类型（background=背景模糊 / foreground=前景毛玻璃）
         private const val KEY_BACKGROUND_BLUR = "background_blur"
         private const val KEY_BACKGROUND_BLUR_TYPE = "background_blur_type"
@@ -571,6 +572,13 @@ object SettingsRepository {
 
     fun setSidebarGlass(enabled: Boolean) {
         prefs().edit().putBoolean(KEY_SIDEBAR_GLASS, enabled).apply()
+    }
+
+    /** 侧边栏按钮是否在图标下显示功能名（默认开） */
+    fun getSidebarLabels(): Boolean = prefs().getBoolean(KEY_SIDEBAR_LABELS, true)
+
+    fun setSidebarLabels(enabled: Boolean) {
+        prefs().edit().putBoolean(KEY_SIDEBAR_LABELS, enabled).apply()
     }
 
     fun getGameWidth(): Int = prefs().getInt(KEY_GAME_WIDTH, DEFAULT_GAME_WIDTH)

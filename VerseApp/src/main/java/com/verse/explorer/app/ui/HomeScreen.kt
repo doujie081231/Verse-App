@@ -131,6 +131,12 @@ fun HomeScreen(
         )
     }
 
+    // 创建窗口阶段的启动提示可被用户关闭；新一轮启动开始时恢复显示
+    var launchOverlayDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(launchState.isLaunching) {
+        if (launchState.isLaunching) launchOverlayDismissed = false
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         val hubState = HomeHubState(
             account = selectedAccount,
@@ -148,9 +154,12 @@ fun HomeScreen(
             HomePageContent(gridState = gridState)
         }
 
-        if (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED) {
+        if (!launchOverlayDismissed &&
+            (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED)
+        ) {
             PcLaunchOverlay(
-                launchState = launchState
+                launchState = launchState,
+                onDismiss = { launchOverlayDismissed = true }
             )
         }
     }

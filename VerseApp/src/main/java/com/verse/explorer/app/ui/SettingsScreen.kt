@@ -12,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -217,12 +219,13 @@ fun SettingsScreen(navController: NavHostController) {
     // 根容器：左侧栏 + 内容区；顶层承载取色器全屏宿主（SideDialogView 从右侧滑入）
     Box(modifier = Modifier.fillMaxSize()) {
     Row(modifier = Modifier.fillMaxSize()) {
-        // 左侧边栏：160dp 宽，PcBgSecondary 背景
+        // 左侧边栏：160dp 宽，PcBgSecondary 背景；子页较多时纵向可滚动，避免被挤出屏幕
         Column(
             modifier = Modifier
                 .width(160.dp)
                 .fillMaxHeight()
                 .background(VerseColors.PcBgSecondary)
+                .verticalScroll(rememberScrollState())
                 .padding(top = 32.dp, start = 8.dp, end = 8.dp)
         ) {
             Text(
@@ -769,6 +772,11 @@ fun SettingsScreen(navController: NavHostController) {
                                 "悬浮导航按钮与展开面板的液态玻璃折射效果（Android 13+ 生效）",
                                 VersePersonalization.sidebarGlass
                             ) { VersePersonalization.applySidebarGlass(it) }
+                            PcSwitchRow(
+                                "侧边栏按钮显示功能字",
+                                "在导航按钮图标下方显示功能名（关闭后仅显示图标）",
+                                VersePersonalization.sidebarLabels
+                            ) { VersePersonalization.applySidebarLabels(it) }
                             // 主界面操作菜单停靠侧：START=左 / END=右
                             PcDropdownRow(
                                 "操作菜单停靠侧",

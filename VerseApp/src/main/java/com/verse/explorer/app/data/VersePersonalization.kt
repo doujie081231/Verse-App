@@ -52,6 +52,10 @@ object VersePersonalization {
     var sidebarGlass by mutableStateOf(false)
         private set
 
+    /** 侧边栏按钮是否在图标下显示功能名（默认开） */
+    var sidebarLabels by mutableStateOf(true)
+        private set
+
     // ==================== 颜色主题与外观（改即存）====================
 
     /** 颜色主题选择（ColorThemeType 枚举名，默认浅色沿用黑白主题历史行为） */
@@ -87,6 +91,7 @@ object VersePersonalization {
             .takeIf { it == "background" || it == "foreground" } ?: "background"
         videoVolume = SettingsRepository.getVideoVolume().coerceIn(0, 100)
         sidebarGlass = SettingsRepository.getSidebarGlass()
+        sidebarLabels = SettingsRepository.getSidebarLabels()
         colorTheme = SettingsRepository.getThemeSelection()
         themeCustomColor = SettingsRepository.getThemeCustomColor()
         paletteStyle = SettingsRepository.getThemePaletteStyle()
@@ -135,6 +140,11 @@ object VersePersonalization {
     fun applySidebarGlass(enabled: Boolean) {
         sidebarGlass = enabled
         SettingsRepository.setSidebarGlass(enabled)
+    }
+
+    fun applySidebarLabels(enabled: Boolean) {
+        sidebarLabels = enabled
+        SettingsRepository.setSidebarLabels(enabled)
     }
 
     /** 应用颜色主题选择（改即存，主题层组合期间读取并组装配色方案） */

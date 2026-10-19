@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -706,7 +707,9 @@ private val ProgressGradient = listOf(
 @Composable
 fun PcLaunchOverlay(
     launchState: LaunchState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 游戏已进入创建窗口阶段时允许关闭提示（关闭后启动继续在后台进行） */
+    onDismiss: () -> Unit = {}
 ) {
     val alphaAnim = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -756,6 +759,30 @@ fun PcLaunchOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // 创建窗口阶段：给出可关闭的阶段提示（与「正在启动 Java 虚拟机」同形式的弹窗）
+                if (showLog) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "正在创建游戏窗口…",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = VerseColors.PcTextPrimary
+                        )
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "关闭提示",
+                                tint = VerseColors.PcTextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
                 Box(modifier = Modifier.size(96.dp)) {
                 RoseCurveLoader(
                     modifier = Modifier.fillMaxSize(),

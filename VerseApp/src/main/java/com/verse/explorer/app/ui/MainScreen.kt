@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -185,6 +186,10 @@ fun MainScreen(
     }
 
     val showSidebar = currentRoute in allSidebarRoutes
+    // 悬浮导航停靠侧（与 FloatingNavOverlay 同源）：侧边栏页面按停靠侧留出让位边距，
+    // 避免悬浮球压住页面左上角/右上角的返回键与标题
+    val navDockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
+    val sidebarGutter = 56.dp
 
     // 启动时自动检查更新：检测到新版本则弹窗提示；「忽略」后同一版本不再提示
     val context = LocalContext.current
@@ -250,7 +255,12 @@ fun MainScreen(
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = if (showSidebar && !navDockEnd) sidebarGutter else 0.dp,
+                    end = if (showSidebar && navDockEnd) sidebarGutter else 0.dp
+                ),
             enterTransition = {
                 navEnterTransition(
                     detail = targetState.destination.route in detailRoutes,
@@ -376,6 +386,8 @@ private fun FloatingNavOverlay(
     // 布局整体镜像（按钮与胶囊面板的锚点/边距对调），毛玻璃层为 backdrop 采样、与位置无关不受影响
     val dockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
     val dockAlignment = if (dockEnd) Alignment.TopEnd else Alignment.TopStart
+    // 按钮是否在图标下显示功能名（默认开）：开启时胶囊容器加宽以容纳文字
+    val showLabels = VersePersonalization.sidebarLabels
 
     // 子页激活时自动展开对应父级菜单(进入子页时)
     LaunchedEffect(currentRoute) {
@@ -470,7 +482,7 @@ private fun FloatingNavOverlay(
         ) {
             Box(
                 modifier = Modifier
-                    .width(56.dp)
+                    .width(if (showLabels) 84.dp else 56.dp)
                     .heightIn(max = 500.dp)
                     .then(pillGlass)
                     .then(
@@ -494,6 +506,7 @@ private fun FloatingNavOverlay(
                                 icon = item.icon,
                                 label = item.label,
                                 isActive = isChildActive,
+                                showLabel = showLabels,
                                 onClick = {
                                     openSubmenus[item.label] = !(openSubmenus[item.label] ?: false)
                                 }
@@ -513,6 +526,7 @@ private fun FloatingNavOverlay(
                                             icon = subScreenIcon(subScreen),
                                             label = subScreen.title,
                                             isActive = currentRoute == subScreen.route,
+                                            showLabel = showLabels,
                                             onClick = {
                                                 expanded = false
                                                 navigateToTab(navController, subScreen.route)
@@ -526,6 +540,7 @@ private fun FloatingNavOverlay(
                                 icon = item.icon,
                                 label = item.label,
                                 isActive = currentRoute == item.screen?.route,
+                                showLabel = showLabels,
                                 onClick = {
                                     expanded = false
                                     item.screen?.let { screen ->
@@ -546,6 +561,7 @@ private fun FloatingNavOverlay(
                         icon = footerNavItem.icon,
                         label = footerNavItem.label,
                         isActive = currentRoute == footerNavItem.screen?.route,
+                        showLabel = showLabels,
                         onClick = {
                             expanded = false
                             footerNavItem.screen?.let { screen ->
@@ -559,38 +575,54 @@ private fun FloatingNavOverlay(
     }
 }
 
-/** 胶囊容器内的主图标按钮(圆形,只放图标):内部内容为普通圆角面板,玻璃由胶囊容器统一提供 */
+/**
+ * 胶囊容器内的主图标按钮(圆形,只放图标):内部内容为普通圆角面板,玻璃由胶囊容器统一提供。
+ * showLabel 时在按钮下方显示功能名（与 VersePC2 一致，可在个性化设置关闭）。
+ */
 @Composable
 private fun NavCircleButton(
     icon: ImageVector,
     label: String,
     isActive: Boolean,
+    showLabel: Boolean,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(
-                if (isActive) {
-                    VerseColors.PcAccent.copy(alpha = 0.85f)
-                } else {
-                    VerseColors.PcBgTertiary.copy(alpha = 0.55f)
-                }
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
+    val tint = if (isActive) VerseColors.PcAccentText else VerseColors.PcTextSecondary
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Icon(
-            icon,
-            label,
-            Modifier.size(20.dp),
-            if (isActive) VerseColors.PcAccentText else VerseColors.PcTextSecondary
-        )
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isActive) {
+                        VerseColors.PcAccent.copy(alpha = 0.85f)
+                    } else {
+                        VerseColors.PcBgTertiary.copy(alpha = 0.55f)
+                    }
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, label, Modifier.size(20.dp), tint)
+        }
+        if (showLabel) {
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                maxLines = 1,
+                color = tint,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+            )
+        }
     }
 }
 
@@ -600,32 +632,45 @@ private fun NavCircleMini(
     icon: ImageVector,
     label: String,
     isActive: Boolean,
+    showLabel: Boolean,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(
-                if (isActive) {
-                    VerseColors.PcAccent.copy(alpha = 0.8f)
-                } else {
-                    VerseColors.PcBgSecondary.copy(alpha = 0.5f)
-                }
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
+    val tint = if (isActive) VerseColors.PcAccentText else VerseColors.PcTextMuted
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        Icon(
-            icon,
-            label,
-            Modifier.size(16.dp),
-            if (isActive) VerseColors.PcAccentText else VerseColors.PcTextMuted
-        )
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isActive) {
+                        VerseColors.PcAccent.copy(alpha = 0.8f)
+                    } else {
+                        VerseColors.PcBgSecondary.copy(alpha = 0.5f)
+                    }
+                )
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, label, Modifier.size(16.dp), tint)
+        }
+        if (showLabel) {
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                maxLines = 1,
+                color = tint,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+            )
+        }
     }
 }
 
