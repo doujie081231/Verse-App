@@ -830,8 +830,11 @@ class GameLaunchOrchestrator(
             // JVM 初始化直接失败（NoClassDefFoundError: java/lang/Object）
             val libawtOk = javaDetector.findFileInDir(libDir, "libawt.so")
             val libfontmanagerOk = javaDetector.findFileInDir(libDir, "libfontmanager.so")
+            // rt.jar 存在不代表可用：下载中断/pack200 解包不完整时文件非空但已损坏，
+            // JVM 初始化会直接抛 NoClassDefFoundError: java/lang/Object。
+            // 因此对 JRE8 额外校验 rt.jar 能否读出核心类，损坏同样按缺失处理触发重装。
             val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
-                javaDetector.findNonEmptyFileInDir(libDir, "rt.jar")
+                javaDetector.findNonEmptyFileInDir(libDir, "rt.jar") && isRtJarUsable(libDir)
             if (!libawtOk || !libfontmanagerOk || !classesOk) {
                 if (reinstalledJre && reinstalledPath == home) {
                     VerseLogger.warn("JRE 重装后仍缺少关键文件，放弃", TAG)
@@ -880,6 +883,27 @@ class GameLaunchOrchestrator(
         val requiredVersion = if (params.javaVersion > 0) params.javaVersion
             else javaDetector.getRequiredJavaVersion(params.versionId, gameDir)
         throw RuntimeException("未找到完整的 Java $requiredVersion 运行时（需包含 bin/java、lib/libjli.so、lib/libjvm.so），请在设置中配置 JRE 路径")
+    }
+
+    /**
+     * JRE8 核心库可用性：lib 目录下的 rt.jar 能读出 java/lang/Object.class 才算完好。
+     * 局部损坏（中央目录正常、条目数据损坏）无法靠文件大小判断，用条目可读性兜底。
+     */
+    private fun isRtJarUsable(libDir: File): Boolean = runCatching {
+        val rtJar = findFileInTree(libDir, "rt.jar") ?: return@runCatching false
+        java.util.zip.ZipFile(rtJar).use { zip ->
+            zip.getEntry("java/lang/Object.class") != null &&
+                zip.getInputStream(zip.getEntry("java/lang/Object.class")).use { it.read() } >= 0
+        }
+    }.getOrDefault(false)
+
+    private fun findFileInTree(dir: File, name: String): File? {
+        if (!dir.exists()) return null
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name == name) return f
+            if (f.isDirectory) findFileInTree(f, name)?.let { return it }
+        }
+        return null
     }
 
     private fun ensureJreExecutable(jreHome: File) {

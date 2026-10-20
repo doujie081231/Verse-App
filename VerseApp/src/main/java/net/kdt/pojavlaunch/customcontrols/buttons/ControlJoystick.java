@@ -56,7 +56,13 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         // 仅当「已附着窗口」且「父容器非空」时才执行，二者缺一即跳过（废弃实例无需再加锁视图）。
         if (delayMillis == 100) {
             return super.postDelayed(() -> {
-                if (isAttachedToWindow() && getParent() != null) action.run();
+                if (!isAttachedToWindow() || getParent() == null) return;
+                try {
+                    action.run();
+                } catch (Throwable ignored) {
+                    // 父容器在检查与执行之间被换掉时库内回调仍会失败；
+                    // 这里只丢锁视图，摇杆本体与按键映射不受影响，故不上抛到主线程。
+                }
             }, delayMillis);
         }
         return super.postDelayed(action, delayMillis);

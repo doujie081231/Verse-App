@@ -469,8 +469,25 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // 按钮指针的事件流必须完整送达 ControlLayout：按下按钮的手指即使滑出
             // 按钮边界，MOVE/UP 也要继续转发，按钮才能在抬手时释放按键，
             // 否则按键会一直保持按住状态。
+            //
+            // 但原生转发只在「本次手势的首个 ACTION_DOWN 已进入覆盖层」时有效：
+            // 若第一根手指落在空白区（右手转视角），覆盖层从未收到 ACTION_DOWN，
+            // 按 Android 的 ViewGroup 分发规则，后续 ACTION_POINTER_DOWN 会被当作
+            // 「无首个触摸目标 → 拦截」，新按下的按钮/摇杆根本收不到 DOWN，
+            // 表现为滑动视角时左手按不动方向键。这种手势改用逐指针合成事件流。
             if (buttonPointerIds.isNotEmpty()) {
-                touchOverlay?.dispatchTouchEvent(ev)
+                if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                    // 首个 DOWN 落在按钮上：原生事件流已建立，后续指针可直接原生转发
+                    overlayReceivedFirstDown = true
+                    touchOverlay?.dispatchTouchEvent(ev)
+                } else if (overlayReceivedFirstDown) {
+                    touchOverlay?.dispatchTouchEvent(ev)
+                } else {
+                    dispatchButtonPointersSeparately(ev, buttonPointerIds)
+                }
+            }
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                overlayReceivedFirstDown = false
             }
             diagDispatch(ev, buttonPointerIds, buttonPointerIds)
             if (buttonPointerIds.size < ev.pointerCount) {
@@ -531,6 +548,37 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     /** DOWN 时被虚拟按钮捕获的指针 id；抬起/取消后移除 */
     private val capturedButtonPointerIds = mutableSetOf<Int>()
+
+    /** 本次手势的首个 ACTION_DOWN 是否已进入覆盖层（决定按钮指针可走原生转发还是逐指针合成） */
+    private var overlayReceivedFirstDown = false
+
+    /**
+     * 逐指针合成事件流：为每个按钮指针单独构造一条 DOWN → MOVE → UP 的事件流并直接送进控制布局。
+     * 用于「首根手指落在空白区」的手势——此时覆盖层没有首个触摸目标，
+     * Android 的 ViewGroup 分发会拦截后续 ACTION_POINTER_DOWN，按钮/摇杆收不到按下。
+     */
+    private fun dispatchButtonPointersSeparately(ev: MotionEvent, pointerIds: Set<Int>) {
+        val layout = controlLayout ?: return
+        val actionIndexId = runCatching { ev.getPointerId(ev.actionIndex) }.getOrDefault(-1)
+        for (i in 0 until ev.pointerCount) {
+            val id = ev.getPointerId(i)
+            if (id !in pointerIds) continue
+            val action = when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
+                    if (id == actionIndexId) MotionEvent.ACTION_DOWN else MotionEvent.ACTION_MOVE
+                MotionEvent.ACTION_MOVE -> MotionEvent.ACTION_MOVE
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
+                    if (id == actionIndexId) MotionEvent.ACTION_UP else MotionEvent.ACTION_MOVE
+                MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_CANCEL
+                else -> MotionEvent.ACTION_MOVE
+            }
+            val synthetic = MotionEvent.obtain(
+                ev.downTime, ev.eventTime, action, ev.getX(i), ev.getY(i), ev.getMetaState()
+            )
+            runCatching { layout.dispatchTouchEvent(synthetic) }
+            synthetic.recycle()
+        }
+    }
 
     /**
      * 计算本次事件中属于虚拟按钮的指针 id 集合，并维护捕获记录。

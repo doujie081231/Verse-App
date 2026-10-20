@@ -251,6 +251,7 @@ fun MainScreen(
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
+            // 刘海避让由根容器统一按黑边处理，这里不再二次内缩
             modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 navEnterTransition(

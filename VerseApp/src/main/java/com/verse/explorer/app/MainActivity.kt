@@ -109,14 +109,15 @@ class MainActivity : ComponentActivity() {
             }
             VerseExplorerTheme {
                 Surface(
+                    // 刘海避让用黑边：关闭「忽略刘海（全屏）」时根容器按 displayCutout 内缩，
+                    // 让出的挖孔区域填成纯黑，内容整体平移避免被挖孔遮挡。
                     modifier = Modifier
                         .fillMaxSize()
                         .then(
-                            // 刘海避让：关闭「忽略刘海（全屏）」时内容让出 displayCutout 区（横屏左侧打孔）
                             if (DisplayNotch.ignoreNotch) Modifier
                             else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
                         ),
-                    color = Color.Transparent  // 背景交给 MainScreen（全景/玻璃），避免不透底遮住全景
+                    color = Color.Black
                 ) {
                     val showEula = !eulaAgreed.value
                     val showPermission = eulaAgreed.value && !permissionGranted.value
