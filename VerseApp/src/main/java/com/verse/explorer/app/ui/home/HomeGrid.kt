@@ -103,13 +103,16 @@ fun VerseHomeGrid(
         }
     }
 
-    // 首次使用（无快照）：等待真实列数测量完成后，居中排布 头像 → 版本选择 → 启动按钮
-    LaunchedEffect(state.geometry.columns) {
+    // 首次使用（无快照）：等待真实列数与可视高度测量完成后，居中排布 头像 → 版本选择 → 启动按钮
+    LaunchedEffect(state.geometry.columns, state.screenBoundsPx) {
         if (seededFirstLayout) return@LaunchedEffect
         val columns = state.geometry.columns
         // 几何默认值为 4 列/20dp，视为尚未完成实际测量
         if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
-        val seeds = systemCardSeeds(columns)
+        // 可视高度未上报时先不播种，避免按未测得的高度把固定卡片放到不居中的位置
+        val visibleRows = state.visibleRowCount()
+        if (visibleRows <= 0) return@LaunchedEffect
+        val seeds = systemCardSeeds(columns, visibleRows)
         state.seed(types = HomeCards.userCardTypes, seeds = seeds, storedColumns = 0)
         ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
         ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
@@ -119,7 +122,7 @@ fun VerseHomeGrid(
 
     // 退化布局自愈：首帧异常窗口宽度曾把全部卡片钳到左列并被持久化，
     // 真实列数测量完成后检测到该特征时，把固定功能卡片重新居中还原
-    LaunchedEffect(state.geometry.columns, seededFirstLayout) {
+    LaunchedEffect(state.geometry.columns, state.screenBoundsPx, seededFirstLayout) {
         if (!seededFirstLayout) return@LaunchedEffect
         if (state.geometry.columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
         repairDegenerateLayout(state, state.geometry.columns)
@@ -202,11 +205,14 @@ private fun ensureSystemCard(state: CardGridState, type: com.verse.explorer.card
  * 固定功能卡片的居中布局：跨度按实际列数自适应（窄屏时退化为整行），
  * 居中偏移不会出现负坐标，避免窄屏首帧把卡片挤到左列。
  */
-private fun systemCardLayouts(columns: Int): Map<String, CardRect> {
+private fun systemCardLayouts(columns: Int, visibleRows: Int = 0): Map<String, CardRect> {
     val accountSpan = 6.coerceAtMost(columns)
     val versionSpan = 12.coerceAtMost(columns)
     val launchSpan = 8.coerceAtMost(columns)
-    val accountY = 1
+    // 账户 → 版本 → 启动的纵向总跨度（含两处间隙）
+    val blockSpan = accountSpan + 2 + 3 + 1 + 3
+    // 可视行数够放整块时垂直居中，否则退回贴顶；避免高屏机型上整组卡片挤在最上面
+    val accountY = if (visibleRows > blockSpan + 2) (visibleRows - blockSpan) / 2 else 1
     val versionY = accountY + accountSpan + 2
     val launchY = versionY + 3 + 1
     return mapOf(
@@ -222,8 +228,8 @@ private fun systemCardLayouts(columns: Int): Map<String, CardRect> {
     )
 }
 
-private fun systemCardSeeds(columns: Int): List<CardSeed> =
-    systemCardLayouts(columns).map { (id, rect) ->
+private fun systemCardSeeds(columns: Int, visibleRows: Int = 0): List<CardSeed> =
+    systemCardLayouts(columns, visibleRows).map { (id, rect) ->
         CardSeed(
             id = id,
             typeId = when (id) {
@@ -242,7 +248,7 @@ private fun systemCardSeeds(columns: Int): List<CardSeed> =
 private fun repairDegenerateLayout(state: CardGridState, columns: Int) {
     if (state.cards.size < 2) return
     if (state.cards.any { it.layout.x != 0 }) return
-    state.applyLayouts(systemCardLayouts(columns))
+    state.applyLayouts(systemCardLayouts(columns, state.visibleRowCount()))
 }
 
 @Composable

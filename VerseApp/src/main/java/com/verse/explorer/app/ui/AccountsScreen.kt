@@ -52,6 +52,7 @@ import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.app.viewmodel.MicrosoftLoginState
@@ -144,7 +145,10 @@ fun AccountsScreen(
                 if (navController.previousBackStackEntry != null) {
                     IconButton(
                         onClick = { navController.navigateUp() },
-                        modifier = Modifier.padding(start = 8.dp, top = 2.dp).size(36.dp)
+                        modifier = Modifier
+                            .padding(start = 8.dp, top = 2.dp)
+                            .size(36.dp)
+                            .navButtonAvoid()
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,

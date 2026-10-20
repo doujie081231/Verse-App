@@ -45,6 +45,7 @@ import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.app.ui.components.PcButtonVariant
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.PcDropdownRow
 import com.verse.explorer.app.ui.components.PcSwitchRow
@@ -233,7 +234,9 @@ fun SettingsScreen(navController: NavHostController) {
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 color = VerseColors.PcTextPrimary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .navButtonAvoid()
             )
             Spacer(Modifier.height(8.dp))
             pages.forEachIndexed { index, label ->

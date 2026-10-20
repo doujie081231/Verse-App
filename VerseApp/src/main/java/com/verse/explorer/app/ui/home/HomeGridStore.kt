@@ -28,7 +28,9 @@ data class HomeGridSnapshot(
  */
 object HomeGridStore {
     private const val PREFS = "home_grid"
-    private const val KEY_LAYOUT = "homeCardLayout_v4"
+    // v6：改键名丢弃既有快照。旧快照里的固定功能卡片按「贴顶」行位置持久化，
+    // 改为按可视高度垂直居中播种后需重新播种才能生效。
+    private const val KEY_LAYOUT = "homeCardLayout_v6"
 
     private val gson = Gson()
 

@@ -1063,47 +1063,44 @@ private fun collectResidue(dir: File, out: MutableList<File>) {
 }
 
 /**
- * 打开目录：以「分享文件」的形式发起（分享面板让用户自选文件管理器接收目录 URI），
- * 与直接 ACTION_VIEW 相比不受固定打开方式限制；分享不可用时回退 ACTION_VIEW，
- * 仍不可用则把路径复制到剪贴板提示。
+ * 打开目录：弹出应用选择面板，用户选中应用后跳转到该目录。
+ * 目录以 externalstorage 的目录文档 URI 传出，文件管理器收到后直接定位到该路径；
+ * 面板内同时纳入只声明了「接收分享目录」入口的文件管理器。
+ * 找不到任何可打开的应用时直接提示，不静默改写剪贴板。
  */
 internal fun openFolderPath(context: Context, target: File) {
     if (!target.exists()) target.mkdirs()
 
-    val fallback = {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("path", target.absolutePath))
-        android.widget.Toast.makeText(
-            context, "未找到可用的文件管理器，路径已复制：${target.absolutePath}",
-            android.widget.Toast.LENGTH_LONG
-        ).show()
-    }
-
     val documentId = storagePathToDocumentId(target.absolutePath)
     if (documentId == null) {
-        fallback()
+        android.widget.Toast.makeText(
+            context, "无法访问该目录：${target.absolutePath}", android.widget.Toast.LENGTH_LONG
+        ).show()
         return
     }
     val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", documentId)
 
-    // 分享形式打开：接收方拿到目录 URI，用户可在分享面板里选文件管理器
-    runCatching {
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(DocumentsContract.Document.MIME_TYPE_DIR)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(
-            Intent.createChooser(send, "打开文件夹")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    val view = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+    val chooser = Intent.createChooser(view, "打开文件夹").apply {
+        putExtra(
+            Intent.EXTRA_INITIAL_INTENTS,
+            arrayOf(
+                Intent(Intent.ACTION_SEND)
+                    .setType(DocumentsContract.Document.MIME_TYPE_DIR)
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
         )
-    }.onFailure {
-        // 分享面板不可用（无接收方/系统限制）时回退为直接打开目录
-        runCatching {
-            val view = Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(view)
-        }.onFailure { fallback() }
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    runCatching { context.startActivity(chooser) }.onFailure {
+        android.widget.Toast.makeText(
+            context, "没有可打开该文件夹的应用：${target.absolutePath}", android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 }
 

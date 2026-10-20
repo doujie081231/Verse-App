@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.PcTabGroup
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.version.MinecraftVersion
@@ -80,7 +81,8 @@ fun VersionsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = 4.dp)
+                    .navButtonAvoid(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(

@@ -60,16 +60,10 @@ fun LanScreen(
                 .width(160.dp)
                 .fillMaxHeight()
                 .background(VerseColors.PcBgSecondary)
-                .padding(top = 32.dp, start = 8.dp, end = 8.dp)
+                // 顶部下移让开悬浮导航按钮的占位，避免首项被圆形按钮压住
+                .statusBarsPadding()
+                .padding(top = 56.dp, start = 8.dp, end = 8.dp)
         ) {
-            Text(
-                "联机",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = VerseColors.PcTextPrimary,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-            Spacer(Modifier.height(8.dp))
             pages.forEachIndexed { index, label ->
                 val selected = selectedPage == index
                 Surface(

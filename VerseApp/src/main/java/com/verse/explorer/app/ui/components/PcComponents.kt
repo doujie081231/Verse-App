@@ -83,7 +83,18 @@ import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.launch.LaunchState
 import com.verse.explorer.app.ui.backgroundGlass
 import com.verse.explorer.app.ui.influencedByBackgroundColor
+import com.verse.explorer.app.ui.theme.ActionMenuSide
 import com.verse.explorer.app.ui.theme.VerseColors
+
+/**
+ * 悬浮导航避让：页面顶部栏与悬浮的圆形导航按钮重叠时，沿按钮停靠侧给顶部栏留出让位内边距，
+ * 把标题与返回键挪到旁边；只作用于顶部栏，页面内容区宽度不受影响。
+ */
+@Composable
+fun Modifier.navButtonAvoid(): Modifier {
+    val dockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
+    return if (dockEnd) padding(end = 44.dp) else padding(start = 44.dp)
+}
 
 /**
  */
@@ -94,7 +105,7 @@ fun PageHeader(
     compact: Boolean = false,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth().navButtonAvoid()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

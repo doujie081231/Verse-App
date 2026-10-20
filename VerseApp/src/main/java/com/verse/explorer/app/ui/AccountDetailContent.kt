@@ -50,6 +50,7 @@ import com.verse.explorer.app.skin.SkinFigureRenderer
 import com.verse.explorer.app.ui.components.FCLSkinViewer
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.core.account.Account
@@ -195,7 +196,10 @@ fun AccountDetailContent(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 20.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.navButtonAvoid(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
                         color = VerseColors.PcBgTertiary,

@@ -186,10 +186,6 @@ fun MainScreen(
     }
 
     val showSidebar = currentRoute in allSidebarRoutes
-    // 悬浮导航停靠侧（与 FloatingNavOverlay 同源）：侧边栏页面按停靠侧留出让位边距，
-    // 避免悬浮球压住页面左上角/右上角的返回键与标题
-    val navDockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
-    val sidebarGutter = 56.dp
 
     // 启动时自动检查更新：检测到新版本则弹窗提示；「忽略」后同一版本不再提示
     val context = LocalContext.current
@@ -255,12 +251,7 @@ fun MainScreen(
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = if (showSidebar && !navDockEnd) sidebarGutter else 0.dp,
-                    end = if (showSidebar && navDockEnd) sidebarGutter else 0.dp
-                ),
+            modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 navEnterTransition(
                     detail = targetState.destination.route in detailRoutes,
@@ -482,7 +473,7 @@ private fun FloatingNavOverlay(
         ) {
             Box(
                 modifier = Modifier
-                    .width(if (showLabels) 84.dp else 56.dp)
+                    .width(56.dp)
                     .heightIn(max = 500.dp)
                     .then(pillGlass)
                     .then(
@@ -496,7 +487,8 @@ private fun FloatingNavOverlay(
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    // 带功能字时按钮本身变高，条目间距收紧，避免相邻按钮视觉上隔得太远
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     mainNavItems.forEach { item ->
                         if (item.isSubmenuToggle) {
@@ -519,7 +511,7 @@ private fun FloatingNavOverlay(
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     item.submenuItems.forEach { subScreen ->
                                         NavCircleMini(

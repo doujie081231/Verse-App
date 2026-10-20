@@ -140,6 +140,9 @@ class CardGridState internal constructor(
         if (heightPx > 0f) screenBoundsPx = heightPx
     }
 
+    /** 屏幕可容纳的行数（供布局播种把固定卡片在可视区内垂直居中）；屏幕高度未上报时返回 0 */
+    fun visibleRowCount(): Int = bottomRowBound() ?: 0
+
     /** 底部边界行数：屏幕可容纳的行数；屏幕高度未上报时返回 null（不设限，禁止当作真实行数使用） */
     private fun bottomRowBound(): Int? {
         if (screenBoundsPx <= 0f || cellPx <= 0f) return null

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -112,13 +113,15 @@ fun TransferScreen() {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 14.dp)
     ) {
-        Text("传输", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "与 PC(VersePC2) 互传文件,点对点直连一步到位",
-            fontSize = 13.sp,
-            color = VerseColors.PcTextSecondary
-        )
+        Column(modifier = Modifier.navButtonAvoid()) {
+            Text("传输", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = VerseColors.PcTextPrimary)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "与 PC(VersePC2) 互传文件,点对点直连一步到位",
+                fontSize = 13.sp,
+                color = VerseColors.PcTextSecondary
+            )
+        }
         Spacer(Modifier.height(18.dp))
 
         // ===== 免费使用 + 安全提示 =====
