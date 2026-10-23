@@ -17,6 +17,17 @@ object MenuSetting {
 
     const val FILE_NAME = "menu_setting.json"
 
+    /**
+     * 按屏幕尺寸的百分比计算渲染宽高（px）。
+     * 光标偏移补偿保留，用于可见光标场景的窗口宽度对齐。
+     */
+    fun resolveRenderSize(screenWidth: Int, screenHeight: Int): Pair<Int, Int> {
+        val factor = windowScale
+        val width = ((screenWidth + cursorOffset) * factor).toInt().coerceAtLeast(1)
+        val height = (screenHeight * factor).toInt().coerceAtLeast(1)
+        return width to height
+    }
+
     @Volatile
     private var initialized = false
     private var saveFile: File? = null
@@ -162,7 +173,8 @@ object MenuSetting {
         isDisableLeftTouch = obj[Key.DISABLE_LEFT_TOUCH]?.asBoolean ?: false
         isEnableGyroscope = obj[Key.ENABLE_GYROSCOPE]?.asBoolean ?: false
         isInvertGyroscope = obj[Key.INVERT_GYROSCOPE]?.asBoolean ?: false
-        gyroscopeSensitivity = obj[Key.GYROSCOPE_SENSITIVITY]?.asInt ?: 10
+        // 灵敏度上限收敛到 100：旧配置里存过 1000 等越界值，换算后转速高到不可用
+        gyroscopeSensitivity = (obj[Key.GYROSCOPE_SENSITIVITY]?.asInt ?: 10).coerceIn(0, 100)
         gyroscopeSampleRate = obj[Key.GYROSCOPE_SAMPLE_RATE]?.asInt ?: 16
         isGyroscopeSmoothing = obj[Key.GYROSCOPE_SMOOTHING]?.asBoolean ?: true
         gyroscopeSmoothingWindow = obj[Key.GYROSCOPE_SMOOTHING_WINDOW]?.asInt ?: 4

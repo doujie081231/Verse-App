@@ -13,10 +13,8 @@ public class Renderer {
     public static final String ID_VIRGL = "virgl";
     public static final String ID_ZINK = "zink";
     public static final String ID_FREEDRENO = "freedreno";
-    // MobileGlues 官方插件 V2.0.0 的 FCL 插件元数据：glName/eglName 均为 libmobileglues.so，
-    // pojavEnv="LIBGL_ES=3:POJAV_RENDERER=opengles3:POJAVEXEC_EGL=libmobileglues.so:
-    // LIBGL_EGL=libmobileglues.so:MG_COUNT_LAUNCH=1"，minMCver=1.17。
-    public static final String ID_MOBILEGLUES = "mobileglues";
+
+    // 第三方渲染器（如 MobileGlues）以插件形式安装，由启动器解析后传入自定义 path/env。
 
     public static final Renderer GLES = new Renderer(
             "opengles3",
@@ -44,9 +42,6 @@ public class Renderer {
             new Renderer(ID_ZINK, "Zink", "", "libEGL_mesa.so", "libglxshim.so",
                     Arrays.asList("MESA_GL_VERSION_OVERRIDE=4.6", "MESA_GLSL_VERSION_OVERRIDE=460",
                             "MESA_LOADER_DRIVER_OVERRIDE=zink")),
-            new Renderer(ID_MOBILEGLUES, "MobileGlues", "", "libmobileglues.so", "libmobileglues.so",
-                    Arrays.asList("LIBGL_ES=3", "POJAV_RENDERER=opengles3", "POJAVEXEC_EGL=libmobileglues.so",
-                            "LIBGL_EGL=libmobileglues.so", "LIBGL_NAME=libmobileglues.so", "MG_COUNT_LAUNCH=1")),
             new Renderer(ID_FREEDRENO, "Freedreno", "", "libEGL.so", "libOSMesa_8.so",
                     Collections.emptyList())
     );

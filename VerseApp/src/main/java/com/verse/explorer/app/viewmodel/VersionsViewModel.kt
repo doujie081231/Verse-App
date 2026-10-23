@@ -335,4 +335,19 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
+
+    companion object {
+        @Volatile
+        private var cached: VersionsViewModel? = null
+
+        /**
+         * 应用级共享实例：页签切换会销毁整页组合，
+         * 若每次重建都新建状态容器，已加载的版本列表会丢失并重新联网加载，
+         * 快速来回切换时表现为反复转圈、卡顿。共享同一实例后切回页面直接复用已有数据。
+         */
+        fun shared(application: Application): VersionsViewModel =
+            cached ?: synchronized(this) {
+                cached ?: VersionsViewModel(application).also { cached = it }
+            }
+    }
 }

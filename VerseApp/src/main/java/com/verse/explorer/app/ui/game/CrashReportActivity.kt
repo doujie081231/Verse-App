@@ -17,6 +17,8 @@ import android.widget.Toast
 import androidx.compose.ui.graphics.toArgb
 import com.verse.explorer.app.crash.Pc2Analysis
 import com.verse.explorer.app.crash.VersePc2CrashAnalyzer
+import com.verse.explorer.app.game.killProcessSoon
+import com.verse.explorer.app.game.scheduleColdStart
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.theme.VerseColors
 import java.io.File
@@ -136,7 +138,9 @@ class CrashReportActivity : Activity() {
         actions.addView(actionButton("导出分析日志", false) { exportReport() })
         actions.addView(actionButton("复制分析结果", false) { copyReport() })
         actions.addView(actionButton("退出", false) {
-            finishAffinishApp()
+            // 当前进程里的 JVM 已失效，结束进程避免下次在同一进程重复创建 JVM
+            finishAffinity()
+            killProcessSoon()
         })
 
         val tip = text(
@@ -196,13 +200,17 @@ class CrashReportActivity : Activity() {
         })
     }
 
-    /** 应用崩溃模式：重启整个应用（回主页） */
+    /** 应用崩溃模式：以全新进程重启整个应用（回主页） */
     private fun restartApp() {
-        val intent = packageManager.getLaunchIntentForPackage(packageName)
-        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        finishAffinishApp()
-        intent?.let { startActivity(it) }
-        android.os.Process.killProcess(android.os.Process.myPid())
+        val intent = packageManager.getLaunchIntentForPackage(packageName) ?: run {
+            finishAffinity()
+            killProcessSoon()
+            return
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        scheduleColdStart(this, intent, APP_RESTART_REQUEST_CODE)
+        finishAffinity()
+        killProcessSoon()
     }
 
     private fun render(result: Pc2Analysis?) {
@@ -323,14 +331,11 @@ class CrashReportActivity : Activity() {
         Toast.makeText(this, "分析结果已复制", Toast.LENGTH_SHORT).show()
     }
 
-    private fun finishAffinishApp() {
-        finishAffinity()
-    }
-
     companion object {
         private const val EXTRA_CODE = "exit_code"
         private const val EXTRA_GAME_DIR = "game_dir"
         private const val EXTRA_APP_CRASH = "app_crash"
+        private const val APP_RESTART_REQUEST_CODE = 0x5648
 
         /** 重启回调：由 GameActivity 注册（崩溃页面本身不持有游戏启动参数） */
         @Volatile

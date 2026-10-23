@@ -48,21 +48,37 @@ object AvatarRepository {
         return bitmap
     }
 
-    private fun loadAvatar(context: Context, account: Account, outputSize: Int): Bitmap? {
+    private suspend fun loadAvatar(context: Context, account: Account, outputSize: Int): Bitmap? {
         val offline = account.type == AccountType.OFFLINE && account.serverUrl.isNullOrBlank()
         val accUuid = account.uuid.replace("-", "")
 
-        // 外置登录：serverUrl 皮肤站的头像服务通常已返回头部图，直接使用
-        if (account.type == AccountType.AUTHLIB && account.loginUsername != null &&
-            account.serverUrl?.isNotBlank() == true
-        ) {
-            try {
-                val serverUrl = account.serverUrl!!.trimEnd('/')
-                    .replace("/api/yggdrasil", "")
-                    .replace("/api/authlib-injector", "")
-                val url = "$serverUrl/avatar/$accUuid?size=$outputSize"
-                downloadBitmap(url)?.let { return it }
-            } catch (_: Exception) {
+        // 外置登录：优先从验证服务器的 session profile 取真实皮肤纹理。
+        // 第三方验证服务器分配的 UUID 在 mc-heads 等 Mojang 皮肤服务上查不到，
+        // 只靠头像接口会一直显示默认皮肤。
+        if (account.type == AccountType.AUTHLIB && account.serverUrl?.isNotBlank() == true) {
+            val textureUrl = runCatching {
+                com.verse.explorer.app.VerseApplication.authlibAuthenticator
+                    .fetchSkinTextureUrl(account.serverUrl!!, account.uuid)
+            }.getOrNull()
+            if (!textureUrl.isNullOrBlank()) {
+                downloadBitmap(textureUrl)?.let { skin ->
+                    return if (SkinHeadCrop.isFullSkin(skin)) {
+                        SkinHeadCrop.cropHead(skin, outputSize)
+                    } else {
+                        skin
+                    }
+                }
+            }
+            // 兼容 Blessing Skin 的头像接口
+            if (account.loginUsername != null) {
+                try {
+                    val serverUrl = account.serverUrl!!.trimEnd('/')
+                        .replace("/api/yggdrasil", "")
+                        .replace("/api/authlib-injector", "")
+                    val url = "$serverUrl/avatar/$accUuid?size=$outputSize"
+                    downloadBitmap(url)?.let { return it }
+                } catch (_: Exception) {
+                }
             }
         }
 

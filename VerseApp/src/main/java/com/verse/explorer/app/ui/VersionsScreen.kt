@@ -18,7 +18,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -44,7 +43,7 @@ fun VersionsScreen(
     val downloadSource = remember { settingsRepo.getDownloadSource() }
     val sourceLabel = com.verse.explorer.app.download.DownloadSourceManager.Source.entries.find { it.id == downloadSource }?.label ?: "BMCLAPI 镜像"
 
-    val viewModel = remember { VersionsViewModel(context.applicationContext as android.app.Application) }
+    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val releaseVersions by viewModel.releaseVersions.collectAsStateWithLifecycle()
     val snapshotVersions by viewModel.snapshotVersions.collectAsStateWithLifecycle()
@@ -171,7 +170,13 @@ fun VersionsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 12.dp)
                 ) {
-                    items(displayVersions) { version ->
+                    // 稳定 key + contentType：切换「正式版/快照版」等页签时复用行实例，
+                    // 避免整列表重建导致的一次性大批量组合
+                    items(
+                        items = displayVersions,
+                        key = { it.id },
+                        contentType = { "version" }
+                    ) { version ->
                         VersionItem(
                             version = version,
                             isInInstalledTab = selectedTab == 4,
@@ -239,12 +244,9 @@ private fun VersionItem(
         VersionType.OLD_ALPHA, VersionType.OLD_BETA -> "icons/version_icon_old.png"
         else -> "icons/version_icon_grass.png"
     }
+    // 共享缓存：列表行滚出再滚回时不再重复解码 png
     val iconBitmap = remember(iconAssetPath) {
-        try {
-            context.assets.open(iconAssetPath).use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
-            }
-        } catch (e: Exception) { null }
+        com.verse.explorer.app.ui.components.AssetIconCache.get(context, iconAssetPath)
     }
 
     val typeBadgeColor = when (version.type) {

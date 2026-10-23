@@ -11,6 +11,7 @@ import org.lwjgl.glfw.CallbackBridge;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,13 +51,23 @@ public final class RepoLayoutConverter {
 
         JsonArray groups = asArray(root.get("viewGroups"));
         if (groups != null) {
+            List<CustomControls.ControlGroupData> groupList = new ArrayList<>();
             for (JsonElement ge : groups) {
                 JsonObject group = asObj(ge);
                 if (group == null) continue;
-                // 隐藏图层（备选按键层）不进入默认布局
-                if ("INVISIBLE".equals(asString(group.get("visibility"), "VISIBLE"))) continue;
+                String groupId = asString(group.get("id"), "");
+                // 控件组初始显示状态：可见组开局显示，隐藏组由切换按钮按需打开
+                boolean groupVisible = !"INVISIBLE".equals(
+                        asString(group.get("visibility"), "VISIBLE"));
+                CustomControls.ControlGroupData groupData = new CustomControls.ControlGroupData();
+                groupData.id = groupId;
+                groupData.name = asString(group.get("name"), "");
+                groupData.visible = groupVisible;
                 JsonObject viewData = asObj(group.get("viewData"));
-                if (viewData == null) continue;
+                if (viewData == null) {
+                    if (!groupId.isEmpty()) groupList.add(groupData);
+                    continue;
+                }
 
                 JsonArray buttons = asArray(viewData.get("buttonList"));
                 if (buttons != null) {
@@ -64,7 +75,11 @@ public final class RepoLayoutConverter {
                         JsonObject b = asObj(be);
                         if (b == null) continue;
                         ControlData d = convertButton(b, screenW, screenH, density);
-                        if (d != null) out.mControlDataList.add(d);
+                        if (d != null) {
+                            d.groupId = groupId;
+                            groupData.buttons.add(d);
+                            out.mControlDataList.add(d);
+                        }
                     }
                 }
                 JsonArray directions = asArray(viewData.get("directionList"));
@@ -73,10 +88,16 @@ public final class RepoLayoutConverter {
                         JsonObject dir = asObj(de);
                         if (dir == null) continue;
                         ControlJoystickData j = convertDirection(dir, screenW, screenH, density);
-                        if (j != null) out.mJoystickDataList.add(j);
+                        if (j != null) {
+                            j.groupId = groupId;
+                            groupData.joysticks.add(j);
+                            out.mJoystickDataList.add(j);
+                        }
                     }
                 }
+                if (!groupId.isEmpty()) groupList.add(groupData);
             }
+            out.mControlGroups = groupList;
         }
         return out;
     }
@@ -111,6 +132,19 @@ public final class RepoLayoutConverter {
                 if (truthy(press.get("autoKeep")) && !keycodes.isEmpty()) d.isToggle = true;
             }
             if (truthy(event.get("swipable"))) d.isSwipeable = true;
+            // 点击切换控件组：clickEvent.bindViewGroup 为要切换显示状态的组 id 列表
+            JsonObject clickEvent = asObj(event.get("clickEvent"));
+            if (clickEvent != null) {
+                JsonArray bindGroups = asArray(clickEvent.get("bindViewGroup"));
+                if (bindGroups != null) {
+                    for (JsonElement idElement : bindGroups) {
+                        String bindId = asString(idElement, "");
+                        if (bindId.isEmpty()) continue;
+                        if (d.bindViewGroups == null) d.bindViewGroups = new ArrayList<>();
+                        d.bindViewGroups.add(bindId);
+                    }
+                }
+            }
             if (!keycodes.isEmpty()) {
                 // d.keycodes 已由 ControlData 构造函数固定为 4 个槽位（空槽为 GLFW_KEY_UNKNOWN）。
                 // 这里只覆盖前若干槽、保留槽位长度，避免导入后按键槽位被截短，导致编辑面板

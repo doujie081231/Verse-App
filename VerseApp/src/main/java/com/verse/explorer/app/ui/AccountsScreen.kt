@@ -91,7 +91,7 @@ fun AccountsScreen(
     navController: NavHostController
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val viewModel = remember { AccountsViewModel(context.applicationContext as android.app.Application) }
+    val viewModel = AccountsViewModel.shared(context.applicationContext as android.app.Application)
     val accounts by viewModel.accounts.collectAsState()
     val selectedAccount by viewModel.selectedAccount.collectAsState()
     val scope = rememberCoroutineScope()

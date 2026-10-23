@@ -7,7 +7,6 @@ import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -73,7 +72,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,7 +133,7 @@ enum class VersionCategory(val label: String) {
 @Composable
 fun InstalledVersionsScreen(navController: NavHostController) {
     val context = LocalContext.current
-    val viewModel = remember { VersionsViewModel(context.applicationContext as android.app.Application) }
+    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }
@@ -148,6 +146,8 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     // 当前激活的游戏目录（null = 内置默认目录）
     var activeDirPath by remember { mutableStateOf(GameConfig.activeDirPath(context)) }
     var cleanupPlan by remember { mutableStateOf<CleanupPlan?>(null) }
+    // 应用内目录浏览（游戏目录在应用私有路径，外部文件管理器无权访问）
+    var browserDir by remember { mutableStateOf<File?>(null) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
@@ -277,7 +277,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                         activeDirPath = GameConfig.activeDirPath(context)
                         viewModel.loadLocalVersions()
                     },
-                    onOpen = { openFolderPath(context, GameConfig.getGameDir(context)) }
+                    onOpen = { browserDir = GameConfig.getGameDir(context) }
                 )
 
                 Spacer(modifier = Modifier.weight(1f))
@@ -409,7 +409,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                         exportTarget = version.id
                                         exportLauncher.launch("${version.id}.zip")
                                     },
-                                    onOpenFolder = { sub -> openVersionFolder(context, version.id, sub) },
+                                    onOpenFolder = { sub ->
+                                        val base = File(GameConfig.getVersionsDir(GameConfig.getGameDir(context)), version.id)
+                                        browserDir = if (sub.isBlank()) base else File(base, sub)
+                                    },
                                     onTogglePin = { pinned ->
                                         VersionMetaRepository.setPinned(context, version.id, pinned)
                                         metaVersion++
@@ -437,6 +440,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         onHandled = { importUri = null },
         onImported = { viewModel.loadLocalVersions() }
     )
+
+    browserDir?.let { dir ->
+        FolderBrowserDialog(title = "文件夹", startDir = dir, onDismiss = { browserDir = null })
+    }
 
     if (showDeleteConfirm != null) {
         AlertDialog(
@@ -572,13 +579,10 @@ private fun VersionItemLayout(
     onTogglePin: (Boolean) -> Unit = {},
     onDeleteClick: () -> Unit = {}
 ) {
-    val scale = remember { Animatable(initialValue = 0.95f) }
-    LaunchedEffect(Unit) {
-        scale.animateTo(targetValue = 1f, animationSpec = tween(durationMillis = 200))
-    }
-
+    // 列表行不做入场缩放：滚动时每行重新组合都会起一个缩放动画并额外建图层，
+    // 快速滑动时多行动画叠加会掉帧
     Surface(
-        modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
+        modifier = modifier,
         color = color,
         contentColor = contentColor,
         shape = MaterialTheme.shapes.large,
@@ -1024,14 +1028,6 @@ private fun treeUriToPath(uri: Uri): String? {
     return if (relative.isBlank()) base else "$base/$relative"
 }
 
-/** 共享存储绝对路径 → DocumentsContract 文档 id；非共享存储返回 null */
-private fun storagePathToDocumentId(path: String): String? {
-    if (path == "/storage/emulated/0") return "primary:"
-    if (path.startsWith("/storage/emulated/0/")) return "primary:" + path.removePrefix("/storage/emulated/0/")
-    val match = Regex("""^/storage/([0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})(?:/(.*))?$""").find(path) ?: return null
-    return "${match.groupValues[1]}:${match.groupValues[2]}"
-}
-
 /** 清理计划：下载残留项 + 缺少版本 json 的孤立版本目录 */
 private data class CleanupPlan(
     val residue: List<File>,
@@ -1060,61 +1056,4 @@ private fun collectResidue(dir: File, out: MutableList<File>) {
             f.isFile && RESIDUE_SUFFIXES.any { f.name.endsWith(it) } -> out.add(f)
         }
     }
-}
-
-/**
- * 打开目录：弹出应用选择面板，用户选中应用后跳转到该目录。
- * 目录以 externalstorage 的目录文档 URI 传出，文件管理器收到后直接定位到该路径；
- * 面板内同时纳入只声明了「接收分享目录」入口的文件管理器。
- * 找不到任何可打开的应用时直接提示，不静默改写剪贴板。
- */
-internal fun openFolderPath(context: Context, target: File) {
-    if (!target.exists()) target.mkdirs()
-
-    val documentId = storagePathToDocumentId(target.absolutePath)
-    if (documentId == null) {
-        android.widget.Toast.makeText(
-            context, "无法访问该目录：${target.absolutePath}", android.widget.Toast.LENGTH_LONG
-        ).show()
-        return
-    }
-    val uri = DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", documentId)
-
-    val view = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-
-    val chooser = Intent.createChooser(view, "打开文件夹").apply {
-        putExtra(
-            Intent.EXTRA_INITIAL_INTENTS,
-            arrayOf(
-                Intent(Intent.ACTION_SEND)
-                    .setType(DocumentsContract.Document.MIME_TYPE_DIR)
-                    .putExtra(Intent.EXTRA_STREAM, uri)
-                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            )
-        )
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-
-    runCatching { context.startActivity(chooser) }.onFailure {
-        android.widget.Toast.makeText(
-            context, "没有可打开该文件夹的应用：${target.absolutePath}", android.widget.Toast.LENGTH_LONG
-        ).show()
-    }
-}
-
-/**
- * 打开版本内目录：开启版本隔离时取版本目录下的子目录，否则取游戏目录下的对应子目录。
- */
-internal fun openVersionFolder(
-    context: Context,
-    versionId: String,
-    subFolder: String,
-    isolate: Boolean = true
-) {
-    val gameDir = GameConfig.getGameDir(context)
-    val base = if (isolate) File(GameConfig.getVersionsDir(gameDir), versionId) else gameDir
-    val target = if (subFolder.isBlank()) base else File(base, subFolder)
-    openFolderPath(context, target)
 }

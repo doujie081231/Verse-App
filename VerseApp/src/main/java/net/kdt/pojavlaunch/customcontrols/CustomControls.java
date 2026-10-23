@@ -16,6 +16,17 @@ public class CustomControls {
 	public List<ControlData> mControlDataList;
 	public List<ControlDrawerData> mDrawerDataList;
 	public List<ControlJoystickData> mJoystickDataList;
+	/** 控件组数据（仓库布局的 viewGroups；旧版布局为 null，视为全部常驻） */
+	public transient List<ControlGroupData> mControlGroups;
+
+	/** 单个控件组：一组按钮/摇杆共用显示状态，由绑定按钮点击切换 */
+	public static class ControlGroupData {
+		public String id;
+		public String name;
+		public boolean visible = true;
+		public final List<ControlData> buttons = new ArrayList<>();
+		public final List<ControlJoystickData> joysticks = new ArrayList<>();
+	}
 	public CustomControls() {
 		this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
 	}

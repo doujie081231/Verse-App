@@ -57,6 +57,10 @@ public class ControlData {
     public boolean isToggle, passThruEnabled;
     public String name;
     public int[] keycodes;      //Should store up to 4 keys
+    /** 所属控件组 id（仓库布局的 viewGroups；为空表示常驻显示，不受控件组切换影响） */
+    public String groupId;
+    /** 点击本按钮后切换显示状态的控件组 id 列表（仓库布局的 clickEvent.bindViewGroup） */
+    public List<String> bindViewGroups;
     public float opacity;       //Alpha value from 0 to 1;
     public int bgColor;
     public int strokeColor;
@@ -151,6 +155,9 @@ public class ControlData {
                 controlData.isSwipeable,
                 controlData.passThruEnabled
         );
+        this.groupId = controlData.groupId;
+        this.bindViewGroups = controlData.bindViewGroups == null
+                ? null : new ArrayList<>(controlData.bindViewGroups);
     }
 
     public static ControlData[] getSpecialButtons() {

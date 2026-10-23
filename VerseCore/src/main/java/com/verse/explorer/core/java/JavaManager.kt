@@ -224,18 +224,14 @@ class JavaManager(private val runtimeDir: File) {
         if (releaseFile.exists()) {
             try {
                 val content = releaseFile.readText()
-                val versionRegex = """JAVA_VERSION="(\d+)""".toRegex()
-                val match = versionRegex.find(content)
-                if (match != null) {
-                    val ver = match.groupValues[1].toIntOrNull()
-                    android.util.Log.d("JavaManager", "    release file: JAVA_VERSION=$ver")
-                    return ver
-                }
-                val versionRegex2 = """JAVA_VERSION="1\.(\d+)""".toRegex()
-                val match2 = versionRegex2.find(content)
-                if (match2 != null) {
-                    val ver = match2.groupValues[1].toIntOrNull()
-                    android.util.Log.d("JavaManager", "    release file: JAVA_VERSION=1.$ver")
+                // 取引号内的完整版本值再换算大版本：
+                // 旧写法 `JAVA_VERSION="(\d+)` 缺少结尾引号，会把 1.8.0_442 识别成 Java 1，
+                // 导致已安装的 Java 8 既选不中也被判定为缺失。
+                val match = Regex("""JAVA_VERSION="([^"]+)"""").find(content)
+                val value = match?.groupValues?.get(1)
+                val ver = value?.let { parseMajorVersion(it) }
+                if (ver != null) {
+                    android.util.Log.d("JavaManager", "    release file: JAVA_VERSION=$value -> $ver")
                     return ver
                 }
             } catch (e: Exception) {
@@ -262,14 +258,23 @@ class JavaManager(private val runtimeDir: File) {
                 .start()
             val output = process.inputStream.bufferedReader().readText()
             process.waitFor()
-            val versionRegex = """version "(\d+)""".toRegex()
-            val match = versionRegex.find(output)
-            val ver = match?.groupValues?.get(1)?.toIntOrNull()
+            val match = Regex("""version "([^"]+)""").find(output)
+            val ver = match?.groupValues?.get(1)?.let { parseMajorVersion(it) }
             android.util.Log.d("JavaManager", "    java -version: $ver")
             ver
         } catch (e: Exception) {
             android.util.Log.d("JavaManager", "    java -version error: ${e.message}")
             null
+        }
+    }
+
+    /** 版本值换算大版本：1.8.0_442 -> 8，17.0.10 -> 17，21 -> 21 */
+    private fun parseMajorVersion(value: String): Int? {
+        val parts = value.trim().split('.', '_', '-')
+        return if (parts.firstOrNull() == "1") {
+            parts.getOrNull(1)?.toIntOrNull()
+        } else {
+            parts.firstOrNull()?.toIntOrNull()
         }
     }
     

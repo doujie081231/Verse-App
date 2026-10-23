@@ -123,7 +123,8 @@ object FeedbackRepository {
     ): String? {
         val nonce = FeedbackCrypto.randomNonce()
         val ts = System.currentTimeMillis().toString()
-        val clientName = "versepc2"
+        // 站点按 client 区分来源（仅接受「手机端」/「versepc2」），安卓端固定上报手机端
+        val clientName = "手机端"
         val desc = description + if (env.isNotBlank()) "\n\n【环境信息】$env" else ""
 
         val payload = listOf(

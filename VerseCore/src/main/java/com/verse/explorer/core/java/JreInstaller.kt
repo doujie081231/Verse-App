@@ -39,9 +39,9 @@ internal object JreInstaller {
                 val targetDir = File(jreDir, "jre-$versionNum-$arch")
 
                 if (targetDir.exists()) {
-                    val javaBin = File(targetDir, "bin/java")
-                    val javaSh = File(targetDir, "bin/java.sh")
-                    if ((javaBin.exists() || javaSh.exists()) && JreValidator.isAndroidCompatibleJre(targetDir)) {
+                    // 「已安装」必须连同核心运行库一起校验：解包中断后目录里仍有 bin/java，
+                    // 若只看这一项就会把残缺 JRE 当成安装完成，启动时 JVM 直接初始化失败
+                    if (isRuntimeComplete(targetDir)) {
                         onProgress(JavaInstallProgress(
                             JavaInstallStatus.COMPLETED, 100, "Java运行时已安装"
                         ))
@@ -115,6 +115,35 @@ internal object JreInstaller {
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * 运行时完整性校验：bin/java + libjli/libjvm + AWT 库 + 核心运行库（modules 或可读的 rt.jar）。
+     * 解包中断会留下「有 bin/java 但没有核心库」的残目录；
+     * 与启动前的判定保持一致，避免「安装器说已安装、启动又说找不到」的死循环。
+     */
+    private fun isRuntimeComplete(dir: File): Boolean {
+        if (!File(dir, "bin/java").exists() && !File(dir, "bin/java.sh").exists()) return false
+        if (!JreValidator.isAndroidCompatibleJre(dir)) return false
+        val lib = File(dir, "lib")
+        if (!lib.isDirectory) return false
+        if (findInTree(lib, "libjli.so") == null || findInTree(lib, "libjvm.so") == null) return false
+        if (findInTree(lib, "libawt.so") == null || findInTree(lib, "libfontmanager.so") == null) return false
+        val modules = findInTree(lib, "modules")
+        if (modules != null && modules.length() > 0) return true
+        val rtJar = findInTree(lib, "rt.jar") ?: return false
+        return runCatching {
+            java.util.zip.ZipFile(rtJar).use { it.getEntry("java/lang/Object.class") != null }
+        }.getOrDefault(false)
+    }
+
+    private fun findInTree(dir: File, name: String): File? {
+        if (!dir.isDirectory) return null
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile && f.name == name) return f
+            if (f.isDirectory) findInTree(f, name)?.let { return it }
+        }
+        return null
     }
 
     /**

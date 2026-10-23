@@ -22,13 +22,37 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.verse.explorer.app.ui.theme.VerseColors
+
+/**
+ * 资源图标缓存：列表行滚动进出视口会反复组合，每次都从 assets 解码 PNG
+ * 会在主线程做重复 IO + 解码，是列表滚动与页面切换掉帧的主要来源之一。
+ * 按资源路径缓存解码结果，同一图标只解码一次。
+ */
+object AssetIconCache {
+    private val cache = HashMap<String, ImageBitmap?>()
+
+    fun get(context: Context, assetPath: String): ImageBitmap? = synchronized(cache) {
+        if (cache.containsKey(assetPath)) return cache[assetPath]
+        val bitmap = runCatching {
+            context.assets.open(assetPath).use { stream ->
+                BitmapFactory.decodeStream(stream)?.asImageBitmap()
+            }
+        }.getOrNull()
+        cache[assetPath] = bitmap
+        bitmap
+    }
+}
 
 @Composable
 fun LabelWithIcon(

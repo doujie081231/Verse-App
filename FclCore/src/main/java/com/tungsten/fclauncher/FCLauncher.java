@@ -423,6 +423,11 @@ public class FCLauncher {
                     }
                 });
             }
+            // 插件形式的 MobileGlues：同样需要写入驱动配置（忽略 shader 错误）
+            if (renderer.getGlName().toLowerCase().contains("mobileglues")
+                    || renderer.getEglName().toLowerCase().contains("mobileglues")) {
+                setupMobileGluesConfig(config.getContext(), envMap);
+            }
             return;
         }
         if (renderer.isEqual(Renderer.ID_GL4ES) || renderer.isEqual(Renderer.ID_VGPU)) {
@@ -447,17 +452,6 @@ public class FCLauncher {
             // TODO: set NGG_DIR_PATH to custom path
             envMap.put("POJAV_RENDERER", "opengles3");
             envMap.put("POJAVEXEC_EGL", "libEGL.so");
-        } else if (renderer.isEqual(Renderer.ID_MOBILEGLUES)) {
-            // 对齐 MobileGlues 官方插件 V2.0.0 的 FCL 插件元数据 pojavEnv（libmobileglues.so
-            // 同时充当 GL 与 EGL 驱动）；MG 配置目录默认 /sdcard/MG。MG_ANGLE_DIR 不设置，
-            // 按 soname 搜索进程内 ANGLE（本工程已打包）。
-            envMap.put("LIBGL_ES", "3");
-            envMap.put("POJAV_RENDERER", "opengles3");
-            envMap.put("POJAVEXEC_EGL", "libmobileglues.so");
-            envMap.put("LIBGL_EGL", "libmobileglues.so");
-            envMap.put("LIBGL_NAME", "libmobileglues.so");
-            envMap.put("MG_COUNT_LAUNCH", "1");
-            setupMobileGluesConfig(config.getContext(), envMap);
         } else {
             envMap.put("MESA_GLSL_CACHE_DIR", config.getContext().getCacheDir().getAbsolutePath());
             envMap.put("MESA_GL_VERSION_OVERRIDE", renderer.isEqual(Renderer.ID_VIRGL) ? "4.3" : "4.6");

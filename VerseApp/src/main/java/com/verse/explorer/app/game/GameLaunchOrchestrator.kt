@@ -3,6 +3,7 @@ package com.verse.explorer.app.game
 import android.graphics.SurfaceTexture
 import android.view.Surface
 import androidx.activity.ComponentActivity
+import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.ui.VerseLogger
@@ -19,6 +20,7 @@ import com.verse.explorer.launcher.fcl.game.LaunchOptions
 import com.verse.explorer.launcher.fcl.game.VerseJavaVersion
 import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
+import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.launcher.fcl.util.FCLPath
 import com.verse.explorer.jvmlauncher.JvmLauncherAPI
 import com.tungsten.fcl.game.sdl.SdlBridge
@@ -48,6 +50,7 @@ class GameLaunchOrchestrator(
 ) {
     companion object {
         private const val TAG = "GameLaunchOrchestrator"
+        private const val RESTART_GAME_REQUEST_CODE = 0x5647
     }
 
     var javaHome: String? = null
@@ -150,7 +153,10 @@ class GameLaunchOrchestrator(
                         if (code == 0) {
                             statusOverlay.setTitle("游戏已退出")
                             statusOverlay.setMessage("退出码: $code")
-                            activity.finish()
+                            // JVM 在同一进程内无法二次初始化：退出后结束进程，
+                            // 下次启动由全新进程承载新的 JVM（与 ZL2 的退出策略一致）
+                            activity.finishAffinity()
+                            killProcessSoon()
                             return@withContext
                         }
 
@@ -260,10 +266,9 @@ class GameLaunchOrchestrator(
         // onSurfaceTextureAvailable L869 的 prepareSurface）内设置，否则 SDL/Vulkan surface
         // 尺寸恒 0 → 进世界渲染首个世界帧 abort（SIGABRT 退出码 6，OpenJDK exited with code : 6）。
         runCatching {
-            val scaleFactor = MenuSetting.windowScale
-            org.lwjgl.glfw.CallbackBridge.windowWidth =
-                ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
-            org.lwjgl.glfw.CallbackBridge.windowHeight = (height * scaleFactor).toInt()
+            val resolvedSize = MenuSetting.resolveRenderSize(width, height)
+            org.lwjgl.glfw.CallbackBridge.windowWidth = resolvedSize.first
+            org.lwjgl.glfw.CallbackBridge.windowHeight = resolvedSize.second
             if (FCLBridge.FORCE_RESOLUTION) {
                 org.lwjgl.glfw.CallbackBridge.windowWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
                 org.lwjgl.glfw.CallbackBridge.windowHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
@@ -466,16 +471,20 @@ class GameLaunchOrchestrator(
 
         // 9) JVM 启动完成，把 Surface 交给游戏渲染线程
         // 之前只缩 LaunchOptions 窗口尺寸、未缩 Surface 缓冲导致错位黑块。
+        // 分辨率按屏幕尺寸的百分比缩放。
         val scaleFactor = MenuSetting.windowScale
-        VerseLogger.info("[9/9 渲染接入] windowScale=$scaleFactor, 窗口=${(surfaceWidth * scaleFactor).toInt()}x${(surfaceHeight * scaleFactor).toInt()}", TAG)
+        val resolvedSize = MenuSetting.resolveRenderSize(surfaceWidth, surfaceHeight)
+        VerseLogger.info(
+            "[9/9 渲染接入] windowScale=$scaleFactor, 窗口=${resolvedSize.first}x${resolvedSize.second}", TAG
+        )
         bridge.setScaleFactor(scaleFactor)
         // 窗口缓冲尺寸：execute 后 pushEventWindow 需复用，提升到函数级
         var winWidth = 0
         var winHeight = 0
         val surfaceTexture = surfaceTextureRef
         if (surfaceTexture != null && surfaceWidth > 0 && surfaceHeight > 0) {
-            winWidth = ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
-            winHeight = (surfaceHeight * scaleFactor).toInt()
+            winWidth = resolvedSize.first
+            winHeight = resolvedSize.second
             if (FCLBridge.FORCE_RESOLUTION) {
                 winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
                 winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
@@ -512,6 +521,14 @@ class GameLaunchOrchestrator(
             VerseLogger.info("[9/9 渲染接入] pushEventWindow($winWidth x $winHeight) 已推送", TAG)
         }.onFailure {
             VerseLogger.warn("[9/9 渲染接入] pushEventWindow 失败: ${it.message}", TAG)
+        }
+        // Java 虚拟机已启动、游戏首帧尚未输出：把卡片切到「等待游戏画面」，允许玩家手动关闭
+        // （黑屏期间始终有状态提示，首帧到达后 onGraphicOutput 会自动隐藏）
+        withContext(Dispatchers.Main) {
+            statusOverlay.setTitle("正在等待游戏画面出现")
+            statusOverlay.setMessage("Java 虚拟机已启动，正在加载游戏画面...")
+            statusOverlay.setIndeterminate(true)
+            statusOverlay.setClosable(true)
         }
         VerseLogger.info("启动流程结束, 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
     }
@@ -633,9 +650,13 @@ class GameLaunchOrchestrator(
             // preferredGraphicsBackend：GL 渲染器强制 opengl（Vulkan 后端下 MobileGlues 的
             // 窗口/EGL 初始化失败 "Invalid window"）；其余走 default（MC 自选）。
             // 26.3 起选项类被模块化拆分，后端键名可能非 preferredGraphicsBackend，
-            // 对 mobileglues 额外写入一组候选键（MC 只读取它识别的那个）。
+            // 对 MobileGlues 额外写入一组候选键（MC 只读取它识别的那个）。
             // 值一律小写（default/opengl/vulkan），大写变体 MC 不识别会回落默认后端。
-            if (renderer == "mobileglues") {
+            val rendererConfig = RendererManager.getRendererById(activity, renderer)
+            val isMobileGlues = rendererConfig != null &&
+                (rendererConfig.glName.contains("mobileglues", ignoreCase = true) ||
+                    rendererConfig.displayName.contains("MobileGlues", ignoreCase = true))
+            if (isMobileGlues) {
                 content = setOption(content, "preferredGraphicsBackend", "\"opengl\"")
                 content = setOption(content, "graphicsApi", "\"opengl\"")
                 content = setOption(content, "graphicsBackend", "\"opengl\"")
@@ -655,17 +676,10 @@ class GameLaunchOrchestrator(
                 content = setOption(content, "preferredGraphicsBackend", "\"$backend\"")
             }
 
-            // Verse 缺失该键走 MC 默认 mipmapLevels:4，Mali-G925 + ng_gl4es 转译层下
-            // mipmap 采样对水体半透明材质处理异常 → 水体错乱。
-            content = setOption(content, "mipmapLevels", "0")
-            content = setOption(content, "fancyGraphics", "false")
-            content = setOption(content, "ao", "false")
-            // 浮动水体半透明表面在 Mali-G925 + ng_gl4es 下随帧交换出现撕裂/花屏闪烁，
-            content = setOption(content, "enableVsync", "false")
-            content = setOption(content, "renderDistance", "2")
-
+            // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
+            // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
             optionsFile.writeText(content)
-            VerseLogger.info("已注入 FCL 渲染兼容参数: preferredGraphicsBackend=${SettingsRepository.getGraphicsBackend()}, mipmapLevels=0, fancyGraphics=false, ao=false, enableVsync=false, renderDistance=2", TAG)
+            VerseLogger.info("已注入渲染后端: ${SettingsRepository.getGraphicsBackend()}", TAG)
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }
@@ -686,8 +700,7 @@ class GameLaunchOrchestrator(
     }
 
     /**
-     * renderDistance:2 / ao:false / fancyGraphics:false / graphicsPreset:"custom" / renderClouds:"true"。
-     * 若 Verse 侧这些键缺失或默认值过高（mipmap 开、视距大），即为水体贴图错乱/渲染失效的候选根因。
+     * 输出 options.txt 中的渲染相关键，仅用于排查画面问题，不修改玩家的游戏内设置。
      */
     private fun dumpRenderOptions(repository: DefaultGameRepository, version: Version, params: GameLaunchParams) {
         runCatching {
@@ -719,13 +732,24 @@ class GameLaunchOrchestrator(
         }
     }
 
-    private fun createAuthInfo(params: GameLaunchParams): AuthInfo {
+    private suspend fun createAuthInfo(params: GameLaunchParams): AuthInfo {
+        // 外置登录：把验证服务器返回的 textures 属性一并交给游戏（--userProperties），
+        // 否则客户端拿不到角色皮肤，只能显示默认皮肤
+        val userProperties = if (!params.authlibServerUrl.isNullOrEmpty()) {
+            val textures = runCatching {
+                VerseApplication.authlibAuthenticator
+                    .fetchTexturesValue(params.authlibServerUrl, params.uuid)
+            }.getOrNull()
+            if (textures.isNullOrEmpty()) "{}" else """{"textures":["$textures"]}"""
+        } else {
+            "{}"
+        }
         return AuthInfo(
             params.username,
             parseUuid(params.uuid),
             params.accessToken,
             params.userType,
-            "{}"
+            userProperties
         )
     }
 
@@ -748,23 +772,23 @@ class GameLaunchOrchestrator(
         javaVersion: JavaVersion,
         verSettings: com.verse.explorer.app.data.VersionSettingsRepository.VersionSettings
     ): LaunchOptions {
-        // 强制分辨率（版本级设置）：直接用设定宽高，不按 windowScale 缩放。
+        // 强制分辨率（版本级设置）：直接用设定宽高，不按百分比规则换算。
         // setWidth((int)(screenWidth * scaleFactor)) —— 缩放三同步的另外两处：
         // execute 前 setScaleFactor + setDefaultBufferSize/pushEventWindow（见第 9 步）。
-        val scaleFactor = MenuSetting.windowScale
         val forceRes = !verSettings.usesGlobal && verSettings.forceResolution &&
             verSettings.width > 0 && verSettings.height > 0
+        val resolvedSize = MenuSetting.resolveRenderSize(surfaceWidth, surfaceHeight)
         val effectiveWidth = if (forceRes) {
             verSettings.width
         } else if (surfaceWidth > 0) {
-            ((surfaceWidth + MenuSetting.cursorOffset) * scaleFactor).toInt()
+            resolvedSize.first
         } else {
             params.gameWidth
         }
         val effectiveHeight = if (forceRes) {
             verSettings.height
         } else if (surfaceHeight > 0) {
-            (surfaceHeight * scaleFactor).toInt()
+            resolvedSize.second
         } else {
             params.gameHeight
         }
@@ -803,87 +827,95 @@ class GameLaunchOrchestrator(
     }
 
     private suspend fun resolveJavaHome(params: GameLaunchParams, gameDir: File): String {
-        val candidates = mutableListOf<String>()
-        if (!params.javaHome.isNullOrEmpty()) candidates.add(params.javaHome)
-        javaDetector.findJavaHome()?.let { candidates.add(it) }
-
-        var reinstalledJre = false
-        var reinstalledPath: String? = null
-
-        for (home in candidates) {
-            val file = File(home)
-            if (!file.exists() || !File(file, "bin/java").exists()) continue
-            val libDir = File(file, "lib")
-            val libjliOk = javaDetector.findFileInDir(libDir, "libjli.so")
-            val libjvmOk = javaDetector.findFileInDir(libDir, "libjvm.so")
-            if (!libjliOk) {
-                VerseLogger.warn("JRE $home 缺少 libjli.so", TAG)
-                continue
-            }
-            if (!libjvmOk) {
-                VerseLogger.warn("JRE $home 缺少 libjvm.so", TAG)
-                continue
-            }
-
-            // 检查关键 AWT 库与核心运行库 — 缺失说明 JRE 安装不完整，需要重装。
-            // 核心运行库：JDK9+ 为 lib/modules，JRE8 为 lib/rt.jar；损坏或缺失时
-            // JVM 初始化直接失败（NoClassDefFoundError: java/lang/Object）
-            val libawtOk = javaDetector.findFileInDir(libDir, "libawt.so")
-            val libfontmanagerOk = javaDetector.findFileInDir(libDir, "libfontmanager.so")
-            // rt.jar 存在不代表可用：下载中断/pack200 解包不完整时文件非空但已损坏，
-            // JVM 初始化会直接抛 NoClassDefFoundError: java/lang/Object。
-            // 因此对 JRE8 额外校验 rt.jar 能否读出核心类，损坏同样按缺失处理触发重装。
-            val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
-                javaDetector.findNonEmptyFileInDir(libDir, "rt.jar") && isRtJarUsable(libDir)
-            if (!libawtOk || !libfontmanagerOk || !classesOk) {
-                if (reinstalledJre && reinstalledPath == home) {
-                    VerseLogger.warn("JRE 重装后仍缺少关键文件，放弃", TAG)
-                    continue
-                }
-                VerseLogger.warn(
-                    "JRE $home 关键文件缺失 (libawt.so=$libawtOk, libfontmanager.so=$libfontmanagerOk, 运行库=$classesOk)，触发重装",
-                    TAG
-                )
-                file.deleteRecursively()
-
-                // 触发 JRE 重新安装（同步等待完成）
-                val javaKey = "java${params.javaVersion}"
-                try {
-                    JavaRuntimeManager.installJre(activity, javaKey) { progress ->
-                        VerseLogger.info("JRE 重装进度: ${progress.message}", TAG)
-                    }
-                    reinstalledJre = true
-                    reinstalledPath = home
-                } catch (e: Exception) {
-                    VerseLogger.warn("JRE 重装失败: ${e.message}", TAG)
-                }
-                continue
-            }
-
-            ensureJreExecutable(file)
-            return file.absolutePath
-        }
-
-        // JRE 重装后可能路径变了，重新扫描一次
-        if (reinstalledJre) {
-            javaDetector.findJavaHome()?.let { newHome ->
-                val file = File(newHome)
-                if (file.exists() && File(file, "bin/java").exists()) {
-                    val libDir = File(file, "lib")
-                    if (javaDetector.findFileInDir(libDir, "libawt.so") &&
-                        javaDetector.findFileInDir(libDir, "libfontmanager.so")) {
-                        ensureJreExecutable(file)
-                        VerseLogger.info("JRE 重装后验证通过: $newHome", TAG)
-                        return newHome
-                    }
-                }
-            }
-        }
-
+        // 本次启动真正需要的 Java 大版本：参数未指定时按版本清单推断
         val requiredVersion = if (params.javaVersion > 0) params.javaVersion
             else javaDetector.getRequiredJavaVersion(params.versionId, gameDir)
-        throw RuntimeException("未找到完整的 Java $requiredVersion 运行时（需包含 bin/java、lib/libjli.so、lib/libjvm.so），请在设置中配置 JRE 路径")
+
+        // 安装器自己的目标目录：files/jre/jre-<大版本>-<架构>
+        val installTarget = File(
+            JavaRuntimeManager.getJreDir(activity),
+            "jre-$requiredVersion-${JavaRuntimeManager.getArchName()}"
+        )
+
+        val candidates = mutableListOf<String>()
+        if (!params.javaHome.isNullOrEmpty()) candidates.add(params.javaHome)
+        // 兜底运行时必须与游戏所需的大版本一致：findJavaHome() 返回的是「最高版本」，
+        // 拿 Java 25 启动 1.12 会因 -Xbootclasspath/p 不再支持而直接退出
+        findRuntimeForVersion(requiredVersion)?.let {
+            if (it != params.javaHome) candidates.add(it)
+        }
+        candidates.add(installTarget.absolutePath)
+
+        for (home in candidates) {
+            val reason = jreInvalidReason(home)
+            if (reason == null) return executableJre(home)
+            VerseLogger.warn("JRE $home 不可用（$reason）", TAG)
+        }
+
+        // 没有可用运行时：交给安装器解包内置运行时。
+        // 不删除候选目录：别的版本/别处安装的运行时可能仍在使用，安装器只清空自己的目标目录。
+        val javaKey = "java$requiredVersion"
+        try {
+            JavaRuntimeManager.installJre(activity, javaKey) { progress ->
+                VerseLogger.info("JRE 重装进度: ${progress.message}", TAG)
+            }
+        } catch (e: Exception) {
+            VerseLogger.warn("JRE 重装失败: ${e.message}", TAG)
+        }
+
+        val reasonAfter = jreInvalidReason(installTarget.absolutePath)
+        if (reasonAfter == null) {
+            VerseLogger.info("JRE 重装后验证通过: ${installTarget.absolutePath}", TAG)
+            return executableJre(installTarget.absolutePath)
+        }
+        // 安装器可能保留了旧目录或写到了其它位置，最后再按大版本扫一遍
+        findRuntimeForVersion(requiredVersion)?.let { newHome ->
+            if (jreInvalidReason(newHome) == null) {
+                VerseLogger.info("JRE 重装后验证通过: $newHome", TAG)
+                return executableJre(newHome)
+            }
+        }
+
+        throw RuntimeException("未找到完整的 Java $requiredVersion 运行时（需包含 bin/java、lib/libjli.so、lib/libjvm.so、lib/libawt.so），请在设置中配置 JRE 路径")
     }
+
+    /**
+     * 校验 JRE 目录能否用于启动：返回 null 表示可用，否则返回缺失项。
+     * JRE8 的核心运行库是 lib/rt.jar（安装时由 rt.jar.pack 还原），JDK9+ 是 lib/modules；
+     * 与安装器的完整性判定保持一致，避免出现「安装器说已安装、启动又说找不到」的循环。
+     */
+    private fun jreInvalidReason(home: String): String? {
+        val dir = File(home)
+        if (!dir.exists()) return "目录不存在"
+        if (!File(dir, "bin/java").exists()) return "缺少 bin/java"
+        val libDir = File(dir, "lib")
+        if (!libDir.isDirectory) return "缺少 lib/"
+        if (!javaDetector.findFileInDir(libDir, "libjli.so")) return "缺少 libjli.so"
+        if (!javaDetector.findFileInDir(libDir, "libjvm.so")) return "缺少 libjvm.so"
+        if (!javaDetector.findFileInDir(libDir, "libawt.so")) return "缺少 libawt.so"
+        if (!javaDetector.findFileInDir(libDir, "libfontmanager.so")) return "缺少 libfontmanager.so"
+        val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
+            (javaDetector.findNonEmptyFileInDir(libDir, "rt.jar") && isRtJarUsable(libDir))
+        if (!classesOk) return "核心运行库(modules/rt.jar)缺失或损坏"
+        return null
+    }
+
+    private fun executableJre(home: String): String {
+        ensureJreExecutable(File(home))
+        return File(home).absolutePath
+    }
+
+    /**
+     * 按所需 Java 大版本挑选已安装运行时。
+     * 优先取 `jre-<版本>-<架构>` 目录（安装器产出），其余同版本运行时作为备选。
+     */
+    private fun findRuntimeForVersion(requiredVersion: Int): String? = runCatching {
+        JavaRuntimeManager.getInstalledRuntimes(activity)
+            .filter { it.version == requiredVersion }
+            .sortedByDescending { it.path.name.startsWith("jre-$requiredVersion-") }
+            .firstOrNull { javaDetector.isValidJreDir(it.path) }
+            ?.path?.absolutePath
+    }.getOrNull()
 
     /**
      * JRE8 核心库可用性：lib 目录下的 rt.jar 能读出 java/lang/Object.class 才算完好。
@@ -974,18 +1006,11 @@ class GameLaunchOrchestrator(
             return
         }
 
-        hasLaunched = false
-        isLaunching = false
-        fclBridge = null
-        // 仅在 JVM 已启动过（类已初始化）时复位桥接，避免首次触发 org.lwjgl.glfw.CallbackBridge 类初始化崩溃。
-        if (jvmStarted) {
-            CallbackBridge.setFCLBridge(null)
-        }
-        jvmStarted = false
-
+        // 旧 JVM 已失效，不能在当前进程再建一个：挂起冷启动后结束进程
         val intent = restarter.buildRestartIntent(params)
-        activity.finish()
-        activity.startActivity(intent)
+        scheduleColdStart(activity, intent, RESTART_GAME_REQUEST_CODE)
+        activity.finishAffinity()
+        killProcessSoon()
     }
 
     private suspend fun updateProgress(title: String, message: String?) {

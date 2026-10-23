@@ -47,7 +47,7 @@ fun VersionDetailScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val viewModel = remember { VersionsViewModel(context.applicationContext as android.app.Application) }
+    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
     val installState by viewModel.installState.collectAsState()
 
     var selectedSource by remember { mutableStateOf("mojang") }

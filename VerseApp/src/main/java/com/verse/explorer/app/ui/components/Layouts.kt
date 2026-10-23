@@ -1,6 +1,5 @@
 package com.verse.explorer.app.ui.components
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.basicMarquee
@@ -30,7 +29,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import com.verse.explorer.app.data.VersePersonalization
@@ -42,7 +40,11 @@ import com.verse.explorer.app.ui.theme.onItemColor
  * 通用布局组件（对位 ZL2 ui/components/Layouts.kt）。
  */
 
-/** 缩放标签：出现时从 0.95 放大到 1 */
+/**
+ * 缩放标签。
+ * 不再做入场缩放：标签成批出现在滚动列表中，每项各起一个 200ms 缩放动画
+ * 会为每次组合额外创建图层并持续重绘，是列表滚动掉帧的来源之一。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ScalingLabel(
@@ -54,12 +56,8 @@ fun ScalingLabel(
     contentColor: Color = onItemColor(),
     blur: Int = VersePersonalization.backgroundBlur,
 ) {
-    val scale = remember { Animatable(initialValue = 0.95f) }
-    LaunchedEffect(Unit) {
-        scale.animateTo(targetValue = 1f, animationSpec = tween(durationMillis = 200))
-    }
     Surface(
-        modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
+        modifier = modifier,
         shape = shape,
         color = color,
         contentColor = contentColor
@@ -109,12 +107,8 @@ fun ScalingLabel(
     color: Color = itemColor(influencedByBackground = influencedByBackground),
     contentColor: Color = onItemColor(),
 ) {
-    val scale = remember { Animatable(initialValue = 0.95f) }
-    LaunchedEffect(Unit) {
-        scale.animateTo(targetValue = 1f, animationSpec = tween(durationMillis = 200))
-    }
     Surface(
-        modifier = modifier.graphicsLayer(scaleY = scale.value, scaleX = scale.value),
+        modifier = modifier,
         shape = shape,
         color = color,
         contentColor = contentColor,

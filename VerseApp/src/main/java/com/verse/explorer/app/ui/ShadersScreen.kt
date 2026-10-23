@@ -44,7 +44,7 @@ fun ShadersScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val viewModel = remember { ResourceViewModel(context.applicationContext as android.app.Application, "shader") }
+    val viewModel = ResourceViewModel.shared(context.applicationContext as android.app.Application, "shader")
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
 

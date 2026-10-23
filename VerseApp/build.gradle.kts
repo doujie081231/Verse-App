@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "0.0.4"
+        versionCode = 37
+        versionName = "0.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -60,8 +60,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 便于崩溃分析:保留 run-as 数据访问 + kill -3/debuggerd 抓取现场堆栈
-            isDebuggable = true
+            // 发布/真机测试包不可调试：可调试标记会让 Android 16+ 弹出
+            // 「可调试应用 / 16 KB 对齐」兼容性警告；崩溃分析仍通过应用内
+            // 日志与系统生成的 hs_err 文件完成
+            isDebuggable = false
         }
         debug {
             isMinifyEnabled = false
@@ -191,6 +193,9 @@ dependencies {
     // 自定义取色主题：按种子颜色与配色风格生成完整 Material 配色方案
     // （4.1.1 与本工程 AGP 8.13.2 / Compose BOM 2025.12.00 兼容；5.x 需 AGP 9.1+）
     implementation("com.materialkolor:material-kolor:4.1.1")
+    // TouchController 模组控制代理（fifthlight/TouchController，LGPL 3.0）：
+    // 通过 Unix 套接字把触摸坐标转发给游戏内模组，由模组绘制并处理虚拟按键
+    implementation("top.fifthlight.touchcontroller:proxy-client-android:0.0.5")
     // 页面切换动效库（fornewid/material-motion-compose，Apache 2.0）：
     // Material 动效规范的 Compose 实现（FadeThrough/SharedAxis），用于导航过渡
     implementation("io.github.fornewid:material-motion-compose-core:1.2.1")

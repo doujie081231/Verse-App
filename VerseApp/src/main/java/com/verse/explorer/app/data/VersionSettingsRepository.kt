@@ -99,7 +99,7 @@ class VersionSettingsRepository(context: Context) {
         val isolateGameDir: Boolean = true,
         val graphicsBackend: String = "default",
         val vkDriverSystem: Boolean = false,
-        /** 渲染器 id（nggl4es/gl4es/mobileglues），空 = 跟随全局 */
+        /** 渲染器 id（内置 id 或渲染器插件包名），空 = 跟随全局 */
         val renderer: String = "",
         /** 驱动名（预留，当前由 vkDriverSystem 决定） */
         val driver: String = "",

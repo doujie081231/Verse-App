@@ -39,6 +39,8 @@ class GameStatusOverlay(
     private var progressBar: ProgressBar? = null
     private var errorSection: LinearLayout? = null
     private var repairSection: LinearLayout? = null
+    private var closeButton: TextView? = null
+    private var onCloseAction: (() -> Unit)? = null
 
     fun createOverlay(): View {
         val root = FrameLayout(activity).apply {
@@ -78,6 +80,27 @@ class GameStatusOverlay(
         }
         contentRoot = inner
         card.addView(inner)
+
+        // 右上角关闭按钮：仅在「等待游戏画面」阶段显示，玩家可收起卡片查看黑屏后的实际状态
+        closeButton = TextView(activity).apply {
+            text = "✕"
+            setTextColor(VerseColors.PcTextMuted.toArgb())
+            textSize = 16f
+            gravity = Gravity.CENTER
+            val sizePx = (32 * resources.displayMetrics.density).toInt()
+            layoutParams = FrameLayout.LayoutParams(sizePx, sizePx).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = (8 * resources.displayMetrics.density).toInt()
+                marginEnd = (8 * resources.displayMetrics.density).toInt()
+            }
+            setOnClickListener {
+                val action = onCloseAction
+                hide()
+                action?.invoke()
+            }
+            visibility = View.GONE
+        }
+        card.addView(closeButton)
 
         inner.addView(FrameLayout(activity).apply {
             clipChildren = false
@@ -193,6 +216,15 @@ class GameStatusOverlay(
         progressBar?.isIndeterminate = indeterminate
     }
 
+    /** 是否显示右上角关闭按钮（等待游戏画面阶段可关闭卡片） */
+    fun setClosable(closable: Boolean) {
+        closeButton?.visibility = if (closable) View.VISIBLE else View.GONE
+    }
+
+    fun setOnClose(action: (() -> Unit)?) {
+        onCloseAction = action
+    }
+
     fun showError(title: String, message: String) {
         if (errorSection == null) {
             val errorBg = GradientDrawable().apply {
@@ -304,6 +336,7 @@ class GameStatusOverlay(
     }
 
     fun hide() {
+        closeButton?.visibility = View.GONE
         overlay?.clearAnimation()
         val fadeOut = AlphaAnimation(1f, 0f)
         fadeOut.duration = 250

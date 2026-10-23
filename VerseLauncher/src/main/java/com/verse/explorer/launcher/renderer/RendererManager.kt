@@ -10,7 +10,6 @@ enum class RendererType(val displayName: String, val glLibName: String) {
     ZINK("Zink (Vulkan)", "libOSMesa_8.so"),
     VIRGL("VirGL (OpenGL)", "libOSMesa.so"),
     GL4ES("GL4ES (OpenGL 2)", "libgl4es_12.so"),
-    MG("Mobile GL (Custom)", "libMGDex.so"),
     NGGL4ES("ng-GL4ES", "libgl4es_12.so"),
     VGPU("VGPU (OpenGL)", "libvgpu.so"),
     FREEDRENO("Freedreno (Turnip)", "libOSMesa_8.so")
@@ -34,7 +33,6 @@ object RendererManager {
     const val ID_FREEDRENO = "freedreno"
     const val ID_VIRGL = "virgl"
     const val ID_VGPU = "vgpu"
-    const val ID_MOBILEGLUES = "mobileglues"
 
     data class RendererConfig(
         val displayName: String,
@@ -45,7 +43,15 @@ object RendererManager {
         val envVars: Map<String, String?>,
         val requiredLibs: List<String>,
         val minMcVersion: String = "",
-        val maxMcVersion: String = ""
+        val maxMcVersion: String = "",
+        /** 插件渲染器的 native 库目录；内置渲染器为空 */
+        val nativeLibDir: String = "",
+        /** 插件包名；非空表示来自渲染器插件 */
+        val pluginPackage: String = "",
+        /** 插件应用显示名（用于界面标注来源） */
+        val pluginAppName: String = "",
+        /** 需要预先 dlopen 的插件内库文件名 */
+        val dlopenLibs: List<String> = emptyList()
     )
 
     val GL4ES = RendererConfig(
@@ -195,38 +201,11 @@ object RendererManager {
         maxMcVersion = "1.16.5"
     )
 
-    // MobileGlues 官方插件 V2.0.0（MobileGL-Dev/MobileGlues-release）AndroidManifest 的
-    //   插件元数据：renderer="MobileGlues:libmobileglues.so:libmobileglues.so"（glName 与
-    //   eglName 均为 libmobileglues.so，MobileGlues 自带 EGL 实现），pojavEnv="LIBGL_ES=3:
-    //   POJAV_RENDERER=opengles3:POJAVEXEC_EGL=libmobileglues.so:LIBGL_EGL=libmobileglues.so:
-    //   MG_COUNT_LAUNCH=1"，des="MobileGlues (OpenGL 4.0, 1.17+)"，minMCver=1.17。
-    //   LIBGL_NAME 同步取 glName，与其余渲染器配置风格一致。
-    //   MG 配置目录默认 /sdcard/MG（无 config.json 时驱动用内置默认值，源码 settings.cpp 走
-    //   "Failed to load config. Use default config." 路径）；MG_ANGLE_DIR 不设置，驱动按 soname
-    //   在进程内搜索 ANGLE（本工程已打包 libEGL_angle.so/libGLESv2_angle.so）。
-    val MOBILEGLUES = RendererConfig(
-        displayName = "MobileGlues",
-        id = ID_MOBILEGLUES,
-        glName = "libmobileglues.so",
-        eglName = "libmobileglues.so",
-        pojavRenderer = "opengles3",
-        envVars = mapOf(
-            "POJAV_RENDERER" to "opengles3",
-            "POJAVEXEC_EGL" to "libmobileglues.so",
-            "LIBGL_EGL" to "libmobileglues.so",
-            "LIBGL_NAME" to "libmobileglues.so",
-            "LIBGL_ES" to "3",
-            "MG_COUNT_LAUNCH" to "1"
-        ),
-        requiredLibs = listOf("libmobileglues.so"),
-        minMcVersion = "1.17",
-        maxMcVersion = ""
-    )
+    // MobileGlues 等第三方渲染器不再内置，统一通过已安装的渲染器插件识别（元数据见 RendererPluginManager）。
 
     private val allRenderers: List<RendererConfig> = listOf(
         GL4ES,
         NGGL4ES,
-        MOBILEGLUES,
         ZINK,
         FREEDRENO,
         VIRGL,
@@ -237,18 +216,28 @@ object RendererManager {
 
     fun availableRenderers(context: Context): List<RendererConfig> {
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
-        return allRenderers.filter { renderer ->
-            areRequiredLibsPresent(nativeLibDir, renderer)
-        }
+        val builtins = allRenderers.filter { areRequiredLibsPresent(nativeLibDir, it) }
+        return builtins + RendererPluginManager.ensureLoaded(context)
     }
 
     fun getRendererById(id: String): RendererConfig? {
         return allRenderers.find { it.id.equals(id, ignoreCase = true) }
+            ?: RendererPluginManager.find(id)
+    }
+
+    /** 先确保插件已扫描，再按标识查找（启动前与设置页使用） */
+    fun getRendererById(context: Context, id: String): RendererConfig? {
+        RendererPluginManager.ensureLoaded(context)
+        return getRendererById(id)
     }
 
     fun getDefaultRenderer(): RendererConfig = GL4ES
 
     fun areRequiredLibsPresent(nativeLibDir: String, renderer: RendererConfig): Boolean {
+        if (renderer.pluginPackage.isNotEmpty()) {
+            val pluginDir = renderer.nativeLibDir.ifEmpty { nativeLibDir }
+            return File(pluginDir, renderer.glName).isFile
+        }
         if (renderer.requiredLibs.isEmpty()) return true
         val dir = File(nativeLibDir)
         return renderer.requiredLibs.all { libName ->
@@ -263,13 +252,31 @@ object RendererManager {
     }
 
     fun resolveRendererWithFallback(context: Context, selectedId: String): RendererConfig {
-        val selected = getRendererById(selectedId) ?: GL4ES
+        val selected = getRendererById(context, selectedId) ?: GL4ES
         return if (areRequiredLibsPresent(context, selected)) {
             selected
         } else {
             Log.w(TAG, "Renderer ${selected.displayName} library missing, fallback to GL4ES")
             GL4ES
         }
+    }
+
+    /** 插件渲染器构造 FCL Renderer 时的 pojavEnv 列表（DLOPEN 库名由 FCL 侧拼接插件目录） */
+    fun toPojavEnvList(renderer: RendererConfig): List<String> {
+        val result = mutableListOf<String>()
+        val hasRendererKey = renderer.envVars.keys.any { it.equals("POJAV_RENDERER", ignoreCase = true) }
+        if (!hasRendererKey && renderer.pojavRenderer.isNotEmpty()) {
+            result.add("POJAV_RENDERER=${renderer.pojavRenderer}")
+        }
+        renderer.envVars.forEach { (key, value) ->
+            if (!value.isNullOrEmpty()) result.add("$key=$value")
+        }
+        if (renderer.envVars.keys.none { it.equals("DLOPEN", ignoreCase = true) } &&
+            renderer.dlopenLibs.isNotEmpty()
+        ) {
+            result.add("DLOPEN=${renderer.dlopenLibs.joinToString(",")}")
+        }
+        return result
     }
 
     fun applyRendererEnvironment(

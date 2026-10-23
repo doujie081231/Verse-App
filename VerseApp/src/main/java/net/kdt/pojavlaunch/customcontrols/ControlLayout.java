@@ -53,6 +53,12 @@ public class ControlLayout extends FrameLayout {
 	private boolean mIsModified;
 	private boolean mControlVisible = false;
 
+	/* 控件组：组 id → 当前是否显示；组 id → 组内控件视图；组 id → 尚未创建视图的组数据 */
+	private final HashMap<String, Boolean> mGroupVisibility = new HashMap<>();
+	private final HashMap<String, List<View>> mGroupViews = new HashMap<>();
+	private final HashMap<String, CustomControls.ControlGroupData> mGroupData = new HashMap<>();
+	private final java.util.HashSet<String> mCreatedGroups = new java.util.HashSet<>();
+
 	private EditControlSideDialog mControlDialog = null;
 	private ControlHandleView mHandleView;
 	private ControlButtonMenuListener mMenuListener;
@@ -90,6 +96,10 @@ public class ControlLayout extends FrameLayout {
 		}
 
 		removeAllButtons();
+		mGroupViews.clear();
+		mGroupVisibility.clear();
+		mGroupData.clear();
+		mCreatedGroups.clear();
 		if(mLayout != null) {
 			mLayout.mControlDataList = null;
 			mLayout = null;
@@ -104,14 +114,30 @@ public class ControlLayout extends FrameLayout {
 		mLayout = controlLayout;
 		
 
-		// Joystick(s) first, to workaround the touch dispatch
-		for(ControlJoystickData joystick : mLayout.mJoystickDataList){
-			addJoystickView(joystick);
-		}
+		List<CustomControls.ControlGroupData> groups = controlLayout.mControlGroups;
+		if (groups != null) {
+			// 仓库布局：按控件组管理，隐藏组先不创建视图，点击切换时再按需创建
+			for (CustomControls.ControlGroupData group : groups) {
+				mGroupData.put(group.id, group);
+				mGroupVisibility.put(group.id, group.visible);
+			}
+			// 摇杆先于按钮创建，保证触摸分发顺序与旧版一致
+			for (CustomControls.ControlGroupData group : groups) {
+				if (group.visible || mModifiable) createGroupJoystickViews(group);
+			}
+			for (CustomControls.ControlGroupData group : groups) {
+				if (group.visible || mModifiable) createGroupButtonViews(group);
+			}
+		} else {
+			// Joystick(s) first, to workaround the touch dispatch
+			for(ControlJoystickData joystick : mLayout.mJoystickDataList){
+				addJoystickView(joystick);
+			}
 
-		//CONTROL BUTTON
-		for (ControlData button : controlLayout.mControlDataList) {
-			addControlView(button);
+			//CONTROL BUTTON
+			for (ControlData button : controlLayout.mControlDataList) {
+				addControlView(button);
+			}
 		}
 
 		//CONTROL DRAWER
@@ -126,6 +152,88 @@ public class ControlLayout extends FrameLayout {
 		mButtons = null;
 		getButtonChildren(); // Force refresh
 	} // loadLayout
+
+	/** 控件组当前是否显示；未登记的组（旧版布局）视为常驻显示 */
+	public boolean isGroupVisible(String groupId) {
+		if (groupId == null || groupId.isEmpty()) return true;
+		Boolean visible = mGroupVisibility.get(groupId);
+		return visible == null || visible;
+	}
+
+	/** 点击带 bindViewGroup 的按钮：切换目标控件组的显示状态 */
+	public void toggleControlGroups(List<String> groupIds) {
+		if (groupIds == null || groupIds.isEmpty()) return;
+		for (String groupId : groupIds) {
+			if (groupId == null || groupId.isEmpty()) continue;
+			boolean nextVisible = !isGroupVisible(groupId);
+			mGroupVisibility.put(groupId, nextVisible);
+			if (nextVisible) createGroupViewsIfNeeded(groupId);
+			setGroupViewsVisible(groupId, nextVisible);
+		}
+	}
+
+	/** 控件组首次显示时按需创建视图（避免启动时就加载全部隐藏组的上千个控件） */
+	private void createGroupViewsIfNeeded(String groupId) {
+		if (mCreatedGroups.contains(groupId)) return;
+		CustomControls.ControlGroupData group = mGroupData.get(groupId);
+		if (group == null) return;
+		createGroupJoystickViews(group);
+		createGroupButtonViews(group);
+		mCreatedGroups.add(groupId);
+		mButtons = null;
+	}
+
+	private void createGroupJoystickViews(CustomControls.ControlGroupData group) {
+		for (ControlJoystickData joystick : group.joysticks) {
+			addJoystickView(joystick);
+		}
+	}
+
+	private void createGroupButtonViews(CustomControls.ControlGroupData group) {
+		for (ControlData button : group.buttons) {
+			addControlView(button);
+		}
+		mCreatedGroups.add(group.id);
+		mButtons = null;
+	}
+
+	private void setGroupViewsVisible(String groupId, boolean visible) {
+		List<View> views = mGroupViews.get(groupId);
+		if (views == null) return;
+		boolean grabbing = isGrabbing();
+		for (View view : views) {
+			if (!visible) {
+				if (view instanceof ControlInterface && view.isActivated()) {
+					// 收起控件组时释放仍按住的按键，避免按键卡住
+					((ControlInterface) view).sendKeyPresses(false);
+				}
+				view.setVisibility(View.GONE);
+				continue;
+			}
+			if (mModifiable) {
+				view.setVisibility(View.VISIBLE);
+				continue;
+			}
+			if (!(view instanceof ControlInterface)) {
+				view.setVisibility(View.VISIBLE);
+				continue;
+			}
+			ControlData props = ((ControlInterface) view).getProperties();
+			boolean shown = (props.displayInGame && grabbing) || (props.displayInMenu && !grabbing);
+			view.setVisibility(shown ? View.VISIBLE : View.GONE);
+		}
+	}
+
+	/** 登记按钮/摇杆所属的控件组，用于点击切换时统一显示或隐藏 */
+	private void registerGroupView(ControlData data, View view) {
+		if (data == null || data.groupId == null || data.groupId.isEmpty()) return;
+		List<View> views = mGroupViews.get(data.groupId);
+		if (views == null) {
+			views = new ArrayList<>();
+			mGroupViews.put(data.groupId, views);
+		}
+		views.add(view);
+	}
 
 	//CONTROL BUTTON
 	public void addControlButton(ControlData controlButton) {
@@ -142,6 +250,7 @@ public class ControlLayout extends FrameLayout {
 			view.setFocusableInTouchMode(false);
 		}
 		addView(view);
+		registerGroupView(controlButton, view);
 
 		setModified(true);
 	}
@@ -215,7 +324,7 @@ public class ControlLayout extends FrameLayout {
 			view.setFocusableInTouchMode(false);
 		}
 		addView(view);
-
+		registerGroupView(data, view);
 	}
 
 
@@ -252,7 +361,9 @@ public class ControlLayout extends FrameLayout {
 
 		mControlVisible = isVisible;
 		for(ControlInterface button : getButtonChildren()){
-			button.setVisible(((button.getProperties().displayInGame && isGrabbing()) || (button.getProperties().displayInMenu && !isGrabbing())) && isVisible);
+			button.setVisible(((button.getProperties().displayInGame && isGrabbing()) || (button.getProperties().displayInMenu && !isGrabbing()))
+					&& isVisible
+					&& isGroupVisible(button.getProperties().groupId));
 		}
 	}
 
@@ -262,6 +373,12 @@ public class ControlLayout extends FrameLayout {
 		}
 		mModifiable = isModifiable;
 		if(isModifiable){
+			// 编辑模式：把尚未创建的控件组也全部展开，便于查看和调整
+			if (!mGroupData.isEmpty()) {
+				for (String groupId : mGroupData.keySet()) {
+					createGroupViewsIfNeeded(groupId);
+				}
+			}
 			// In edit mode, all controls have to be shown
 			for(ControlInterface button : getButtonChildren()){
 				button.setVisible(true);

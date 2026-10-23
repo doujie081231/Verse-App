@@ -253,7 +253,11 @@ class GameInputHandler(
                     targetY.coerceIn(0f, screenHeight.toFloat())
                 )
             } else {
-                setPointer(pointerX + deltaX, pointerY + deltaY)
+                // 抓取态用相对增量，避免覆盖陀螺仪已经累加的光标位移
+                val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
+                org.lwjgl.glfw.CallbackBridge.sendCursorDelta(tX * scale, tY * scale)
+                pointerX += tX
+                pointerY += tY
             }
         }
         return handleExternalMouseEvent(event)
@@ -368,8 +372,6 @@ class GameInputHandler(
             VerseLogger.debug("gLeftSkip x=${event.getX(mainIndex).toInt()} main=$mainIndex", "TouchDiag")
             return
         }
-        initialX = pointerX
-        initialY = pointerY
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 currentPointerID = event.getPointerId(mainIndex)
@@ -401,14 +403,15 @@ class GameInputHandler(
                 val newDownX = event.getX(pointerIndex)
                 val newDownY = event.getY(pointerIndex)
                 val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
-                val deltaX = ((newDownX - downX) * MenuSetting.mouseSensitivity.toFloat() / scale).toInt()
-                val deltaY = ((newDownY - downY) * MenuSetting.mouseSensitivity.toFloat() / scale).toInt()
-                if (MenuSetting.isEnableGyroscope) {
-                    pointerX = initialX + deltaX
-                    pointerY = initialY + deltaY
-                } else {
-                    setPointer(initialX + deltaX, initialY + deltaY)
-                }
+                val sensitivity = MenuSetting.mouseSensitivity.toFloat()
+                val moveDx = (newDownX - downX) * sensitivity
+                val moveDy = (newDownY - downY) * sensitivity
+                // 抓取态一律用相对增量下发：陀螺仪在后台持续累加鼠标位置，
+                // 若这里按「按下时坐标 + 手指位移」下发绝对坐标，会把陀螺仪位移覆盖掉 → 视角乱跳。
+                org.lwjgl.glfw.CallbackBridge.sendCursorDelta(moveDx, moveDy)
+                // 内部坐标同步（切回非抓取态时作为光标基准）
+                pointerX += moveDx / scale
+                pointerY += moveDy / scale
                 if (kotlin.math.abs(newDownX - downX) > TAP_MAX_DIST
                     || kotlin.math.abs(newDownY - downY) > TAP_MAX_DIST
                 ) {
@@ -422,7 +425,7 @@ class GameInputHandler(
                 // delta/基线采样日志（独立节流，与 diagEvent 概要错开）
                 if (now - lastMoveDeltaDiagTime >= 120) {
                     lastMoveDeltaDiagTime = now
-                    VerseLogger.debug("gMove cur=$currentPointerID idx=$pointerIndex dX=${downX.toInt()} dY=${downY.toInt()} new=(${newDownX.toInt()},${newDownY.toInt()}) dlt=($deltaX,$deltaY) pX=${pointerX.toInt()} pY=${pointerY.toInt()} moved=$hasMoved sens=${MenuSetting.mouseSensitivity} scale=$scale", "TouchDiag")
+                    VerseLogger.debug("gMove cur=$currentPointerID idx=$pointerIndex dX=${downX.toInt()} dY=${downY.toInt()} new=(${newDownX.toInt()},${newDownY.toInt()}) dlt=(${moveDx.toInt()},${moveDy.toInt()}) pX=${pointerX.toInt()} pY=${pointerY.toInt()} moved=$hasMoved sens=${MenuSetting.mouseSensitivity} scale=$scale", "TouchDiag")
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {

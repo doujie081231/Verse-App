@@ -189,10 +189,14 @@ private fun HomePageContent(
 ) {
     val homeScrollState = rememberScrollState()
     var screenBoundsHeightPx by remember { mutableStateOf(0f) }
+    // 忽略刘海/全屏时状态栏隐藏，statusBars 内边距会归零导致内容贴到屏幕顶端；
+    // 这里保留最小顶部留白，使全屏开关前后主页顶部的间距保持一致
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topPadding = if (statusBarTop < 24.dp) 24.dp else statusBarTop
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
+            .padding(top = topPadding)
             .verticalScroll(homeScrollState)
             .padding(horizontal = 24.dp, vertical = 10.dp)
             .onSizeChanged { screenBoundsHeightPx = it.height.toFloat() }
@@ -309,12 +313,9 @@ internal fun VersionIcon(
         com.verse.explorer.core.version.VersionType.OLD_BETA -> VerseColors.PcPurple.copy(alpha = 0.15f)
         else -> VerseColors.PcGreen.copy(alpha = 0.15f)
     }
+    // 共享缓存：主页卡片与列表行复用同一份解码结果
     val assetBitmap = remember(iconAssetPath) {
-        try {
-            context.assets.open(iconAssetPath).use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)?.asImageBitmap()
-            }
-        } catch (e: Exception) { null }
+        com.verse.explorer.app.ui.components.AssetIconCache.get(context, iconAssetPath)
     }
     val iconBitmap = packIconBitmap ?: assetBitmap
     Box(

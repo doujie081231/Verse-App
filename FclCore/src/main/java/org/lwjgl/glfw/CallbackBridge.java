@@ -131,6 +131,15 @@ public class CallbackBridge {
         }
     }
 
+    /**
+     * 在当前光标位置上叠加增量后下发。
+     * 陀螺仪（GyroControl）和手指滑动都用相对增量，二者叠加而不是互相覆盖，
+     * 避免抓取态下按「按下坐标 + 手指位移」下发绝对坐标时把陀螺仪位移冲掉。
+     */
+    public static void sendCursorDelta(float dx, float dy) {
+        sendCursorPos(mouseX + dx, mouseY + dy);
+    }
+
     public static void sendKeycode(int keycode, char keychar, int scancode, int modifiers, boolean isDown) {
         // 键码直通：Verse 与 Pojav 触控模块均使用标准 GLFW 键码（如 GLFW_KEY_A=65），
         // 不再经过 FCL 旧键码映射表的二次转换（原转换会查表失败而吞掉按键）。

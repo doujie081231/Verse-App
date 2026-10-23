@@ -408,17 +408,24 @@ class GameLaunchController(private val context: Context) {
                     ?.missingRequired
                     ?.joinToString(", ") { it.dependency.name }
                 if (!missing.isNullOrEmpty()) {
-                    steps[stepIdx] = LaunchStep("Vulkan 检查", "警告", "warning")
-                    warnings.add("设备缺失本版本必需的 Vulkan 依赖: $missing（FCL 同款判定，可继续但渲染后端可能初始化失败）")
-                    VerseLogger.warn("Vulkan 检查: 设备缺失 $missing", "LaunchController")
-                    // launchCheck 运行在 Dispatchers.IO，Toast 必须切主线程（否则
-                    // Can't toast on a thread that has not called Looper.prepare()）
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        android.widget.Toast.makeText(
-                            context,
-                            "当前设备图形能力有限，可能无法运行此版本；可尝试在版本设置中更换渲染器",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
+                    // Vulkan 缺失提示只针对 26.3：26.2 仍可回落到 OpenGL 后端，
+                    // 提示缺失 Vulkan 会让玩家误以为无法启动。
+                    if (vulkanMissingPromptNeeded(cachedVersion.id)) {
+                        steps[stepIdx] = LaunchStep("Vulkan 检查", "警告", "warning")
+                        warnings.add("设备缺失本版本必需的 Vulkan 依赖: $missing（可继续但渲染后端可能初始化失败）")
+                        VerseLogger.warn("Vulkan 检查: 设备缺失 $missing", "LaunchController")
+                        // launchCheck 运行在 Dispatchers.IO，Toast 必须切主线程（否则
+                        // Can't toast on a thread that has not called Looper.prepare()）
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            android.widget.Toast.makeText(
+                                context,
+                                "当前设备图形能力有限，可能无法运行此版本；可尝试在版本设置中更换渲染器",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } else {
+                        steps[stepIdx] = LaunchStep("Vulkan 检查", "完成 (缺项可回落 GL)", "check")
+                        VerseLogger.info("Vulkan 检查: 设备缺失 $missing，26.2 按 OpenGL 回落", "LaunchController")
                     }
                 } else if (capabilities == null) {
                     steps[stepIdx] = LaunchStep("Vulkan 检查", "跳过 (检测失败)", "skip")
@@ -544,6 +551,12 @@ class GameLaunchController(private val context: Context) {
         val m = Regex("""\d+(\.\d+)*""").find(v) ?: return emptyList()
         return m.value.split(".").mapNotNull { it.toIntOrNull() }
     }
+
+    /** Vulkan 缺失提示的版本门槛：只有 26.3 起必须 Vulkan，26.2 可回落 OpenGL */
+    private fun vulkanMissingPromptNeeded(versionId: String): Boolean =
+        com.tungsten.fclcore.util.versioning.GameVersionNumber.compare(
+            com.verse.explorer.app.device.normalizeMcVersion(versionId), "26.3"
+        ) >= 0
 
     private fun selectBestRuntime(runtimes: List<JavaRuntime>, requiredVersion: Int): JavaRuntime? {
         val exactMatch = runtimes.find { it.version == requiredVersion }

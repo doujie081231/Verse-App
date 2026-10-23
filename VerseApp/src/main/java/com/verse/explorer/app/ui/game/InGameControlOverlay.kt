@@ -82,6 +82,7 @@ class InGameControlOverlay(
 
     private var fpsView: TextView? = null
     private var memView: TextView? = null
+    private var infoContainer: LinearLayout? = null
     private var infoHandler: Handler? = null
     private var fpsEnabled = false
     private var memEnabled = false
@@ -456,15 +457,21 @@ class InGameControlOverlay(
             MenuSetting.itemBarHeight = v
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_HEIGHT)
         })
-        content.addView(seekbarRow("窗口比例", 1, 300, (MenuSetting.windowScale * 100).toInt(), "%") { v ->
-            MenuSetting.windowScale = v / 100.0
-            MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
-            refreshWindowsSize(MenuSetting.windowScale)
-        })
         content.addView(seekbarRow("光标偏移", -150, 150, MenuSetting.cursorOffset.toInt(), "") { v ->
             MenuSetting.cursorOffset = v.toDouble()
             MenuSetting.notifyChange(MenuSetting.Key.CURSOR_OFFSET)
-            refreshWindowsSize(MenuSetting.windowScale)
+            refreshWindowsSize()
+        })
+
+        // ===== 分辨率 =====
+        content.addView(sectionHeader("分辨率"))
+        content.addView(seekbarRow(
+            "分辨率比例", 25, 300,
+            (MenuSetting.windowScale * 100).toInt().coerceIn(25, 300), "%"
+        ) { v ->
+            MenuSetting.windowScale = v / 100.0
+            MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
+            refreshWindowsSize()
         })
 
         // ===== 手势 =====
@@ -566,11 +573,14 @@ class InGameControlOverlay(
                 VerseLogger.warn("写入 PREF_GYRO_INVERT 失败: ${it.message}", "Control")
             }
         })
-        content.addView(seekbarRow("陀螺仪灵敏度", 0, 1000, MenuSetting.gyroscopeSensitivity, "") { v ->
-            MenuSetting.gyroscopeSensitivity = v
-            MenuSetting.notifyChange(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
-            applyGyroSensitivity(v)
-        })
+        content.addView(
+            seekbarRow("陀螺仪灵敏度", 0, 100, MenuSetting.gyroscopeSensitivity.coerceIn(0, 100), "") { v ->
+                val clamped = v.coerceIn(0, 100)
+                MenuSetting.gyroscopeSensitivity = clamped
+                MenuSetting.notifyChange(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
+                applyGyroSensitivity(clamped)
+            }
+        )
 
         // ===== 调试 =====
         content.addView(sectionHeader("调试"))
@@ -651,22 +661,34 @@ class InGameControlOverlay(
         logWin.setVisibility(MenuSetting.isShowLog || MenuSetting.isAutoShowLog)
     }
 
-    private fun refreshWindowsSize(factor: Double) {
+    /** 按当前分辨率规则刷新渲染缓冲与游戏窗口尺寸 */
+    private fun refreshWindowsSize() {
         val bridge = activity.currentBridge ?: return
-        val screenWidth = activity.resources.displayMetrics.widthPixels
-        val screenHeight = activity.resources.displayMetrics.heightPixels
-        bridge.setScaleFactor(factor)
-        var width = ((screenWidth + MenuSetting.cursorOffset) * factor).toInt()
-        var height = (screenHeight * factor).toInt()
+        val metrics = activity.resources.displayMetrics
+        val resolved = MenuSetting.resolveRenderSize(metrics.widthPixels, metrics.heightPixels)
+        var width = resolved.first
+        var height = resolved.second
         if (FCLBridge.FORCE_RESOLUTION) {
             width = FCLBridge.FORCE_RESOLUTION_WIDTH
             height = FCLBridge.FORCE_RESOLUTION_HEIGHT
         }
+        bridge.setScaleFactor(MenuSetting.windowScale)
         bridge.surfaceTexture?.setDefaultBufferSize(width, height)
         // pushEventWindow 依赖游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge，可能未就绪，兜底捕获
         runCatching {
             bridge.pushEventWindow(width, height)
         }
+        // SDL 渲染路径（MC 26.3+）同步原生窗口尺寸
+        val sdlSurface = org.libsdl.app.SDLActivity.getSDLSurface()
+        if (sdlSurface != null && com.tungsten.fcl.game.sdl.SdlBridge.sdlEnabled) {
+            runCatching {
+                sdlSurface.surfaceChanged()
+                sdlSurface.nativeResize(width, height)
+            }
+        }
+        VerseLogger.info(
+            "分辨率已应用: ${width}x${height}", "Control"
+        )
     }
 
     @SuppressLint("InflateParams")
@@ -1084,38 +1106,93 @@ class InGameControlOverlay(
         })
     }
 
+    /**
+     * FPS/内存信息条：两项放入同一容器，整条可拖动，
+     * 拖动位置按屏幕范围限制并持久化，避免遮挡视野后无法移开。
+     */
     private fun ensureInfoOverlay() {
-        if (fpsView == null) {
-            fpsView = TextView(activity).apply {
-                setTextColor(Color.argb(200, 255, 255, 255))
-                textSize = 14f
-                paint.isFakeBoldText = true
-                visibility = View.GONE
-            }
-            activity.addContentView(
-                fpsView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER_HORIZONTAL or Gravity.TOP
-                ).apply { topMargin = dp(80f) }
-            )
+        if (infoContainer != null) return
+
+        val container = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
         }
-        if (memView == null) {
-            memView = TextView(activity).apply {
-                setTextColor(Color.argb(200, 255, 255, 255))
-                textSize = 14f
-                paint.isFakeBoldText = true
-                visibility = View.GONE
-            }
-            activity.addContentView(
-                memView,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    Gravity.CENTER_HORIZONTAL or Gravity.TOP
-                ).apply { topMargin = dp(104f) }
+        fpsView = TextView(activity).apply {
+            setTextColor(Color.argb(200, 255, 255, 255))
+            textSize = 14f
+            paint.isFakeBoldText = true
+            visibility = View.GONE
+        }
+        memView = TextView(activity).apply {
+            setTextColor(Color.argb(200, 255, 255, 255))
+            textSize = 14f
+            paint.isFakeBoldText = true
+            visibility = View.GONE
+        }
+        container.addView(
+            fpsView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        )
+        container.addView(
+            memView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(4f).toInt() }
+        )
+        activity.addContentView(
+            container,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER_HORIZONTAL or Gravity.TOP
+            ).apply { topMargin = dp(80f).toInt() }
+        )
+        attachInfoDrag(container)
+        infoContainer = container
+    }
+
+    /** 信息条拖动：按下后跟随手指移动，边界按当前屏幕尺寸限制，抬手保存位置 */
+    private fun attachInfoDrag(view: View) {
+        val prefs = activity.getSharedPreferences("game_hud", Context.MODE_PRIVATE)
+        view.translationX = prefs.getFloat("info_offset_x", 0f)
+        view.translationY = prefs.getFloat("info_offset_y", 0f)
+
+        var lastRawX = 0f
+        var lastRawY = 0f
+        view.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val metrics = v.resources.displayMetrics
+                    // 初始位置为水平居中、顶部 80dp，可移动范围为屏幕内剩余空间
+                    val maxX = ((metrics.widthPixels - v.width) / 2f).coerceAtLeast(0f)
+                    val maxY =
+                        (metrics.heightPixels - v.height - dp(80f)).coerceAtLeast(0).toFloat()
+                    v.translationX =
+                        (v.translationX + event.rawX - lastRawX).coerceIn(-maxX, maxX)
+                    v.translationY =
+                        (v.translationY + event.rawY - lastRawY).coerceIn(0f, maxY)
+                    lastRawX = event.rawX
+                    lastRawY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    prefs.edit()
+                        .putFloat("info_offset_x", v.translationX)
+                        .putFloat("info_offset_y", v.translationY)
+                        .apply()
+                    true
+                }
+                else -> false
+            }
         }
     }
 

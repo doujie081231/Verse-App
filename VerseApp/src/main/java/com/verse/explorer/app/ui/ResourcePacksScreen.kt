@@ -35,7 +35,7 @@ fun ResourcePacksScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val viewModel = remember { ResourceViewModel(context.applicationContext as android.app.Application, "resourcepack") }
+    val viewModel = ResourceViewModel.shared(context.applicationContext as android.app.Application, "resourcepack")
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
 

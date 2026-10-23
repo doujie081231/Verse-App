@@ -40,6 +40,10 @@ public class ControlButton extends TextView implements ControlInterface {
     /** 按下本按钮的指针 ID（多指支持：只有落在本按钮内的指针才触发按下/抬起，其他指针事件不影响本按钮） */
     private int mDownPointerId = -1;
 
+    /** 按下时刻与按下位置：用于识别点击（点击才触发控件组切换，与按下按键事件区分） */
+    private long mDownTime;
+    private float mDownX, mDownY;
+
     public ControlButton(ControlLayout layout, ControlData properties) {
         super(layout.getContext());
         mControlLayout = layout;
@@ -160,6 +164,9 @@ public class ControlButton extends TextView implements ControlInterface {
                 final float newY = event.getY(newIndex);
                 if (newX >= 0 && newX <= getWidth() && newY >= 0 && newY <= getHeight()) {
                     mDownPointerId = event.getPointerId(newIndex);
+                    mDownTime = event.getEventTime();
+                    mDownX = newX;
+                    mDownY = newY;
                     if(!getProperties().isToggle){
                         sendKeyPresses(true);
                     }
@@ -178,7 +185,20 @@ public class ControlButton extends TextView implements ControlInterface {
                     if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
                 }
                 if(mIsPointerOutOfBounds) getControlLayoutParent().onTouch(this, event);
+                boolean wasOutOfBounds = mIsPointerOutOfBounds;
                 mIsPointerOutOfBounds = false;
+
+                // 点击切换控件组（clickEvent.bindViewGroup）：与 FCL 一致，
+                // 仅短按（≤100ms）且位移≤10px 的点击触发，滑出边界或取消的手势不触发
+                if (event.getActionMasked() != MotionEvent.ACTION_CANCEL
+                        && !wasOutOfBounds
+                        && mProperties.bindViewGroups != null
+                        && !mProperties.bindViewGroups.isEmpty()
+                        && event.getEventTime() - mDownTime <= 100
+                        && Math.abs(event.getX(upIndex) - mDownX) <= 10
+                        && Math.abs(event.getY(upIndex) - mDownY) <= 10) {
+                    mControlLayout.toggleControlGroups(mProperties.bindViewGroups);
+                }
 
                 if(!triggerToggle()) {
                     sendKeyPresses(false);

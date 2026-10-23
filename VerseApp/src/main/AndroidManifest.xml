@@ -26,6 +26,17 @@
     <!-- 语音聊天模组（Simple Voice Chat 等）需要麦克风；是否启动时请求由设置项控制 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Android 11+ 包可见性：识别已安装的渲染器插件（读取其元数据与原生库目录） -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="vnd.android.document/directory" />
+        </intent>
+    </queries>
+
     <application
         android:name=".VerseApplication"
         android:allowBackup="true"
@@ -48,7 +59,7 @@
             android:exported="true"
             android:theme="@style/Theme.VerseExplorer"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -107,7 +118,7 @@
             android:exported="true"
             android:theme="@style/Theme.VerseExplorer"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensorLandscape"
             android:launchMode="singleTop"
             android:hardwareAccelerated="true" />
 
@@ -116,7 +127,7 @@
             android:exported="false"
             android:theme="@style/Theme.VerseExplorer"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensorLandscape"
             android:process=":crash"
             android:hardwareAccelerated="true" />
 
@@ -126,7 +137,7 @@
             android:exported="false"
             android:theme="@style/Theme.VerseExplorer"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensorLandscape"
             android:hardwareAccelerated="true" />
 
         <service
@@ -153,6 +164,17 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <provider
+            android:name=".documents.GameFolderProvider"
+            android:authorities="${applicationId}.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
 
         <provider
             android:name="androidx.core.content.FileProvider"

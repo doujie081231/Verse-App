@@ -1,5 +1,6 @@
 package com.verse.explorer.app.ui
 
+import android.content.Intent
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -44,6 +45,8 @@ import com.verse.explorer.app.data.UpdateChecker
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.launcher.renderer.RendererManager
+import com.verse.explorer.launcher.renderer.RendererPluginManager
+import java.io.File
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.components.PcCard
@@ -125,6 +128,55 @@ fun SettingsScreen(navController: NavHostController) {
     var checkingUpdate by remember { mutableStateOf(false) }
     var aboutUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     val scope = rememberCoroutineScope()
+
+    // 渲染器插件：安装/卸载后回到页面时重扫，保证列表即时更新
+    var pluginRevision by remember { mutableIntStateOf(0) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) pluginRevision++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val pluginApkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val rawName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+                    }
+                    val name = rawName?.takeIf { it.endsWith(".apk", ignoreCase = true) } ?: "renderer_plugin.apk"
+                    val dir = File(context.cacheDir, "plugin_import").apply { mkdirs() }
+                    val file = File(dir, name)
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        file.outputStream().use { output -> input.copyTo(output) }
+                    } ?: throw IllegalStateException("无法读取文件")
+                    file
+                }
+            }
+            result.onSuccess { file ->
+                runCatching {
+                    val apkUri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", file
+                    )
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(apkUri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                }.onFailure {
+                    Toast.makeText(context, "无法启动安装程序：${it.message}", Toast.LENGTH_LONG).show()
+                }
+            }.onFailure {
+                Toast.makeText(context, "读取插件 APK 失败：${it.message}", Toast.LENGTH_LONG).show()
+            }
+            pluginRevision++
+        }
+    }
 
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
@@ -478,8 +530,20 @@ fun SettingsScreen(navController: NavHostController) {
                                 Spacer(Modifier.height(8.dp))
                             }
                             Spacer(Modifier.height(8.dp))
-                            val rendererOptions = remember(context) {
-                                RendererManager.availableRenderers(context).map { it.id to it.displayName }
+                            // 渲染器列表 = 内置（库存在）+ 已安装插件；安装/卸载插件后按 revision 重扫
+                            val rendererOptions by produceState(
+                                initialValue = emptyList<Pair<String, String>>(),
+                                context, pluginRevision
+                            ) {
+                                value = withContext(Dispatchers.IO) {
+                                    RendererPluginManager.load(context, force = true)
+                                    RendererManager.availableRenderers(context)
+                                }.map { cfg ->
+                                    val label = if (cfg.pluginPackage.isNotEmpty()) {
+                                        "${cfg.displayName}（插件）"
+                                    } else cfg.displayName
+                                    cfg.id to label
+                                }
                             }
                             LaunchedEffect(rendererOptions) {
                                 if (rendererOptions.isNotEmpty() && rendererOptions.none { it.first == renderer }) {
@@ -491,6 +555,31 @@ fun SettingsScreen(navController: NavHostController) {
                                 renderer,
                                 rendererOptions
                             ) { renderer = it }
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        pluginApkPicker.launch(arrayOf("application/vnd.android.package-archive"))
+                                    }
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "导入渲染器插件",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = VerseColors.PcTextPrimary
+                                    )
+                                    Text(
+                                        "选择已下载的插件 APK 安装，安装完成后自动识别并出现在上方列表",
+                                        fontSize = 11.sp,
+                                        color = VerseColors.PcTextSecondary
+                                    )
+                                }
+                                Text("导入", fontSize = 12.sp, color = VerseColors.PcAccent)
+                            }
                         }
                     }
 
@@ -1247,7 +1336,7 @@ private fun ControlSettingsContent(context: android.content.Context) {
 
     var enableGyroscope by remember { mutableStateOf(MenuSetting.isEnableGyroscope) }
     var invertGyroscope by remember { mutableStateOf(MenuSetting.isInvertGyroscope) }
-    var gyroscopeSensitivity by remember { mutableIntStateOf(MenuSetting.gyroscopeSensitivity) }
+    var gyroscopeSensitivity by remember { mutableIntStateOf(MenuSetting.gyroscopeSensitivity.coerceIn(0, 100)) }
     var gyroscopeSampleRate by remember { mutableIntStateOf(MenuSetting.gyroscopeSampleRate) }
     var gyroscopeSmoothing by remember { mutableStateOf(MenuSetting.isGyroscopeSmoothing) }
     var gyroscopeSmoothingWindow by remember { mutableIntStateOf(MenuSetting.gyroscopeSmoothingWindow) }
@@ -1480,12 +1569,13 @@ private fun ControlSettingsContent(context: android.content.Context) {
             PcSliderRow(
                 label = "陀螺仪灵敏度",
                 value = gyroscopeSensitivity,
-                valueRange = 0..1000
+                valueRange = 0..100
             ) { v ->
-                gyroscopeSensitivity = v
-                MenuSetting.gyroscopeSensitivity = v
+                val clamped = v.coerceIn(0, 100)
+                gyroscopeSensitivity = clamped
+                MenuSetting.gyroscopeSensitivity = clamped
                 persist(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
-                runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = v * 0.5f }
+                runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = clamped * 0.5f }
             }
             PcSliderRow(
                 label = "采样率",

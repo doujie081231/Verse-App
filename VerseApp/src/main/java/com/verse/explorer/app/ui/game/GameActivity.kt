@@ -39,6 +39,7 @@ import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
 import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.game.NativesDeployer
+import com.verse.explorer.app.game.TouchControllerProxy
 import com.verse.explorer.app.redstone.RedStoneTunnelDialog
 import com.verse.explorer.app.redstone.RedStoneTunnelManager
 import com.verse.explorer.app.terracotta.TerracottaController
@@ -101,6 +102,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     var touchOverlay: FrameLayout? = null
     var controlLayout: ControlLayout? = null
+
+    /** 版本安装了 TouchController 模组：触摸交给模组自身处理，内置触控布局不挂载 */
+    private var touchProxyEnabled = false
+    /** Android 指针 id → 代理指针 id */
+    private val proxyPointerIds = android.util.SparseIntArray()
+    private var nextProxyPointerId = 1
 
     var gyroControl: GyroControl? = null
 
@@ -184,6 +191,20 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 return
             }
 
+            // TouchController 模组：在 Java 虚拟机启动前启动控制代理并写入套接字环境变量，
+            // 模组启动后即可与启动器建立连接（坐标转发在内置触控布局挂载前完成配置）
+            val versionSettings = com.verse.explorer.app.data.VersionSettingsRepository(this)
+                .getVersionSettings(versionId)
+            touchProxyEnabled = TouchControllerProxy.isModPresent(
+                gameDir = gameDirPath,
+                versionId = versionId,
+                isolateGameDir = versionSettings.isolateGameDir
+            )
+            if (touchProxyEnabled) {
+                VerseLogger.info("检测到 TouchController 模组，启用模组触控代理", "Touch")
+                TouchControllerProxy.start()
+            }
+
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setupImmersiveMode()
 
@@ -231,6 +252,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
             logManager.initGameLog(gameDirPath, versionId, javaVersion, launchMethod)
 
+            // 启动前刷新已安装渲染器插件，保证版本设置里的插件标识可解析
+            com.verse.explorer.launcher.renderer.RendererPluginManager.load(this)
+
             orchestrator = GameLaunchOrchestrator(
                 activity = this,
                 bridgeCallback = this,
@@ -266,15 +290,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             )
 
             orchestrator.startLaunch()
-            // 画面就绪信号兜底：Surface 首帧信号若未触发，6 秒后仅隐藏加载遮罩，
-            // 等待真实首帧信号再走完整 onGraphicOutput()（不可提前调用 onGraphicOutput，
-            // 否则可能在游戏 JVM 未就绪时初始化 CallbackBridge JNI 导致崩溃）。
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (!graphicOutputShown && !isFinishing && !isDestroyed) {
-                    VerseLogger.warn("画面就绪信号超时（6s），仅隐藏加载遮罩（输入/按钮待真实首帧信号）", "GameActivity")
-                    statusOverlay.hide()
-                }
-            }, 6000)
+            // 首帧信号到达前保留启动卡片（JVM 启动后显示「正在等待游戏画面出现」，可手动关闭）；
+            // 不再按 6 秒超时自动隐藏，避免黑屏期间玩家看不到任何状态。
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
             VerseLogger.error("GameActivity onCreate failed: ${e.message}\n${e.stackTraceToString()}")
@@ -421,6 +438,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             CallbackBridge.nativeSetInputReady(false)
             CallbackBridge.setFCLBridge(null)
         }
+        if (touchProxyEnabled) {
+            TouchControllerProxy.clearPointers()
+        }
         VerseLogger.close()
         super.onDestroy()
     }
@@ -449,6 +469,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // 双指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
             if (inGameControl?.isOverlayVisible() == true) {
                 return super.dispatchTouchEvent(ev)
+            }
+            // TouchController 模组：把游戏区触摸按比例转发给模组，由模组处理虚拟按键
+            if (touchProxyEnabled) {
+                forwardTouchToProxy(ev)
             }
             // 手机触屏走普通 touch 事件（pointer capture 不影响触摸源）：
             //   · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
@@ -503,6 +527,51 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             return true
         }
         return super.dispatchTouchEvent(ev)
+    }
+
+    /**
+     * 把触摸事件转发给 TouchController 模组：坐标按游戏画面尺寸归一化，
+     * 指针 id 在启动器与模组之间保持独立映射，抬手/取消时释放对应指针。
+     */
+    private fun forwardTouchToProxy(ev: MotionEvent) {
+        val width = textureView.width.coerceAtLeast(1).toFloat()
+        val height = textureView.height.coerceAtLeast(1).toFloat()
+        val originX = textureView.x
+        val originY = textureView.y
+
+        fun addPointer(index: Int) {
+            val androidId = ev.getPointerId(index)
+            var proxyId = proxyPointerIds.get(androidId, -1)
+            if (proxyId == -1) {
+                proxyId = nextProxyPointerId++
+                proxyPointerIds.put(androidId, proxyId)
+            }
+            TouchControllerProxy.addPointer(
+                proxyId,
+                (ev.getX(index) - originX) / width,
+                (ev.getY(index) - originY) / height
+            )
+        }
+
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> addPointer(0)
+            MotionEvent.ACTION_POINTER_DOWN -> addPointer(ev.actionIndex)
+            MotionEvent.ACTION_MOVE -> for (i in 0 until ev.pointerCount) addPointer(i)
+            MotionEvent.ACTION_POINTER_UP -> {
+                val androidId = ev.getPointerId(ev.actionIndex)
+                val proxyId = proxyPointerIds.get(androidId, -1)
+                if (proxyId != -1) {
+                    TouchControllerProxy.removePointer(proxyId)
+                    proxyPointerIds.delete(androidId)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                for (i in 0 until proxyPointerIds.size()) {
+                    TouchControllerProxy.removePointer(proxyPointerIds.valueAt(i))
+                }
+                proxyPointerIds.clear()
+            }
+        }
     }
 
     /** 分流诊断日志节流（MOVE 采样，仅 logcat） */
@@ -777,6 +846,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
      */
     private fun setupTouchControls() {
         if (touchOverlay != null) return
+        // 安装了 TouchController 模组时由模组绘制自己的触控界面，内置布局不再挂载，
+        // 避免两套控件互相遮挡、重复响应
+        if (touchProxyEnabled && TouchControllerProxy.isRunning()) {
+            VerseLogger.info("TouchController 模组接管触控，跳过内置触控布局", "Touch")
+            return
+        }
         try {
             Tools.init(this)
             LauncherPreferences.init(this)
@@ -915,9 +990,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
 
             // GUI 态触摸坐标 → MC 鼠标坐标的精确映射：
-            // 刘海避让给 gameRoot 加 padding 后 TextureView 整体右移，画面与窗口坐标错开。
-            // 实测（2.4.46 用户校准 X+15dp/Y+1dp）：SDL 路径的 MC 窗口 = Surface 显示尺寸
-            // （无 buffer 拉伸），因此光标坐标 = 相对 TextureView 左上角的窗口内显示坐标；
+            // 刘海避让给 gameRoot 加 padding 后 TextureView 整体右移，画面与窗口坐标错开；
+            // 渲染分辨率按百分比缩放时，窗口坐标空间小于屏幕，触摸坐标必须同步乘以比例，
+            // 否则改分辨率后点击位置与画面错位（比例在事件到来时读取，滑条调整后立即生效）。
             inputHandler.pointerMapper = { x, y ->
                 val tv = textureView
                 val st = tv?.surfaceTexture
@@ -926,7 +1001,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 } else {
                     val loc = IntArray(2)
                     tv.getLocationInWindow(loc)
-                    Pair((x - loc[0]).toInt().coerceAtLeast(0), (y - loc[1]).toInt().coerceAtLeast(0))
+                    // 与 ZL2 的 mapToGame 一致：窗口坐标 = 画面内坐标 × (渲染尺寸 / 显示尺寸)
+                    val metrics = resources.displayMetrics
+                    var renderWidth: Int
+                    var renderHeight: Int
+                    if (FCLBridge.FORCE_RESOLUTION) {
+                        renderWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+                        renderHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+                    } else {
+                        val resolved = MenuSetting.resolveRenderSize(
+                            metrics.widthPixels, metrics.heightPixels
+                        )
+                        renderWidth = resolved.first
+                        renderHeight = resolved.second
+                    }
+                    val scaleX = renderWidth.toFloat() / tv.width
+                    val scaleY = renderHeight.toFloat() / tv.height
+                    Pair(
+                        ((x - loc[0]) * scaleX).toInt().coerceAtLeast(0),
+                        ((y - loc[1]) * scaleY).toInt().coerceAtLeast(0)
+                    )
                 }
             }
 
@@ -960,9 +1054,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         if (::orchestrator.isInitialized) {
             orchestrator.onSurfaceChanged(width, height)
             // 尺寸变化时同步 setDefaultBufferSize + pushEventWindow，保证窗口缩放不产生错位黑块
-            val scaleFactor = MenuSetting.windowScale
-            var winWidth = ((width + MenuSetting.cursorOffset) * scaleFactor).toInt()
-            var winHeight = (height * scaleFactor).toInt()
+            val resolvedSize = MenuSetting.resolveRenderSize(width, height)
+            var winWidth = resolvedSize.first
+            var winHeight = resolvedSize.second
             if (FCLBridge.FORCE_RESOLUTION) {
                 winWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
                 winHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT

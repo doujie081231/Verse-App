@@ -3,4 +3,8 @@
     <cache-path
         name="logshare"
         path="logshare/" />
+    <!-- 渲染器插件 APK 导入：缓存文件交给系统安装器 -->
+    <cache-path
+        name="plugin_import"
+        path="plugin_import/" />
 </paths>

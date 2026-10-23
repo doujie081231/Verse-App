@@ -101,32 +101,29 @@ public class GyroControl implements SensorEventListener, GrabListener {
         mStoredX += xAverage * 1000 * LauncherPreferences.PREF_GYRO_SENSITIVITY;
         mStoredY += yAverage * 1000 * LauncherPreferences.PREF_GYRO_SENSITIVITY;
 
-        boolean updatePosition = false;
         float absX = Math.abs(mStoredX);
         float absY = Math.abs(mStoredY);
 
+        // 一律下发相对增量：手指滑动同样走相对增量，两者叠加而不是互相覆盖；
+        // 直接改 CallbackBridge.mouseX/Y 再发绝对坐标会把手势位移冲掉，导致视角乱跳。
         if(absX + absY > MULTI_AXIS_LOW_PASS_THRESHOLD) {
-            CallbackBridge.mouseX -= ((mSwapXY ? mStoredY : mStoredX) * xFactor);
-            CallbackBridge.mouseY += ((mSwapXY ? mStoredX : mStoredY) * yFactor);
+            CallbackBridge.sendCursorDelta(
+                    -((mSwapXY ? mStoredY : mStoredX) * xFactor),
+                    ((mSwapXY ? mStoredX : mStoredY) * yFactor));
             mStoredX = 0;
             mStoredY = 0;
-            updatePosition = true;
         } else {
             if(Math.abs(mStoredX) > SINGLE_AXIS_LOW_PASS_THRESHOLD){
-                CallbackBridge.mouseX -= ((mSwapXY ? mStoredY : mStoredX) * xFactor);
+                CallbackBridge.sendCursorDelta(
+                        -((mSwapXY ? mStoredY : mStoredX) * xFactor), 0);
                 mStoredX = 0;
-                updatePosition = true;
             }
 
             if(Math.abs(mStoredY) > SINGLE_AXIS_LOW_PASS_THRESHOLD) {
-                CallbackBridge.mouseY += ((mSwapXY ? mStoredX : mStoredY) * yFactor);
+                CallbackBridge.sendCursorDelta(
+                        0, ((mSwapXY ? mStoredX : mStoredY) * yFactor));
                 mStoredY = 0;
-                updatePosition = true;
             }
-        }
-
-        if(updatePosition){
-            CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
         }
     }
 

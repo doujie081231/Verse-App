@@ -3,7 +3,10 @@ package com.verse.explorer.app.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -48,6 +51,7 @@ import androidx.navigation.NavHostController
 import com.verse.explorer.app.data.SettingsRepository
 import com.verse.explorer.app.data.VersionMetaRepository
 import com.verse.explorer.app.data.VersionSettingsRepository
+import com.verse.explorer.app.documents.GameFolderProvider
 import com.verse.explorer.app.ui.components.BackgroundCard
 import com.verse.explorer.app.ui.components.CardTitleLayout
 import com.verse.explorer.app.ui.components.DisabledAlpha
@@ -56,6 +60,7 @@ import com.verse.explorer.app.ui.components.MarqueeText
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard
+import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.app.ui.components.PcDropdownRow
 import com.verse.explorer.app.ui.components.PcSwitchRow
 import com.verse.explorer.app.ui.components.PcTextInputRow
@@ -94,7 +99,7 @@ fun VersionSettingsScreen(
 ) {
     val context = LocalContext.current
     val repo = remember { VersionSettingsRepository(context) }
-    val viewModel = remember { VersionsViewModel(context.applicationContext as android.app.Application) }
+    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
     var page by remember { mutableStateOf(ManagePage.OVERVIEW) }
@@ -506,6 +511,7 @@ private fun VersionOverviewContent(
 ) {
     val context = LocalContext.current
     val displayVersion = version ?: MinecraftVersion(id = versionId, type = VersionType.RELEASE)
+    var browserDir by remember { mutableStateOf<File?>(null) }
 
     Column(
         modifier = Modifier
@@ -575,13 +581,32 @@ private fun VersionOverviewContent(
             ) {
                 QUICK_FOLDERS.forEach { (label, sub) ->
                     ActionPill(text = label) {
-                        openVersionFolder(context, versionId, sub, isolateGameDir)
+                        val gameDir = GameConfig.getGameDir(context)
+                        val base = if (isolateGameDir) {
+                            File(GameConfig.getVersionsDir(gameDir), versionId)
+                        } else {
+                            gameDir
+                        }
+                        browserDir = if (sub.isBlank()) base else File(base, sub)
                     }
+                }
+                ActionPill(text = "用其他应用打开") {
+                    val gameDir = GameConfig.getGameDir(context)
+                    val base = if (isolateGameDir) {
+                        File(GameConfig.getVersionsDir(gameDir), versionId)
+                    } else {
+                        gameDir
+                    }
+                    openFolderWithOtherApp(context, base)
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+
+    browserDir?.let { dir ->
+        FolderBrowserDialog(title = "版本文件夹", startDir = dir, onDismiss = { browserDir = null })
     }
 }
 
@@ -630,6 +655,7 @@ private fun VersionConfigContent(
     onSpecialize: () -> Unit,
     onGlobalize: () -> Unit
 ) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -670,15 +696,23 @@ private fun VersionConfigContent(
                 ) { onUpdate { s -> s.copy(notCheckMod = it) } }
             }
             PcCard {
+                // 渲染器候选 = 跟随全局 + 内置 + 已安装插件；已选插件被卸载时保留原值便于提示
+                val rendererChoices = remember(settings.renderer) {
+                    val base = listOf("" to "跟随全局设置") +
+                        RendererManager.availableRenderers(context).map { cfg ->
+                            val label = if (cfg.pluginPackage.isNotEmpty()) {
+                                "${cfg.displayName}（插件）"
+                            } else cfg.displayName
+                            cfg.id to label
+                        }
+                    if (settings.renderer.isNotEmpty() && base.none { it.first == settings.renderer }) {
+                        base + (settings.renderer to settings.renderer)
+                    } else base
+                }
                 PcDropdownRow(
                     "渲染器",
                     settings.renderer,
-                    listOf(
-                        "" to "跟随全局设置",
-                        "nggl4es" to "nggl4es（Krypton）",
-                        "gl4es" to "gl4es 1.1.4",
-                        "mobileglues" to "MobileGlues"
-                    )
+                    rendererChoices
                 ) { onUpdate { s -> s.copy(renderer = it) } }
                 PcDropdownRow(
                     "Vulkan 驱动器",
@@ -900,6 +934,7 @@ private fun VersionFolderTab(
     var loading by remember { mutableStateOf(true) }
     var pendingDelete by remember { mutableStateOf<File?>(null) }
     var reloadTick by remember { mutableIntStateOf(0) }
+    var showFolderBrowser by remember { mutableStateOf(false) }
 
     val dir = remember(versionId, subDir, isolateGameDir) {
         val gameDir = GameConfig.getGameDir(context)
@@ -959,7 +994,9 @@ private fun VersionFolderTab(
             )
             PcButton(
                 text = "打开文件夹",
-                onClick = { openFolderPath(context, dir) },
+                // 游戏目录在 Android/data 或应用内部目录下，系统/第三方文件管理器无权访问，
+                // 这里直接用应用内浏览窗口展示目录内容（与其他安卓启动器一致）
+                onClick = { showFolderBrowser = true },
                 variant = PcButtonVariant.OUTLINE
             )
             PcButton(
@@ -1010,7 +1047,186 @@ private fun VersionFolderTab(
             dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } }
         )
     }
+
+    if (showFolderBrowser) {
+        FolderBrowserDialog(title = title, startDir = dir, onDismiss = { showFolderBrowser = false })
+    }
 }
+
+/**
+ * 应用内目录浏览：游戏目录位于应用私有路径，外部文件管理器在 Android 11+ 无法读取，
+ * 因此与安卓启动器一致，用应用自身的浏览窗口展示目录内容（只读、可进入子目录）。
+ */
+@Composable
+internal fun FolderBrowserDialog(title: String, startDir: File, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var current by remember { mutableStateOf(startDir) }
+    var entries by remember { mutableStateOf<List<File>>(emptyList()) }
+
+    LaunchedEffect(current) {
+        entries = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            current.listFiles()
+                ?.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                ?: emptyList()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = cardColor(),
+        titleContentColor = onCardColor(),
+        shape = MaterialTheme.shapes.large,
+        title = { Text("$title 文件夹", style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = current.absolutePath,
+                    fontSize = 11.sp,
+                    color = VerseColors.PcTextMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PcButton(
+                        text = "上一级",
+                        enabled = current.parentFile != null,
+                        onClick = { current.parentFile?.let { current = it } },
+                        variant = PcButtonVariant.OUTLINE
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    PcButton(
+                        text = "用其他应用打开",
+                        onClick = { openFolderWithOtherApp(context, current) },
+                        variant = PcButtonVariant.OUTLINE
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("${entries.size} 项", fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                }
+                HorizontalDivider(color = VerseColors.PcBorder, thickness = 1.dp)
+                LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
+                    items(entries, key = { it.absolutePath }) { entry ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                                .then(
+                                    if (entry.isDirectory) Modifier.clickable { current = entry }
+                                    else Modifier
+                                )
+                                .padding(horizontal = 4.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                modifier = Modifier.size(18.dp),
+                                imageVector = if (entry.isDirectory) Icons.Outlined.Folder else Icons.Outlined.InsertDriveFile,
+                                contentDescription = null,
+                                tint = if (entry.isDirectory) VerseColors.PcAccent else VerseColors.PcTextMuted
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                modifier = Modifier.weight(1f),
+                                text = entry.name,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!entry.isDirectory) {
+                                Text(formatFileSize(entry.length()), fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                            }
+                        }
+                    }
+                    if (entries.isEmpty()) {
+                        item { Text("空目录", fontSize = 12.sp, color = VerseColors.PcTextMuted) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } }
+    )
+}
+
+/**
+ * 用其他应用打开目录：外部存储路径转成系统文档 URI，
+ * 应用内部游戏目录则通过自身的文档提供器暴露，供文件管理器浏览；其余私有路径给出提示。
+ */
+internal fun openFolderWithOtherApp(context: Context, folder: File) {
+    val target = folder.absoluteFile
+    if (!target.isDirectory) {
+        toast(context, "目录不存在")
+        return
+    }
+    val uri = folderDocumentUri(context, target)
+    if (uri == null) {
+        toast(context, "该目录无法用其他应用打开")
+        return
+    }
+
+    var intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, DocumentsContract.Document.MIME_TYPE_DIR)
+        clipData = android.content.ClipData.newRawUri("folder", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+    }
+
+    // 系统文件管理器只识别文档提供器的根 URI，收到子目录文档 URI 会退回“下载”页；
+    // 若当前只有系统文件管理器能处理，则改为打开游戏目录根，保证有可用落点
+    val handlers = context.packageManager.queryIntentActivities(intent, 0)
+    val onlySystemFiles = handlers.isNotEmpty() && handlers.all {
+        it.activityInfo.packageName == "com.android.documentsui" ||
+            it.activityInfo.packageName == "com.google.android.documentsui"
+    }
+    if (onlySystemFiles && uri.authority == GameFolderProvider.authority(context)) {
+        intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(
+                DocumentsContract.buildRootUri(
+                    GameFolderProvider.authority(context),
+                    GameFolderProvider.ROOT_ID
+                ),
+                "vnd.android.document/root"
+            )
+        }
+    }
+
+    val chooser = Intent.createChooser(intent, "用其他应用打开").apply {
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(chooser) }
+        .onFailure { toast(context, "没有可打开该目录的应用") }
+}
+
+/** 目录 → 可交给外部应用的文档 URI：优先系统外部存储提供器，其次应用自身的游戏目录提供器 */
+private fun folderDocumentUri(context: Context, folder: File): Uri? {
+    val target = runCatching { folder.canonicalFile }.getOrNull() ?: return null
+    val path = target.absolutePath
+    val primaryRoot = Environment.getExternalStorageDirectory().absolutePath
+
+    if (path == primaryRoot) {
+        return DocumentsContract.buildDocumentUri(EXTERNAL_STORAGE_AUTHORITY, "primary:")
+    }
+    if (path.startsWith("$primaryRoot/")) {
+        return DocumentsContract.buildDocumentUri(
+            EXTERNAL_STORAGE_AUTHORITY,
+            "primary:" + path.removePrefix("$primaryRoot/")
+        )
+    }
+    Regex("^/storage/([^/]+)/").find(path)?.let { match ->
+        return DocumentsContract.buildDocumentUri(
+            EXTERNAL_STORAGE_AUTHORITY,
+            match.groupValues[1] + ":" + path.substring(match.range.last + 1)
+        )
+    }
+
+    val gameDir = runCatching { GameConfig.getGameDir(context).canonicalFile }.getOrNull()
+    if (gameDir != null &&
+        (path == gameDir.absolutePath || path.startsWith(gameDir.absolutePath + File.separator))
+    ) {
+        return GameFolderProvider.documentUri(context, target)
+    }
+    return null
+}
+
+private const val EXTERNAL_STORAGE_AUTHORITY = "com.android.externalstorage.documents"
 
 /** 目录条目行：图标 + 名称 + 大小 + 删除 */
 @Composable

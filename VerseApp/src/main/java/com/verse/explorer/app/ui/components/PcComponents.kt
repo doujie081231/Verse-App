@@ -93,7 +93,8 @@ import com.verse.explorer.app.ui.theme.VerseColors
 @Composable
 fun Modifier.navButtonAvoid(): Modifier {
     val dockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
-    return if (dockEnd) padding(end = 44.dp) else padding(start = 44.dp)
+    // 按钮贴边时为 12dp 边距 + 40dp 直径，共 52dp；留 56dp 确保标题与返回键不被遮挡
+    return if (dockEnd) padding(end = 56.dp) else padding(start = 56.dp)
 }
 
 /**

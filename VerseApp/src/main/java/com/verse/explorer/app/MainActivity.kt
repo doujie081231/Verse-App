@@ -77,7 +77,8 @@ class MainActivity : ComponentActivity() {
             (applicationContext as? com.verse.explorer.app.VerseApplication)?.writeBootLog("MainActivity.onCreate started")
         } catch (_: Throwable) {}
 
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        // 横屏允许正反两个方向（设备翻转后界面跟随旋转，不锁定单一朝向）
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // 启动器部分屏幕全屏/忽略刘海：按设置组合应用窗口显示模式（设置变更即时生效）
@@ -109,12 +110,13 @@ class MainActivity : ComponentActivity() {
             }
             VerseExplorerTheme {
                 Surface(
-                    // 刘海避让用黑边：关闭「忽略刘海（全屏）」时根容器按 displayCutout 内缩，
-                    // 让出的挖孔区域填成纯黑，内容整体平移避免被挖孔遮挡。
+                    // 刘海避让用黑边：仅在既未开启「启动器全屏」也未开启「忽略刘海（全屏）」时，
+                    // 根容器按 displayCutout 内缩并把挖孔区域填成纯黑；
+                    // 启动器全屏本身即要求延伸至刘海区域，不再保留黑边。
                     modifier = Modifier
                         .fillMaxSize()
                         .then(
-                            if (DisplayNotch.ignoreNotch) Modifier
+                            if (DisplayNotch.ignoreNotch || VersePersonalization.launcherFullScreen) Modifier
                             else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
                         ),
                     color = Color.Black
@@ -132,6 +134,19 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // 权限页显示期间轮询核对：部分机型授权后 isExternalStorageManager()
+                    // 会延迟若干秒才变为 true，轮询可让用户无需手动重进应用即可进入主界面
+                    LaunchedEffect(showPermission) {
+                        if (!showPermission) return@LaunchedEffect
+                        repeat(20) {
+                            kotlinx.coroutines.delay(800)
+                            if (hasStoragePermission()) {
+                                permissionGranted.value = true
+                                return@LaunchedEffect
+                            }
+                        }
+                    }
+
                     if (showEula) {
                         EulaAgreementDialog(
                             onAgree = {
@@ -146,6 +161,7 @@ class MainActivity : ComponentActivity() {
                     if (showPermission) {
                         PermissionRequestDialog(
                             onRequest = { requestStoragePermissionCompat() },
+                            onRecheck = { permissionGranted.value = hasStoragePermission() },
                             onCancel = { finish() }
                         )
                         return@Surface
@@ -469,14 +485,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         // 恢复前台时重申窗口显示模式（系统栏可能已被系统重置）
         applyWindowDisplayMode(
             VersePersonalization.launcherFullScreen,
             DisplayNotch.ignoreNotch
         )
 
-        if (eulaAgreed.value && !setupComplete.value) {
+        // 每次回到前台都重新核对存储权限：部分机型从授权页返回后 AppOps 状态更新有延迟，
+        // 只在「未完成初始化」时检查会让已授权的用户一直卡在权限页
+        if (eulaAgreed.value) {
             val hasPerm = hasStoragePermission()
             if (hasPerm != permissionGranted.value) {
                 permissionGranted.value = hasPerm
@@ -597,6 +615,7 @@ private fun EulaAgreementDialog(
 @Composable
 private fun PermissionRequestDialog(
     onRequest: () -> Unit,
+    onRecheck: () -> Unit,
     onCancel: () -> Unit
 ) {
     Box(
@@ -665,6 +684,17 @@ Verse 需要存储权限来：
                     ) {
                         Text("授予权限", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                TextButton(
+                    onClick = onRecheck,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "已授权？点此重新检测",
+                        fontSize = 13.sp,
+                        color = VerseColors.PcAccent
+                    )
                 }
             }
         }

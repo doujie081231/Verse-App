@@ -282,7 +282,11 @@ object DownloadCenter {
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("下载中心")
-            .setContentText("${list.first().title} $percent%")
+            // 服务可能被系统以空任务列表重新拉起，此时没有首项可取
+            .setContentText(
+                if (list.isEmpty()) "暂无下载任务"
+                else "${list.first().title} $percent%"
+            )
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

@@ -15,6 +15,7 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val list = DownloadCenter.items.value
+        // 服务由 startForegroundService 拉起，必须先在 5s 内进入前台，即使队列已空
         startForeground(DownloadCenter.NOTIFICATION_ID, DownloadCenter.buildNotification(this, list))
         if (list.isEmpty()) {
             // 服务启动前任务已全部完成（极小任务快速完成）：立即移除通知并停止

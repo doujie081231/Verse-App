@@ -24,6 +24,7 @@ import android.util.Log;
 import com.google.gson.GsonBuilder;
 import com.mio.JavaManager;
 import com.mio.data.Renderer;
+import com.verse.explorer.launcher.renderer.RendererManager;
 import com.tungsten.fclauncher.FCLConfig;
 import com.tungsten.fclauncher.FCLauncher;
 import com.tungsten.fclauncher.bridge.FCLBridge;
@@ -634,9 +635,25 @@ public class DefaultLauncher extends Launcher {
         Log.i("DefaultLauncher", "[launch-step] finalArgs=" + finalArgs.length);
         diag("finalArgs ok, n=" + finalArgs.length);
 
-        Renderer renderer = options.getRenderer() != null
-                ? Renderer.valueOf(options.getRenderer())
-                : Renderer.GLES;
+        Renderer renderer;
+        RendererManager.RendererConfig pluginRenderer = options.getRenderer() != null
+                ? RendererManager.INSTANCE.getRendererById(context, options.getRenderer())
+                : null;
+        if (pluginRenderer != null && !pluginRenderer.getPluginPackage().isEmpty()) {
+            // 插件渲染器：库文件在插件自身 native 目录
+            renderer = new Renderer(
+                    pluginRenderer.getId(),
+                    pluginRenderer.getDisplayName(),
+                    pluginRenderer.getNativeLibDir(),
+                    pluginRenderer.getEglName(),
+                    pluginRenderer.getGlName(),
+                    RendererManager.INSTANCE.toPojavEnvList(pluginRenderer)
+            );
+        } else {
+            renderer = options.getRenderer() != null
+                    ? Renderer.valueOf(options.getRenderer())
+                    : Renderer.GLES;
+        }
         // zink 依赖 Vulkan。现代 Android 模拟器（host GPU / swiftshader_indirect）
         // 均提供 vulkan.ranchu.so，因此 zink 可正常工作；仅当系统确无 Vulkan 驱动
         // 时才回退到不依赖 Vulkan 的 NGGL4ES（软 GL 渲染，走 GLES3）。

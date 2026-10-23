@@ -872,6 +872,38 @@ class AuthlibAuthenticator {
         if (code >= 500) "验证服务器返回异常 (HTTP $code)：$url"
         else "登录失败 (HTTP $code)：$url"
 
+    /**
+     * 读取验证服务器 session profile 的 textures 属性（base64 值）。
+     * authlib-injector 启动参数里的 userProperties 需要它，游戏据此显示角色皮肤。
+     */
+    suspend fun fetchTexturesValue(apiRoot: String, uuid: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val cleanUuid = uuid.replace("-", "")
+            val root = apiRoot.trimEnd('/')
+            val result = httpGetString("$root/sessionserver/session/minecraft/profile/$cleanUuid")
+            val json = gson.fromJson(result.body, JsonObject::class.java) ?: return@runCatching null
+            json.getAsJsonArray("properties")?.forEach { p ->
+                val obj = p.asJsonObject
+                if (obj.get("name")?.asString == "textures") {
+                    return@runCatching obj.get("value")?.asString
+                }
+            }
+            null
+        }.getOrNull()
+    }
+
+    /** 从 textures 属性解析皮肤纹理 URL（SKIN.url），供启动器头像展示 */
+    suspend fun fetchSkinTextureUrl(apiRoot: String, uuid: String): String? {
+        val value = fetchTexturesValue(apiRoot, uuid) ?: return null
+        return runCatching {
+            val decoded = String(android.util.Base64.decode(value, android.util.Base64.DEFAULT))
+            val json = gson.fromJson(decoded, JsonObject::class.java)
+            json?.getAsJsonObject("textures")
+                ?.getAsJsonObject("SKIN")
+                ?.get("url")?.asString
+        }.getOrNull()
+    }
+
     suspend fun authenticate(
         serverUrl: String,
         username: String,

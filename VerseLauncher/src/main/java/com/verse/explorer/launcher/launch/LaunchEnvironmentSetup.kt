@@ -29,7 +29,9 @@ internal class LaunchEnvironmentSetup(private val context: Context) {
             // SDL 需要独立的 GL/EGL 库绝对路径：
             // MC 26.x RenderPearl 校验 SDL_GL_GetProcAddress("glGetError") 与 LWJGL provider
             // 同源，SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。
-            val rendererLibPath = context.applicationInfo.nativeLibraryDir
+            // 插件渲染器的库位于插件 APK 自身的 native 目录，内置渲染器用主 APK 目录
+            val rendererLibPath = rendererConfig.nativeLibDir
+                .ifEmpty { context.applicationInfo.nativeLibraryDir }
             val egl = envMap["POJAVEXEC_EGL"]
             if (egl != null && !egl.startsWith("/")) {
                 // 仅当 EGL 库真实打包在 native 目录内才给 SDL 绝对路径（如 ANGLE/Mesa）；
