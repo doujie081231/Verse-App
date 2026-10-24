@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.activityViewModel
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
@@ -98,7 +100,7 @@ fun VersionSettingsScreen(
 ) {
     val context = LocalContext.current
     val repo = remember { VersionSettingsRepository(context) }
-    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
+    val viewModel = activityViewModel(VersionsViewModel::class.java)
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
     var page by remember { mutableStateOf(ManagePage.OVERVIEW) }

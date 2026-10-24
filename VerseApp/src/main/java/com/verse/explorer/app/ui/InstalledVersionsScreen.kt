@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.activityViewModel
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -89,7 +91,7 @@ enum class VersionCategory(val label: String) {
 @Composable
 fun InstalledVersionsScreen(navController: NavHostController) {
     val context = LocalContext.current
-    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
+    val viewModel = activityViewModel(VersionsViewModel::class.java)
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }

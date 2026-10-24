@@ -60,7 +60,7 @@ import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
-import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.app.appContainer
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
@@ -90,6 +90,7 @@ fun ModDetailScreen(
     source: String = "modrinth"
 ) {
     val context = LocalContext.current
+    val modpackInstaller = remember(context.applicationContext) { context.appContainer.newModpackInstaller() }
     val repository = remember {
         ResourceRepository(context.applicationContext as Application)
     }
@@ -276,7 +277,7 @@ fun ModDetailScreen(
         }
         VerseApplication.instance.appScope.launch {
             val gameDir = GameConfig.getGameDir(appContext)
-            val result = ModpackInstaller.installModpack(
+            val result = modpackInstaller.installModpack(
                 gameDir = gameDir,
                 zipFile = file,
                 // 与版本命名弹窗一致：默认取 manifest.name（标题），命名后按用户输入
@@ -391,7 +392,7 @@ fun ModDetailScreen(
         if (item != null && item.state == DownloadCenterState.RUNNING) {
             DownloadCenter.cancel(item)
         } else {
-            ModpackInstaller.cancel()
+            modpackInstaller.cancel()
             modpackJob?.cancel()
             modpackJob = null
             modpackZip?.delete()

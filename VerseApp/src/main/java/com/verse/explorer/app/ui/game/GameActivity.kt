@@ -35,6 +35,7 @@ import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.version.VersionJsonResolver
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.launch.LaunchIntentCodec
+import com.verse.explorer.app.permissions.observeAppPermissionRequests
 import com.verse.explorer.app.game.GameLaunchOrchestrator
 import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
@@ -49,7 +50,7 @@ import com.tungsten.fcl.control.view.LogWindow
 import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
-import com.tungsten.fclauncher.bridge.FCLBridgeCallback
+import com.verse.explorer.core.launch.GameRuntimeCallbacks
 import kotlinx.coroutines.CancellationException
 import net.kdt.pojavlaunch.MinecraftGLSurface
 import net.kdt.pojavlaunch.Tools
@@ -61,7 +62,7 @@ import net.kdt.pojavlaunch.customcontrols.mouse.GyroControl
 import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 
-class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.SurfaceTextureListener {
+class GameActivity : ComponentActivity(), GameRuntimeCallbacks, TextureView.SurfaceTextureListener {
 
     private val logManager = GameLogManager(this)
     private val versionResolver = VersionJsonResolver { logManager.appendStatusLog(it) }
@@ -145,6 +146,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        observeAppPermissionRequests()
 
         try {
             if (SettingsRepository.getRequestMicPermission() &&

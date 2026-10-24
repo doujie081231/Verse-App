@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.activityViewModel
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -91,7 +93,7 @@ fun AccountsScreen(
     navController: NavHostController
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val viewModel = AccountsViewModel.shared(context.applicationContext as android.app.Application)
+    val viewModel = activityViewModel(AccountsViewModel::class.java)
     val accounts by viewModel.accounts.collectAsState()
     val selectedAccount by viewModel.selectedAccount.collectAsState()
     val scope = rememberCoroutineScope()

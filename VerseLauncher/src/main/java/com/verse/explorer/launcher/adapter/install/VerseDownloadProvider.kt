@@ -1,4 +1,4 @@
-package com.verse.explorer.core.install.modpack
+package com.verse.explorer.launcher.adapter.install
 
 import com.tungsten.fclcore.download.BMCLAPIDownloadProvider
 import com.tungsten.fclcore.download.DownloadProvider

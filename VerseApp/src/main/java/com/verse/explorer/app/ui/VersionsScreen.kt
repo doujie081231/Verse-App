@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.activityViewModel
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -43,7 +45,7 @@ fun VersionsScreen(
     val downloadSource = remember { settingsRepo.getDownloadSource() }
     val sourceLabel = com.verse.explorer.app.download.DownloadSourceManager.Source.entries.find { it.id == downloadSource }?.label ?: "BMCLAPI 镜像"
 
-    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
+    val viewModel = activityViewModel(VersionsViewModel::class.java)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val releaseVersions by viewModel.releaseVersions.collectAsStateWithLifecycle()
     val snapshotVersions by viewModel.snapshotVersions.collectAsStateWithLifecycle()
