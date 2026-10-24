@@ -472,9 +472,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 forwardTouchToProxy(ev)
             }
             // 手机触屏走普通 touch 事件（pointer capture 不影响触摸源）：
-            //   · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
-            //     手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
-            //   · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
+            // · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
+            // 手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
+            // · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
             val buttonPointerIds = resolveButtonPointerIds(ev)
             if (inGameControl?.trackMultiTouch(ev, buttonPointerIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
@@ -846,7 +846,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 visibility = View.GONE
             }
             touchCharInput = charInput
-            //「Mouse」特殊按钮在 Verse 未实现虚拟鼠标模式，仅在 GUI 态显示光标，不重复接线
+            // 「Mouse」特殊按钮在 Verse 未实现虚拟鼠标模式，仅在 GUI 态显示光标，不重复接线
             net.kdt.pojavlaunch.MainActivity.hostHandler = { action ->
                 runOnUiThread {
                     if (action == "keyboard") showQuickInput()

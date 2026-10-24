@@ -77,7 +77,7 @@ object CcJson {
         return gson.toJson(value) + "\n"
     }
 
-    // --- 构造辅助 ---
+    // 构造辅助
 
     fun obj(vararg pairs: Pair<String, JsonElement>): JsonObject {
         val o = JsonObject()
@@ -109,7 +109,7 @@ object CcJson {
         override fun toString(): String = literal
     }
 
-    // --- Python None 语义的访问辅助（顶层扩展，包内可见） ---
+    // Python None 语义的访问辅助（顶层扩展，包内可见）
 
     /** Python str()（委托 CcUtils，便于统一调用点）。 */
     fun toStringV(value: JsonElement?): String = CcUtils.toStringV(value)
@@ -168,7 +168,7 @@ object CcJson {
     }
 }
 
-// --- Python None 语义的访问辅助（顶层扩展，包内自动可见） ---
+// Python None 语义的访问辅助（顶层扩展，包内自动可见）
 
 fun JsonElement?.asObjOrNull(): JsonObject? = if (this != null && isJsonObject) asJsonObject else null
 fun JsonElement?.asArrOrNull(): JsonArray? = if (this != null && isJsonArray) asJsonArray else null

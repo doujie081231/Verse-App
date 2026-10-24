@@ -20,13 +20,13 @@ import com.verse.explorer.app.data.VersePersonalization
  */
 object VerseColors {
 
-    // ==================== 平台色（跨主题不变）====================
+    // 平台色（跨主题不变）
     val FabricGreen = Color(0xFF30B25A)
     val ForgeColor = Color(0xFFEA580C)
     val NeoForgeRed = Color(0xFFEF4444)
     val QuiltPurple = Color(0xFFA855F7)
 
-    // ==================== Minecraft 主题色（历史遗留，跨主题不变）====================
+    // Minecraft 主题色（历史遗留，跨主题不变）
     val McGreen = Color(0xFF5D8C3E)
     val McGreenDark = Color(0xFF4A7030)
     val McGreenLight = Color(0xFF7BAF58)
@@ -47,7 +47,7 @@ object VerseColors {
     val McTextMuted = Color(0xFF787890)
     val McTextDim = Color(0xFF555568)
 
-    // ==================== 主题状态 ====================
+    // 主题状态
     // 默认白色主题（对齐 DEFAULT_THEME_COLOR = "white"），启动后 MainActivity 会按设置覆盖
     private var isDarkState = mutableStateOf(false)
 
@@ -69,7 +69,7 @@ object VerseColors {
             customAccentState.value = value
         }
 
-    // ==================== 彩色主题强调色（非黑白主题选择时由主题层写入）====================
+    // 彩色主题强调色（非黑白主题选择时由主题层写入）
     // primary/secondary/tertiary 分别映射 PcAccent/PcOrange/PcPurple 系列；黑白主题时为 null
     private var themedPrimaryState = mutableStateOf<Color?>(null)
     private var themedSecondaryState = mutableStateOf<Color?>(null)
@@ -82,7 +82,7 @@ object VerseColors {
         themedTertiaryState.value = tertiary
     }
 
-    // ==================== 自定义主题表面色（仅自定义取色时由主题层写入）====================
+    // 自定义主题表面色（仅自定义取色时由主题层写入）
     // 自定义取色的配色方案同时驱动背景与 UI 组件容器色：背景取 scheme.background，
     // 组件容器取 surfaceContainer 阶梯（比背景浅一档），深浅由当前深浅模式对应方案决定
     private data class SchemeSurfaces(

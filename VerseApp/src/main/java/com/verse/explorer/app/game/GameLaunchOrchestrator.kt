@@ -364,7 +364,7 @@ class GameLaunchOrchestrator(
         launcher.setNativesDirectory(nativesDir.absolutePath)
         // 诊断：JVM 的 stdout/stderr 在 Android 上默认丢弃（fd 指向 /dev/null），
         // 重定向到文件便于排查启动期错误（走外部存储，便于通过文件管理器/远程工具取回日志）。
-        // 逐调用 try-catch：任何失败都必须落到 launch.log，杜绝被吞掉后再猜
+        // 各初始化步骤分别记录异常，便于从 launch.log 定位具体失败阶段。
         try {
             System.loadLibrary("versejvm")
             VerseLogger.info("[8/9 JVM启动] loadLibrary(versejvm) ok", TAG)
@@ -378,8 +378,7 @@ class GameLaunchOrchestrator(
         // 执行 bytehook_init(BYTEHOOK_MODE_AUTOMATIC) → create_sdl_hooks（SDL_InitSubSystem
         // launcher 集成/窗口复用/EGL 兼容/Vulkan loader 一致性）+ create_sdl_dlopen_hooks
         // （dlsym 出口把 SDL 符号换成代理，LWJGL 经 dlopen+dlsym 解析的调用同样走代理）。
-        // 注：自研 versesdl（hook SDL_GL_GetProcAddress/dlsym）已移除 —— 其 bytehook_init
-        // 一次失败（MEMORY_ALLOCATION_FAILED）就把 bytehook 状态锁死，后续任何 init 均返回
+        // 通过 FCLBridge 统一初始化钩子，避免重复初始化 ByteHook 后无法继续安装钩子。
         try {
             System.loadLibrary("pojavexec")
             FCLBridge.initializeHooks()

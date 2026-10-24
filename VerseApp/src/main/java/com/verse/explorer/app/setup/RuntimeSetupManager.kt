@@ -92,7 +92,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== 版本检测 ====================
+    // 版本检测
 
     fun isLatest(context: Context, component: RuntimeComponent): Boolean {
         val targetDir = File(getTargetDir(component))
@@ -122,7 +122,7 @@ object RuntimeSetupManager {
         return true
     }
 
-    // ==================== 安装逻辑（assets 优先，网络回退） ====================
+    // 安装逻辑（assets 优先，网络回退）
 
     private fun assetPath(component: RuntimeComponent): String =
         "app_runtime/${component.remotePath}"
@@ -228,7 +228,7 @@ object RuntimeSetupManager {
         Log.i(TAG, "Installed JNA")
     }
 
-    // ==================== 网络下载 ====================
+    // 网络下载
 
     private fun downloadComponentFiles(component: RuntimeComponent, targetDir: String) {
         when (component) {
@@ -348,7 +348,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== tar.xz 解压 ====================
+    // tar.xz 解压
 
     private fun extractTarXzFromAssets(context: Context, assetPath: String, destDir: File) {
         destDir.mkdirs()
@@ -407,7 +407,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== Java 修补 ====================
+    // Java 修补
 
     private fun patchJava(context: Context, javaPath: String) {
         val dest = File(javaPath)
@@ -490,7 +490,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== Assets 复制（回退） ====================
+    // Assets 复制（回退）
 
     private fun copyAssets(context: Context, src: String, dest: String) {
         val fileNames = context.assets.list(src)
@@ -510,7 +510,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== resolv.conf ====================
+    // resolv.conf
 
     fun createResolvConf(context: Context) {
         val resolvFile = File(JAVA_PATH, "resolv.conf")
@@ -523,7 +523,7 @@ object RuntimeSetupManager {
         }
     }
 
-    // ==================== 批量操作 ====================
+    // 批量操作
 
     fun checkAllComponents(context: Context): Map<RuntimeComponent, Boolean> {
         val result = mutableMapOf<RuntimeComponent, Boolean>()
@@ -561,7 +561,7 @@ object RuntimeSetupManager {
         createResolvConf(context)
     }
 
-    // ==================== 工具 ====================
+    // 工具
 
     fun getArchName(): String {
         return when (android.os.Build.SUPPORTED_ABIS.firstOrNull()) {

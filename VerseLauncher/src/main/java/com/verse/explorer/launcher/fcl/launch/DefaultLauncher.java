@@ -72,7 +72,7 @@ import java.util.stream.Collectors;
 public class DefaultLauncher extends Launcher {
     private String jnaVersion;
     private String nativesDirectory;
-    // LWJGL 栈版本（对齐 FCL DefaultLauncher）：默认 3.3.3，启动前按版本 JSON 解析覆盖；
+    // LWJGL 栈默认使用 3.3.3，启动前根据版本 JSON 中的依赖覆盖。
     // >=3.4.1 用 3.4.1 栈（SDL 链），<3.4.1 用 3.3.3 栈。对应 assets/app_runtime/lwjgl/<version>/
     private String lwjglVersion = "3.3.3";
     private boolean useLwjglX = false;
@@ -83,7 +83,7 @@ public class DefaultLauncher extends Launcher {
     }
 
     /**
-     * 从版本 libraries 解析 LWJGL 版本（FCL LauncherHelper L241-260 语义）：
+     * 从版本的 libraries 列表中解析 LWJGL 版本：
      * org.lwjgl:lwjgl:* 或 org.lwjgl.lwjgl:lwjgl:* 取最高版本。
      */
     private void resolveLwjglVersionFromLibraries() {
@@ -176,11 +176,7 @@ public class DefaultLauncher extends Launcher {
 
         res.addDefault("-XX:ActiveProcessorCount=", String.valueOf(Runtime.getRuntime().availableProcessors()));
 
-        // 已移除 -XX:TieredStopAtLevel=1（对齐 FCL）：
-        // FCL 1.3.3.5 全部 dex/原生库/资源里都没有该参数，即 FCL 保留 C2 完整 JIT。
-        // 本机 6 份 hs_err 崩溃报告均为 libjvm.so 内 SIGSEGV（空指针/启动期），
-        // 无一份是 C2 的 "assembler_aarch64 ... Field too big for insn" 断言；
-        // 而 C1-only 会让区块构建/光照等热循环慢数倍，造成加载区块卡顿。
+        // 保留默认分层编译，让区块构建与光照等热点代码能够使用 C2 优化。
 
         // 把 JVM 崩溃报告（hs_err_pid*.log）重定向到外部可访问目录，便于无 root 取回分析。
         try {
@@ -234,21 +230,11 @@ public class DefaultLauncher extends Launcher {
                     ? lwjglNatives.getAbsolutePath()
                     : nativesDirectory);
         }
-        // LWJGL 分两个模块加载：
-        // 1) system 模块（org.lwjgl.libname=lwjgl）：加载 liblwjgl.so，提供 JNI.call* 等
-        //    ffi 桥接方法以及 ThreadLocalUtil.setupEnvData。
-        // 2) glfw 模块（org.lwjgl.glfw.libname）：FCL 官方 GLFW 类静态块硬编码
-        //    System.loadLibrary("pojavexec") + nativeInitializeGLFWNativeBridge()；
-        //    此参数用于 LWJGL SharedLibrary 取函数指针（pojavInit 等），对齐 FCL。
-        //    26.2 真机崩溃根因（2026-09-23 实证，hs_err_pid30572）：
-        //    jniLibs arm64 poemav（FCL 新版协议）的 vmGlfwClass 由 Java 侧
-        //    GLFW.nativeInitializeGLFWNativeBridge() 初始化，JNI_OnLoad 不再直接写入；
-        //    部署的 lwjgl-glfw-fcl.jar 若为老协议（internalWindowSizeChanged (JII)V、
-        //    无 nativeInitialize），则 vmGlfwClass 恒 NULL → pojavInit→updateMonitorSize
-        //    →CallStaticVoidMethod(NULL) SIGSEGV。已替换为 FCL official 3.3.3
-        //    merged 的 glfw 类（含 nativeInitialize、(J)V、glfwGetMonitorName）。
-        //
-        // 注意：pojavexec 使用裸名，不能带 "lib" 前缀或 ".so" 后缀。
+        // LWJGL system 模块使用 lwjgl，GLFW 模块使用 FCL 的 pojavexec 桥。
+        // GLFW JAR 与原生桥必须使用相同的 JNI 协议；Java 侧需先调用
+        // nativeInitializeGLFWNativeBridge()，再执行依赖窗口类引用的原生操作。
+        // 协议不匹配可能导致空类引用或 JNI 方法查找失败。
+        // 此处传入 System.loadLibrary 使用的裸名，不带 lib 前缀或 .so 后缀。
         res.addDefault("-Dorg.lwjgl.glfw.libname=", "pojavexec");
         res.addDefault("-Dorg.lwjgl.libname=", "lwjgl");
         res.addDefault("-Dorg.lwjgl.util.Debug=", "true");

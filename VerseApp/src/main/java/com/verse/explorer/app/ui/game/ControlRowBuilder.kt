@@ -29,7 +29,7 @@ internal class ControlRowBuilder(
 
     private fun dp(v: Float): Int = (v * density).toInt()
 
-    // ===================== 通用行构建器 =====================
+    // 通用行构建器
 
     /** 分区标题（Verse 卡片分组：3dp 主题色竖条 + 13sp 加粗标题，分组间留白） */
     internal fun sectionHeader(header: String): View {

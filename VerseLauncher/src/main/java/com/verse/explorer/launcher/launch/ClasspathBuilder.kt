@@ -85,7 +85,7 @@ internal class ClasspathBuilder(private val context: Context) {
             }
         }
 
-        // V3.6: MioLaunchWrapper.jar added to classpath for mio.Wrapper main class
+        // 将 MioLaunchWrapper.jar 加入类路径，使 mio.Wrapper 启动入口可用。
         val mioLaunchWrapperJar = File(context.filesDir, "plugins/MioLaunchWrapper.jar")
         if (mioLaunchWrapperJar.exists() && mioLaunchWrapperJar.length() > 1024) {
             classpath.add(mioLaunchWrapperJar.absolutePath)

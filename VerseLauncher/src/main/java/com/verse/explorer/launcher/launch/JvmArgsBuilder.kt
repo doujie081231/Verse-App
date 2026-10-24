@@ -33,10 +33,10 @@ internal class JvmArgsBuilder(
         val rendererId = effectiveRenderer.id
         File(cacheDir).mkdirs()
 
-        //Cacio Java args
+        // Cacio AWT 运行参数。
         environmentSetup.addCacioArgs(args, config, isJava8, nativeLibDir)
 
-        //关键系统属性（必须在 -Xmx/-Xms 之前）
+        // 关键系统属性（必须在 -Xmx/-Xms 之前）
         args.add("-Djdk.lang.Process.launchMechanism=FORK")
         args.add("-Dglfwstub.initEgl=false")
         args.add("-Dswing.defaultlaf=javax.swing.plaf.nimbus.NimbusLookAndFeel")
@@ -55,21 +55,21 @@ internal class JvmArgsBuilder(
         val log4j2File = gameArgsParser.ensureLog4j2Config(config)
         args.add("-Dlog4j.configurationFile=${log4j2File.absolutePath}")
 
-        //自定义 JVM args
+        // 用户配置的 JVM 参数。
         if (config.customJvmArgs.isNotBlank()) {
             args.addAll(config.customJvmArgs.split("\\s+".toRegex()).filter { it.isNotBlank() })
         }
 
-        //额外的 Java arguments (从版本配置传入)
+        // 版本配置提供的附加 JVM 参数。
         config.javaArguments.forEach { arg ->
             if (arg.isNotBlank()) args.add(arg)
         }
 
-        //memory settings
+        // JVM 堆内存限制。
         if (config.maxMemory > 0) args.add("-Xmx${config.maxMemory}m")
         if (config.minMemory > 0 && config.minMemory <= config.maxMemory) args.add("-Xms${config.minMemory}m")
 
-        //GC settings
+        // 垃圾回收器设置。
         val gcArg = when (config.gcType.lowercase()) {
             "g1gc", "g1" -> "-XX:+UseG1GC"
             "zgc", "z" -> "-XX:+UseZGC"
@@ -82,18 +82,17 @@ internal class JvmArgsBuilder(
         }
         if (gcArg.isNotEmpty()) args.add(gcArg)
 
-        // 已移除 -XX:TieredStopAtLevel=1（保留 C2 完整 JIT）。
-        // C1-only 会让区块构建/光照等热循环慢数倍；本机 6 份 hs_err 均无 C2 aarch64 断言。
+        // 保留默认分层编译，使区块构建与光照等热点代码能够使用 C2 优化。
 
-        //gl4es 会触发 System.gc()，禁用以避免卡顿
+        // gl4es 会触发 System.gc()，禁用以避免卡顿
         if (rendererId == RendererManager.ID_GL4ES || rendererId == RendererManager.ID_VGPU) {
             args.add("-XX:+DisableExplicitGC")
         }
 
-        //java.home
+        // JRE 根目录。
         args.add("-Djava.home=${config.javaHome.absolutePath}")
 
-        //encoding
+        // 统一标准输入输出的字符编码。
         args.add("-Dfile.encoding=UTF-8")
         if (config.javaVersion < 19) {
             args.add("-Dsun.stdout.encoding=UTF-8")
@@ -103,18 +102,18 @@ internal class JvmArgsBuilder(
             args.add("-Dstderr.encoding=UTF-8")
         }
 
-        //Log4j RCE mitigation
+        // 关闭远程代码加载与不安全的 JNDI 查询。
         args.add("-Djava.rmi.server.useCodebaseOnly=true")
         args.add("-Dcom.sun.jndi.rmi.object.trustURLCodebase=false")
         args.add("-Dcom.sun.jndi.cosnaming.object.trustURLCodebase=false")
         args.add("-Dlog4j2.formatMsgNoLookups=true")
 
-        //thread stack for 32-bit
+        // 为仅支持 32 位的设备限制线程栈大小。
         if (Build.SUPPORTED_32_BIT_ABIS.isNotEmpty() && Build.SUPPORTED_64_BIT_ABIS.isEmpty()) {
             args.add("-Xss1m")
         }
 
-        //core flags
+        // 游戏启动所需的系统属性。
         args.add("-Dminecraft.client.jar=${classpathBuilder.getVersionJar(config)}")
         args.add("-XX:ActiveProcessorCount=${Runtime.getRuntime().availableProcessors()}")
         args.add("-Dfml.ignoreInvalidMinecraftCertificates=true")
@@ -128,15 +127,15 @@ internal class JvmArgsBuilder(
         args.add("-Dglfwstub.windowWidth=${config.width}")
         args.add("-Dglfwstub.windowHeight=${config.height}")
 
-        // oshi: disable problematic Linux-specific checks on Android
+        // 避免 OSHI 在 Android 上执行不兼容的 Linux 平台探测。
         args.add("-Doshi.os.prefix=Android")
         args.add("-Doshi.arch=${Build.SUPPORTED_64_BIT_ABIS.firstOrNull() ?: "aarch64"}")
 
-        //OS identity
+        // 供游戏依赖识别的操作系统信息。
         args.add("-Dos.name=Linux")
         args.add("-Dos.version=Android-${Build.VERSION.RELEASE}")
 
-        //LWJGL library paths
+        // LWJGL 模块与原生库的绑定关系。
         args.add("-Dorg.lwjgl.system.stackSize=3072")
         args.add("-Dorg.lwjgl.util.Debug=true")
         args.add("-Dorg.lwjgl.util.DebugLoader=true")
@@ -151,7 +150,7 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.vulkan.libname=libvulkan.so")
         args.add("-Dorg.lwjgl.spvc.libname=spirv-cross-c-shared")
 
-        //Library path
+        // 原生库搜索路径。
         val modRuntimeDir = context.getDir("runtime_mod", 0).absolutePath
 
         val libraryPath = environmentSetup.buildFclLibraryPath(
@@ -169,7 +168,7 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.system.SharedLibraryExtractPath=${config.nativesDir.absolutePath}")
         args.add("-Dorg.lwjgl.librarypath=$libraryPath")
 
-        //misc
+        // 游戏目录、区域与时区设置。
         args.add("-Dloader.disable_forked_guis=true")
         args.add("-Duser.home=${config.gameDir.absolutePath}")
         args.add("-Duser.language=${System.getProperty("user.language", "zh")}")
@@ -178,19 +177,19 @@ internal class JvmArgsBuilder(
         args.add("-Dsodium.checks.issue2561=false")
         args.add("-Dcpu.name=${environmentSetup.getSocName()}")
 
-        //JNA boot path
+        // 使用随应用部署的 JNA 原生库。
         args.add("-Djna.boot.library.path=${jnaDir.absolutePath}")
         args.add("-Djna.nosys=true")
         args.add("-Djna.nounpack=true")
         args.add("-Djna.tmpdir=$cacheDir")
 
-        //Fix 1.7.2 Forge
+        // Minecraft 1.7.2 Forge 的排序兼容开关。
         val gameVersion = resolveGameVersion(config)
         if (gameVersion == "1.7.2") {
             args.add("-Dsort.patch=true")
         }
 
-        // V3.6: MioLibPatcher + MioLaunchWrapper（完整 Mio 基础设施）
+        // 部署 MioLibPatcher 与 MioLaunchWrapper，提供游戏运行时适配。
         val pluginsDir = File(context.filesDir, "plugins")
         if (!pluginsDir.exists()) pluginsDir.mkdirs()
 
@@ -217,15 +216,15 @@ internal class JvmArgsBuilder(
             Log.w(TAG, "verse-bootstrap.jar not found, VerseBootstrap main class will not be available")
         }
 
-        //mod loader env markers (空实现)
+        // 根据加载器入口设置兼容性系统属性。
         addModLoaderMarkers(config, args)
 
-        //add-opens/add-exports for Java 17+
+        // 为模块化 JRE 开放游戏依赖所需的反射访问。
         if (!isJava8) {
             addJavaModuleArgs(args, config)
         }
 
-        //beGesture injector
+        // 手势功能的运行时注入入口。
         if (config.beGesture) {
             val injectorArg = getInjectorArg(config)
             if (injectorArg != null) {
@@ -233,12 +232,12 @@ internal class JvmArgsBuilder(
             }
         }
 
-        //build classpath — 关键！LWJGL jar 排在最前面
+        // 将适配后的 LWJGL JAR 放在类路径前部，优先加载 Android 兼容实现。
         val classpath = classpathBuilder.buildFclClasspath(config, runtimeDir)
         args.add("-cp")
         args.add(classpath)
 
-        // V3.6: VerseBootstrap 作为主类，真实主类作为第一个参数
+        // 由 VerseBootstrap 转发启动，真实游戏主类作为第一个参数传入。
         val mcMainClass = if (config.version.mainClass.isNotEmpty()) config.version.mainClass
             else "net.minecraft.client.main.Main"
         val bootstrapAvailable = bootstrapJar != null && bootstrapJar.exists() && bootstrapJar.length() > 1024
@@ -250,10 +249,10 @@ internal class JvmArgsBuilder(
             args.add(mcMainClass)
         }
 
-        //game arguments
+        // 游戏入口参数。
         args.addAll(gameArgsParser.buildFclGameArguments(config, gameVersion))
 
-        //如果有自定义游戏参数，追加
+        // 在默认游戏参数之后追加用户参数。
         if (config.gameArguments.isNotBlank()) {
             args.addAll(config.gameArguments.split("\\s+".toRegex()).filter { it.isNotBlank() })
         }

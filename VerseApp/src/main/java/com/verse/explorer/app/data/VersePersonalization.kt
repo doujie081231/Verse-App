@@ -57,7 +57,7 @@ object VersePersonalization {
     var sidebarLabels by mutableStateOf(true)
         private set
 
-    // ==================== 颜色主题与外观（改即存）====================
+    // 颜色主题与外观（改即存）
 
     /** 颜色主题选择（ColorThemeType 枚举名，默认浅色沿用黑白主题历史行为） */
     var colorTheme by mutableStateOf("LIGHT")

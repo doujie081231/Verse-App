@@ -213,7 +213,7 @@ fun ModpackImportFlow(
         )
     }
 
-    // ===== 安装进度弹窗（对齐版本下载：分阶段任务流）=====
+    // 安装进度弹窗（对齐版本下载：分阶段任务流）
     if (modpackState.visible) {
         val running = modpackState.phase == ModpackInstallPhase.INSTALLING
         Dialog(onDismissRequest = {

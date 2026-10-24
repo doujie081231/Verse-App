@@ -277,7 +277,7 @@ object CcConstants {
         121L to (("key" to "GLFW_KEY_KP_DECIMAL") to "FCL KEY_KPCOMMA has no exact GLFW key; substituted with keypad decimal"),
     )
 
-    // --- 默认样式（与 cc.py 逐字段一致） ---
+    // 默认样式（与 cc.py 逐字段一致）
 
     fun defaultFclStyle(name: String = "Default"): JsonObject = obj(
         "name" to str(name),

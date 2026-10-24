@@ -64,7 +64,7 @@ enum class ActionMenuSide {
     END
 }
 
-// ==================== 七套命名色板完整色值（light/dark 成对）====================
+// 七套命名色板完整色值（light/dark 成对）
 
 val primaryLight = PaletteRow(Color(0xFFA63A17), Color(0xFF723D57), Color(0xFF426469), Color(0xFF006684), Color(0xFF676014), Color(0xFF5E5E5F), Color(0xFF004814))
 val onPrimaryLight = PaletteRow(Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF), Color(0xFFFFFFFF))

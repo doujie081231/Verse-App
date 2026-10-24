@@ -15,7 +15,7 @@ import java.util.Locale
  */
 object CcUtils {
 
-    // --- Python 风格数值 ---
+    // Python 风格数值
 
     /** Python round()：银行家舍入。 */
     fun pyRound(f: Double): Long {
@@ -98,7 +98,7 @@ object CcUtils {
         return sb.toString()
     }
 
-    // --- Python 取值语义 ---
+    // Python 取值语义
 
     private fun isIntegralLiteral(lit: String): Boolean =
         !lit.any { it == '.' || it == 'e' || it == 'E' }
@@ -155,7 +155,7 @@ object CcUtils {
         else -> false
     }
 
-    // --- clamp 系列（对齐 cc.py） ---
+    // clamp 系列（对齐 cc.py）
 
     fun clampInt(value: JsonElement?, default: Long = 0): Long {
         val f = toFloat(value) ?: return default
@@ -219,7 +219,7 @@ object CcUtils {
         return Math.max(0, Math.min(500, radius))
     }
 
-    // --- 颜色（ZL 有符号 Long 高 32 位 ARGB 与 FCL 有符号 int 互转） ---
+    // 颜色（ZL 有符号 Long 高 32 位 ARGB 与 FCL 有符号 int 互转）
 
     fun signedInt32(value: Long): Long {
         val v = value and 0xFFFFFFFFL
@@ -281,7 +281,7 @@ object CcUtils {
         }
     }
 
-    // --- 文本 ---
+    // 文本
 
     fun textDefault(value: JsonElement?): String {
         val obj = value.asObjOrNull()
@@ -316,7 +316,7 @@ object CcUtils {
         )
     }
 
-    // --- 键名归一化与键码换算 ---
+    // 键名归一化与键码换算
 
     fun normalizeZlKey(eventKey: String?): String {
         var key = (eventKey ?: "").trim()
@@ -422,7 +422,7 @@ object CcUtils {
         return ZlEvent("key", "GLFW_KEY_UNKNOWN")
     }
 
-    // --- wrap_content 估算 ---
+    // wrap_content 估算
 
     /** Python str.splitlines() 等价切分（含全部换行族分隔符）。 */
     private fun pythonSplitLines(text: String): List<String> {
@@ -466,7 +466,7 @@ object CcUtils {
         return Pair(width, height)
     }
 
-    // --- 控件文本归一化（启发式推断用；坑 4：alnum 与 CJK 必须分开成 run） ---
+    // 控件文本归一化（启发式推断用；坑 4：alnum 与 CJK 必须分开成 run）
 
     private fun isAlnumAscii(c: Char): Boolean = c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9'
 

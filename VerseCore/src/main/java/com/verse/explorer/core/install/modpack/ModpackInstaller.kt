@@ -354,7 +354,7 @@ object ModpackInstaller {
         }
     }
 
-    // ===== 事件暴露辅助 =====
+    // 事件暴露辅助
 
     private fun emit(onEvent: (ModpackTaskEvent) -> Unit, stage: String, label: String, name: String = "") {
         onEvent(ModpackTaskEvent(stage, label, name, 0f, "", ModpackTaskKind.RUNNING))

@@ -5,16 +5,16 @@ import java.io.File
 /**
  * JRE 目录校验纯函数集合。
  *
- * 从 JreResolver 抽出的无副作用逻辑（只读文件系统，不碰 Context/APK assets），
- * 便于单元测试用临时目录覆盖各缺失分支。语义与原实现逐条对齐：
- * 文件探测为递归搜索（与 JavaRuntimeDetector.findFileInDir 相同行为）。
+ * 只读取文件系统，不依赖 Android Context 或 APK assets，
+ * 便于通过临时目录测试运行库缺失或损坏的情况。
+ * 文件探测递归遍历子目录，以兼容不同 JRE 的目录结构。
  */
 internal object JreValidator {
 
     /**
      * 校验 JRE 目录能否用于启动：返回 null 表示可用，否则返回缺失项。
      * JRE8 的核心运行库是 lib/rt.jar（安装时由 rt.jar.pack 还原），JDK9+ 是 lib/modules；
-     * 与安装器的完整性判定保持一致，避免出现「安装器说已安装、启动又说找不到」的循环。
+     * 与安装器的完整性判定保持一致，确保安装状态与启动前校验使用相同的完整性标准。
      */
     fun jreInvalidReason(home: String): String? {
         val dir = File(home)

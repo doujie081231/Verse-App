@@ -4,8 +4,8 @@ plugins {
 }
 
 android {
-    // 与 FCL 一致：R / BuildConfig 必须生成在 com.tungsten.fcl 包下，
-    // 直搬源码里的 com.tungsten.fcl.R / BuildConfig / FCLApp 引用才能命中。
+    // R 与 BuildConfig 必须生成在 com.tungsten.fcl 命名空间，
+    // 以保持核心模块现有资源引用与宿主初始化接口的兼容性。
     namespace = "com.tungsten.fcl"
     compileSdk = 35
 

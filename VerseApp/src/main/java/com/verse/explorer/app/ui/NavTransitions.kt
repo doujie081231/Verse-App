@@ -7,7 +7,7 @@ import soup.compose.material.motion.animation.materialFadeThroughOut
 import soup.compose.material.motion.animation.materialSharedAxisXIn
 import soup.compose.material.motion.animation.materialSharedAxisXOut
 
-// ==================== 页面切换动画（Material 动效规范，fornewid/material-motion-compose）====================
+// 页面切换动画（Material 动效规范，fornewid/material-motion-compose）
 // 顶层页签之间无强关联 → FadeThrough；详情/深入页面有层级关系 → SharedAxis X；
 // 返回（pop）方向取反，页签时长略短于标准值以减少两页同帧绘制，详情页保留标准 300ms
 

@@ -120,7 +120,7 @@ object FclLoaderInstaller {
             // （如官方 Forge/NeoForge 安装器内嵌 JSON 已带 inheritsFrom 则原样保留，
             //
             // 不再在此预合并库列表/参数/游戏JAR：全部沿继承链由启动侧 resolve() 合并
-            //   { id, inheritsFrom: <原版>, libraries: [仅加载器库], arguments, mainClass, ... }
+            // { id, inheritsFrom: <原版>, libraries: [仅加载器库], arguments, mainClass, ... }
             //
             // 注意：安装任务返回的补丁 id 是 patch id（如 "forge"/"fabric-loader"），
             // 写盘时必须替换为 newId，否则版本列表会出现 patch 名的孤立条目。

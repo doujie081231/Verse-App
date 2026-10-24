@@ -98,7 +98,7 @@ object GamepadBindingsRepository {
         "→" to KeyEvent.KEYCODE_DPAD_RIGHT
     )
 
-    // ===== 手柄总开关 =====
+    // 手柄总开关
 
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
 
@@ -106,7 +106,7 @@ object GamepadBindingsRepository {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    // ===== 映射配置档案 =====
+    // 映射配置档案
 
     fun profiles(context: Context): List<String> {
         val raw = prefs(context).getString(KEY_PROFILES, null)
@@ -154,7 +154,7 @@ object GamepadBindingsRepository {
         editor.apply()
     }
 
-    // ===== 绑定读写 =====
+    // 绑定读写
 
     /** 取绑定目标集合；未设置过时回退默认值 */
     fun get(context: Context, mode: Mode, buttonKeyCode: Int): Set<Int> {
