@@ -3,14 +3,15 @@ package com.verse.explorer.app
 import android.widget.Toast
 import com.verse.explorer.app.setup.RuntimeSetupManager
 import com.verse.explorer.app.ui.VerseLogger
-import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.launch.LaunchRequest
 import com.verse.explorer.app.launch.LaunchIntentCodec
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -26,10 +27,12 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
     fun checkRuntimeAsync() {
         if (runtimeCheckRunning || activity.stateChecked.value) return
         runtimeCheckRunning = true
-        GlobalScope.launch(Dispatchers.IO) {
+        activity.lifecycleScope.launch(Dispatchers.Main) {
             try {
-                RuntimeSetupManager.loadPaths(activity)
-                val status = RuntimeSetupManager.checkAllComponents(activity)
+                val status = withContext(Dispatchers.IO) {
+                    RuntimeSetupManager.loadPaths(activity.applicationContext)
+                    RuntimeSetupManager.checkAllComponents(activity.applicationContext)
+                }
                 val allReady = status.all { (component, ready) ->
                     component.isOptional || ready
                 }
@@ -42,6 +45,8 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
                     VerseLogger.info("缺少运行时: $missing", "MainActivity")
                 }
                 activity.stateChecked.value = true
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 VerseLogger.error("运行时检查失败: ${e.message}", "MainActivity")
                 activity.stateChecked.value = true
@@ -62,25 +67,16 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
         val javaVer = javaVerSetting.toIntOrNull() ?: 17
 
         val anyJavaInstalled = JavaRuntimeManager.hasJava(activity)
-        val specificJavaOk = javaVerSetting.isEmpty() || javaVerSetting.toIntOrNull() == null ||
-            JavaRuntimeManager.hasJava(activity, javaVer)
 
         if (!anyJavaInstalled) {
             Toast.makeText(activity, "正在自动安装Java运行时，请稍候...", Toast.LENGTH_LONG).show()
-            GlobalScope.launch(Dispatchers.IO) {
+            activity.lifecycleScope.launch(Dispatchers.Main) {
                 val javaVersion = when {
                     javaVer <= 8 -> "java8"
                     javaVer >= 21 -> "java21"
                     else -> "java17"
                 }
-                val installResult = JavaRuntimeManager.installJre(
-                    context = activity,
-                    javaVersion = javaVersion
-                ) { progress ->
-                    activity.runOnUiThread {
-                        Toast.makeText(activity, progress.message, Toast.LENGTH_SHORT).show()
-                    }
-                }
+                val installResult = activity.appContainer.runtimeInstalls.install(javaVersion).await()
                 activity.runOnUiThread {
                     if (installResult.isSuccess) {
                         startGameWithJava(versionId, gameDir)

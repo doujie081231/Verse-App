@@ -79,8 +79,6 @@ import net.kdt.pojavlaunch.prefs.LauncherPreferences
 fun SettingsScreen(navController: NavHostController) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val viewModel = activityViewModel(SettingsViewModel::class.java)
-    // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
-    // 鼠标指针自定义图片与热点的持久化目录（幂等）
     // 子页索引与 pages 列表的顺序保持一致。
     var selectedPage by remember { mutableIntStateOf(0) }
     val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "手柄设置", "关于")

@@ -167,7 +167,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
 
     fun ensureJnaNativeLib(nativesDir: File) {
         val jnaLibFile = File(nativesDir, "libjnidispatch.so")
-        // 必须与 JvmArgsBuilder/ClasspathBuilder 使用同一个目录：context.getDir("runtime", 0)/jna
+        // 必须与 DefaultLauncher 的 JNA 参数使用同一个目录：context.getDir("runtime", 0)/jna
         // getDir("runtime", 0) 实际路径是 /data/user/0/<pkg>/app_runtime/jna
         val jnaRuntimeDir = File(context.getDir("runtime", 0), "jna")
         val jnaDirLib = File(jnaRuntimeDir, "libjnidispatch.so")

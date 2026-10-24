@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.verse.explorer.app.VerseApplication
+import com.verse.explorer.app.appContainer
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.VersionSettingsRepository
 import com.verse.explorer.app.device.VulkanCheckManager
@@ -48,21 +49,22 @@ data class LaunchState(
 class GameLaunchController(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val settingsRepo = SettingsRepository
-    private val gameDir = GameConfig.getGameDir(context)
-    private val versionManager = VersionManager(gameDir)
+    private var gameDir = GameConfig.getGameDir(context)
+    private val versionManager get() = VersionManager(gameDir)
 
     private val _launchState = MutableStateFlow(LaunchState())
     val launchState: StateFlow<LaunchState> = _launchState.asStateFlow()
 
-    fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
+    @Synchronized fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
         if (_launchState.value.isLaunching) return
 
+        _launchState.value = LaunchState(
+            phase = LaunchPhase.PREPARING,
+            isLaunching = true,
+            message = "正在准备启动..."
+        )
         scope.launch {
-            _launchState.value = LaunchState(
-                phase = LaunchPhase.PREPARING,
-                isLaunching = true,
-                message = "正在准备启动..."
-            )
+            gameDir = GameConfig.getGameDir(context)
             VerseLogger.info("开始启动游戏流程", "LaunchController")
 
             try {
@@ -72,23 +74,15 @@ class GameLaunchController(private val context: Context) {
                 val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
                 val verIndependent = !verSettings.usesGlobal
 
-                val maxMemory = if (verIndependent && !verSettings.autoMemory && verSettings.maxMemory > 0) {
-                    verSettings.maxMemory
-                } else {
-                    resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory())
-                }
-                val minMemory = if (verIndependent && !verSettings.autoMemory && verSettings.minMemory > 0) {
-                    verSettings.minMemory
-                } else {
-                    settingsRepo.getMinMemory()
-                }
+                val resolved = com.verse.explorer.core.launch.EffectiveLaunchSettings(
+                    resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory()),
+                    settingsRepo.getMinMemory(), settingsRepo.getRenderer(), settingsRepo.getCustomJvmArgs()
+                ).withVersion(verSettings)
+                val maxMemory = resolved.maxMemory
+                val minMemory = resolved.minMemory
                 val gcType = settingsRepo.getGcType()
-                val renderer = resolveRendererForVersion(
-                    resolveMinecraftVersionForJudgement(version.id),
-                    if (verIndependent && verSettings.renderer.isNotBlank()) verSettings.renderer
-                    else settingsRepo.getRenderer()
-                )
-                val customJvmArgs = if (verIndependent) verSettings.javaArgs else settingsRepo.getCustomJvmArgs()
+                val renderer = resolveRendererForVersion(resolveMinecraftVersionForJudgement(version.id), resolved.renderer)
+                val customJvmArgs = resolved.jvmArgs
                 val launchMethod = settingsRepo.getLaunchMethod()
                 VerseLogger.info(
                     "Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer " +
@@ -309,16 +303,7 @@ class GameLaunchController(private val context: Context) {
                     8 -> "java8"; 21 -> "java21"; 25 -> "java25"
                     else -> "java17"
                 }
-                val result = JavaRuntimeManager.installJre(context, javaKey) { progress ->
-                    val status = when {
-                        progress.status.name == "COMPLETED" -> "安装完成"
-                        progress.status.name.contains("FAILED", ignoreCase = true) -> "安装失败: ${progress.message}"
-                        else -> "解压中..."
-                    }
-                    steps[stepIdx] = LaunchStep("Java 检查", status, if (status == "安装完成") "check" else "download")
-                    emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, progress.message)
-                }
-
+                val result = context.appContainer.runtimeInstalls.install(javaKey).await()
                 if (result.isSuccess) {
                     val newRuntimes = JavaRuntimeManager.getInstalledRuntimes(context)
                     bestRuntime = selectBestRuntime(newRuntimes, recommendedJava.majorVersion)

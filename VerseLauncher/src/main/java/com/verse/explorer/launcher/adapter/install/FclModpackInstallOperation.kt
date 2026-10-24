@@ -26,22 +26,6 @@ import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.install.modpack.ModpackTaskKind
 
-/** 阶段行状态 */
-// 进度事件由 VerseCore 的安装端口定义。
-
-/**
- *
- *                 供 UI 将事件归并到对应阶段行
- * @param name     当前任务名 / 正在下载的文件名
- * @param progress 当前任务进度 0..1
- * @param message  附加信息（任务 message，通常为空）
- * @param kind     任务状态
- * @param countDone 计数行已完成文件数（计数事件携带，-1 表示非计数事件）：
- *                  单阶段多文件时 UI 按 n/total 计数展示行进度，不再绑定单文件进度
- * @param countTotal 计数行总文件数（任务 properties["total"] 事件携带，-1 表示非计数事件）
- * @param rowDone  是否为阶段行整体完成（非单文件任务结束时置 true，
- *                 避免同阶段并行文件个别完成就把整行标成已完成）
- */
 /**
  * - 读取 mrpack manifest：尝试各 ModpackProvider（Modrinth 优先）
  * - 安装：Modpack.getInstallTask() → ModrinthInstallTask
@@ -138,6 +122,8 @@ internal class FclModpackInstallOperation : ModpackInstallOperation {
             val modpack = readModpack(zipFile)
 
             val runName = name ?: modpack.name
+            val target = com.verse.explorer.core.install.InstallationPaths(gameDir).version(runName)
+            check(!target.exists()) { "版本目录已存在，请重新命名: $runName" }
             com.verse.explorer.core.log.DownloadLog.modpack(
                 "开始安装整合包: ${modpack.name} (${zipFile.name}, ${zipFile.length() / 1048576}MB), 目标版本=$runName"
             )

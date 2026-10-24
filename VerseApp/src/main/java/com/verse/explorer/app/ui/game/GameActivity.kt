@@ -2,14 +2,9 @@ package com.verse.explorer.app.ui.game
 
 import android.app.AlertDialog
 import android.content.DialogInterface
-import android.graphics.Color
 import android.graphics.SurfaceTexture
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -33,7 +28,6 @@ import androidx.compose.ui.graphics.toArgb
 import com.verse.explorer.app.R
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.version.VersionJsonResolver
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.launch.LaunchIntentCodec
 import com.verse.explorer.app.permissions.observeAppPermissionRequests
 import com.verse.explorer.app.game.GameLaunchOrchestrator
@@ -44,7 +38,6 @@ import com.verse.explorer.app.game.NativesDeployer
 import com.verse.explorer.app.game.TouchControllerProxy
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.ui.VerseLogger
-import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.tungsten.fcl.control.view.LogWindow
 import com.tungsten.fcl.game.sdl.SdlBridge
@@ -406,11 +399,6 @@ class GameActivity : ComponentActivity(), GameRuntimeCallbacks, TextureView.Surf
             }
         } catch (e: Throwable) {
             VerseLogger.error("orchestrator.release() failed: ${e.message}")
-        }
-        // 仅当输入已安全启用过才复位：类从未初始化时调用会触发首次 loadLibrary（见 inputReady 注释）。
-        if (inputReady) {
-            CallbackBridge.nativeSetInputReady(false)
-            CallbackBridge.setFCLBridge(null)
         }
         if (touchProxyEnabled) {
             TouchControllerProxy.clearPointers()

@@ -75,7 +75,10 @@ class FclGameRuntimeBackend(
     }
 
     override suspend fun start(target: AndroidRenderTarget) {
-        val configuration = checkNotNull(prepared) { "Game backend has not been prepared" }
+        val configuration = synchronized(this) {
+            check(!stopped && !released) { "Game backend has stopped" }
+            checkNotNull(prepared) { "Game backend has not been prepared" }
+        }
         val launcher = configuration.launcher
         val gameDir = configuration.gameDir
         val nativesDir = configuration.nativesDir
@@ -188,7 +191,10 @@ class FclGameRuntimeBackend(
         val bridge = withContext(Dispatchers.IO) {
             launcher.launch()
         }
-        this.bridge = bridge
+        synchronized(this) {
+            if (stopped || released) throw kotlinx.coroutines.CancellationException("Game backend has stopped")
+            this.bridge = bridge
+        }
 
         logger.info("[8/9 JVM启动] bridge 返回: $bridge (isValid=${bridge != null}), 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
 
@@ -220,7 +226,6 @@ class FclGameRuntimeBackend(
             bridge.setSurfaceTexture(surfaceTexture)
         }
         logger.info("[9/9 渲染接入] bridge.execute(surface=${target.surface}, callback) ...", TAG)
-        jvmStarted = true
         // SDLSurface 初始化（mWidth=CallbackBridge.windowWidth）依赖该字段，缺失时窗口尺寸 0
         // 导致 SDL/Vulkan surface 尺寸 0，进世界渲染 abort（SIGABRT 退出码 6）。
         // 失败兜底忽略（execute 后 pushEventWindow 仍会经 sendUpdateWindowSize 更新）。
@@ -231,7 +236,11 @@ class FclGameRuntimeBackend(
             logger.warn("[9/9 渲染接入] 预置 CallbackBridge.windowWidth/Height 失败: ${it.message}", TAG)
         }
         withContext(Dispatchers.Main) {
-            bridge.execute(target.surface, bridgeCallbacks)
+            synchronized(this@FclGameRuntimeBackend) {
+                if (stopped || released) throw kotlinx.coroutines.CancellationException("Game backend has stopped")
+                jvmStarted = true
+                bridge.execute(target.surface, bridgeCallbacks)
+            }
         }
         // 游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize 更新 windowWidth/Height
         // 并触发 GLFW 窗口尺寸回调 → MC 按新尺寸重建渲染目标/swapchain。

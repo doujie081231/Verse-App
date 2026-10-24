@@ -44,3 +44,18 @@ private tailrec fun Context.requireActivity(): ComponentActivity = when (this) {
     is ContextWrapper -> baseContext.requireActivity()
     else -> error("ViewModel owner must be a ComponentActivity")
 }
+
+@Composable
+fun modDetailViewModel(projectId: String, source: String): ModDetailViewModel {
+    val application = LocalContext.current.applicationContext as Application
+    val factory = remember(application, projectId, source) {
+        object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                require(modelClass == ModDetailViewModel::class.java)
+                return ModDetailViewModel(application, projectId, source) as T
+            }
+        }
+    }
+    return activityViewModel(ModDetailViewModel::class.java, "detail:$source:$projectId", factory)
+}
