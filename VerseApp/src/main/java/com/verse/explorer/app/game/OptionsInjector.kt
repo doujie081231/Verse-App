@@ -174,16 +174,10 @@ class OptionsInjector(private val activity: Context) {
     /**
      * options.txt 精确替换/追加单个键。value 为原始 options 行等号后的字面量（字符串需自带引号）。
      * 只改目标键，不整写模板，规避 MC 26.2 对旧格式行 "Skipping bad option" 的启动期异常。
+     * 纯文本逻辑在 OptionsText（可单测）。
      */
-    private fun setOption(content: String, key: String, value: String): String {
-        val regex = Regex("^$key:.*$", RegexOption.MULTILINE)
-        val line = "${key}:$value"
-        return if (regex.containsMatchIn(content)) {
-            regex.replace(content, line)
-        } else {
-            (if (content.trimEnd().isEmpty()) content else content.trimEnd() + "\n") + line + "\n"
-        }
-    }
+    private fun setOption(content: String, key: String, value: String): String =
+        OptionsText.setOption(content, key, value)
 
     /**
      * 输出 options.txt 中的渲染相关键，仅用于排查画面问题，不修改玩家的游戏内设置。

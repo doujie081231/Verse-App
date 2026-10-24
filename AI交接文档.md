@@ -101,6 +101,17 @@ adb -s 3B1F5PE9ZUZ69NZH install -r "$env:TEMP\s.apk"
 - 发布链历史上用过：commit → tag → push（镜像）→ GitHub REST API 建 Release → `curl.exe --data-binary` 传 APK。GitHub 直连波动时曾走 Git Data API（blobs→trees→commits→PATCH refs），本机曾可用 21080 代理推送（仅命令参数，不改 git 配置）。
 - 旧文档里的远端 main 哈希、Release ID、发布脚本路径均已过期，**不要照抄**；发布前重新确认远端状态。
 
+### 2.6 单元测试
+
+```powershell
+$env:JAVA_HOME="D:\verse-android-sdk\jdk17\jdk-17.0.2"
+.\gradlew.bat :VerseCore:testDebugUnitTest :VerseApp:testDebugUnitTest --no-configuration-cache --console=plain
+```
+
+- 测试跑本地 JVM，不需真机；`VerseApp`/`VerseCore` 已配 `unitTests.returnDefaultValues`（android.jar 桩返回默认值）。
+- 测试数据统一放各模块 `src/test/resources/`（如 `VerseCore/src/test/resources/modrinth/in_versions.json`），禁止写机器绝对路径。
+- CI（`.github/workflows/build-android.yml`）在 Build 前跑同一测试命令，失败即红。
+
 ---
 
 ## 3. 用户硬性规则（长期，必须遵守）
@@ -138,6 +149,12 @@ adb -s 3B1F5PE9ZUZ69NZH install -r "$env:TEMP\s.apk"
 - 不要用 `Popup` 做设置页下拉（历史上偏移/漂移严重），一律用**内联展开**。
 - 不要在启动器同进程里尝试二次创建 JVM；退出/重启必须**杀进程 + 冷启动**。
 - 不要用 `runBlocking`/猜测方式补启动链；按 FCL 的 26.3 启动链缺啥补啥。
+
+### 3.5 测试规矩（2026-10-24 起）
+
+18. **新功能/新代码必须带单元测试**：能抽纯函数的逻辑（文本处理、版本比较、目录校验、参数计算）优先抽成 `internal object` 纯函数并写表驱动测试；不要往私有方法里堆不可测逻辑。
+19. 测试命令见 2.6；行为中性重构以「编译 + 测试 + 逐文件 diff 审查」为验证标准，真机回归按用户另行安排。
+20. 测试落选目标（需 Robolectric 的 SharedPreferences 类、依赖面大的启动环境类）记录在案，不强行单测；需要时再评估引入 Robolectric。
 
 ---
 

@@ -29,6 +29,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        // 单元测试跑在本地 JVM：android.jar 为桩实现，默认调用抛 "not mocked"。
+        // 开启后桩方法返回默认值（0/null/false），使触及 android.util.Log 等的
+        // 生产代码可在纯 JVM 测试中运行
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {

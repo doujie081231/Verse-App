@@ -78,24 +78,9 @@ class JreResolver(
 
     /**
      * 校验 JRE 目录能否用于启动：返回 null 表示可用，否则返回缺失项。
-     * JRE8 的核心运行库是 lib/rt.jar（安装时由 rt.jar.pack 还原），JDK9+ 是 lib/modules；
-     * 与安装器的完整性判定保持一致，避免出现「安装器说已安装、启动又说找不到」的循环。
+     * 纯文件系统判定，逻辑在 JreValidator（可单测）。
      */
-    private fun jreInvalidReason(home: String): String? {
-        val dir = File(home)
-        if (!dir.exists()) return "目录不存在"
-        if (!File(dir, "bin/java").exists()) return "缺少 bin/java"
-        val libDir = File(dir, "lib")
-        if (!libDir.isDirectory) return "缺少 lib/"
-        if (!javaDetector.findFileInDir(libDir, "libjli.so")) return "缺少 libjli.so"
-        if (!javaDetector.findFileInDir(libDir, "libjvm.so")) return "缺少 libjvm.so"
-        if (!javaDetector.findFileInDir(libDir, "libawt.so")) return "缺少 libawt.so"
-        if (!javaDetector.findFileInDir(libDir, "libfontmanager.so")) return "缺少 libfontmanager.so"
-        val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
-            (javaDetector.findNonEmptyFileInDir(libDir, "rt.jar") && isRtJarUsable(libDir))
-        if (!classesOk) return "核心运行库(modules/rt.jar)缺失或损坏"
-        return null
-    }
+    private fun jreInvalidReason(home: String): String? = JreValidator.jreInvalidReason(home)
 
     private fun executableJre(home: String): String {
         ensureJreExecutable(File(home))
@@ -118,22 +103,9 @@ class JreResolver(
      * JRE8 核心库可用性：lib 目录下的 rt.jar 能读出 java/lang/Object.class 才算完好。
      * 局部损坏（中央目录正常、条目数据损坏）无法靠文件大小判断，用条目可读性兜底。
      */
-    private fun isRtJarUsable(libDir: File): Boolean = runCatching {
-        val rtJar = findFileInTree(libDir, "rt.jar") ?: return@runCatching false
-        java.util.zip.ZipFile(rtJar).use { zip ->
-            zip.getEntry("java/lang/Object.class") != null &&
-                zip.getInputStream(zip.getEntry("java/lang/Object.class")).use { it.read() } >= 0
-        }
-    }.getOrDefault(false)
+    private fun isRtJarUsable(libDir: File): Boolean = JreValidator.isRtJarUsable(libDir)
 
-    private fun findFileInTree(dir: File, name: String): File? {
-        if (!dir.exists()) return null
-        dir.listFiles()?.forEach { f ->
-            if (f.isFile && f.name == name) return f
-            if (f.isDirectory) findFileInTree(f, name)?.let { return it }
-        }
-        return null
-    }
+    private fun findFileInTree(dir: File, name: String): File? = JreValidator.findFileInTree(dir, name)
 
     private fun ensureJreExecutable(jreHome: File) {
         try {
