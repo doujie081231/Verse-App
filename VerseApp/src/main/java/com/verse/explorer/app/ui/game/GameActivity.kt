@@ -40,10 +40,7 @@ import com.verse.explorer.app.game.JavaRuntimeDetector
 import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.game.NativesDeployer
 import com.verse.explorer.app.game.TouchControllerProxy
-import com.verse.explorer.app.redstone.RedStoneTunnelDialog
-import com.verse.explorer.app.redstone.RedStoneTunnelManager
 import com.verse.explorer.app.terracotta.TerracottaController
-import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
@@ -72,7 +69,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     private val javaDetector = JavaRuntimeDetector(
         this, { logManager.appendStatusLog(it) }, statusOverlay, versionResolver
     )
-    private val inputHandler = GameInputHandler(
+    internal val inputHandler = GameInputHandler(
         { orchestrator.fclBridge },
         this,
         { hitResultType },
@@ -80,7 +77,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         menuVisibleProvider = { inGameControl?.isOverlayVisible() == true }
     )
     private lateinit var orchestrator: GameLaunchOrchestrator
-    private lateinit var textureView: TextureView
+    internal lateinit var textureView: TextureView
     private var surface: Surface? = null
     private var graphicOutputShown = false
 
@@ -98,7 +95,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     }
 
     /** 联机对话框打开期间吞掉触摸，避免透传给游戏输入 */
-    private var multiplayerDialogOpen = false
+    internal var multiplayerDialogOpen = false
 
     var touchOverlay: FrameLayout? = null
     var controlLayout: ControlLayout? = null
@@ -143,7 +140,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     val currentBridge: FCLBridge?
         get() = if (::orchestrator.isInitialized) orchestrator.fclBridge else null
 
-    private var inGameControl: InGameControlOverlay? = null
+    internal var inGameControl: InGameControlOverlay? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -412,7 +409,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         }
     }
 
-    private fun stopGame() {
+    internal fun stopGame() {
         if (::orchestrator.isInitialized) {
             orchestrator.stopGame()
         }
@@ -690,39 +687,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             ev.rawY >= location[1] && ev.rawY <= location[1] + input.height
     }
 
-    /** 控制面板「陶瓦联机」入口：直接唤出游戏内陶瓦联机对话框（未启用时提示去开启） */
-    fun showMultiplayerEntry() {
-        if (!getSharedPreferences("third_party", MODE_PRIVATE).getBoolean("terracotta", false)) {
-            Toast.makeText(this, "请先在联机页的「陶瓦联机」中开启多人联机", Toast.LENGTH_LONG).show()
-            return
-        }
-        multiplayerDialogOpen = true
-        val dialog = TerracottaMultiplayerDialog(this)
-        dialog.onDismissed = { multiplayerDialogOpen = false }
-        dialog.show()
-    }
-
-    /** 控制面板「红石联机」入口：唤出游戏内红石隧道对话框（红石内核缺失时提示） */
-    fun showRedstoneDialog() {
-        if (!RedStoneTunnelManager.isAvailable(this)) {
-            Toast.makeText(this, "当前设备没有红石内核（仅支持 arm64 设备）", Toast.LENGTH_LONG).show()
-            return
-        }
-        multiplayerDialogOpen = true
-        val dialog = RedStoneTunnelDialog(this)
-        dialog.onDismissed = { multiplayerDialogOpen = false }
-        dialog.show()
-    }
-
-    fun showQuickInput() {
-        touchCharInput?.let {
-            it.visibility = View.VISIBLE
-            it.bringToFront()
-            it.requestFocus()
-            it.switchKeyboardState()
-        }
-    }
-
     override fun onLog(log: String) {
         VerseLogger.info(log.replace("\n", ""), "Minecraft")
         logWindow?.appendLog(log)
@@ -784,7 +748,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // textureView?.let { CallbackBridge.sendUpdateWindowSize(it.width, it.height) }
         CallbackBridge.nativeSetInputReady(true)
         setupTouchControls()
-        setupInGameControlOverlay()
+        mountInGameControlOverlay()
         // MC 启动必先进主菜单（GUI 态），但光标模式回调仅在变化时触发——
         // 主动按 GUI 态初始化一次：显示箭头光标并归中（否则主菜单拖动无可见光标）
         onCursorModeChange(FCLBridge.CursorEnabled)
@@ -794,51 +758,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 it.setVisibility(false)
             }
         }
-    }
-
-    /**
-     */
-    private fun setupInGameControlOverlay() {
-        if (inGameControl != null) return
-        val overlay = InGameControlOverlay(
-            activity = this,
-            onEsc = {
-                inputHandler.onKeyDown(KeyEvent.KEYCODE_ESCAPE, null)
-                inputHandler.onKeyUp(KeyEvent.KEYCODE_ESCAPE, null)
-            },
-            onScreenshot = {
-                val bmp = textureView?.bitmap
-                val path = InGameControlOverlay.saveScreenshot(bmp, this)
-                Toast.makeText(
-                    this,
-                    if (path != null) "截图已保存: $path" else "截图失败",
-                    Toast.LENGTH_LONG
-                ).show()
-            },
-            onExitGame = {
-                VerseLogger.info("从控制面板触发退出游戏", "Control")
-                stopGame()
-                finish()
-            },
-            onCancelGameGesture = {
-                inputHandler.cancelGesture()
-            },
-            onPhysicalMouseChanged = {
-                inputHandler.syncCapturedPointer()
-            }
-        )
-        val hint = overlay.createHintView()
-        val panel = overlay.createPanelView()
-        addContentView(hint, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        addContentView(panel, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        hint.visibility = View.GONE
-        panel.visibility = View.GONE
-        inGameControl = overlay
-        // 演示遮罩：游戏画面出现后自动弹出双指下滑提示（git 恢复）
-        overlay.showHint()
-        // 控制面板可经右侧竖胶囊悬浮入口唤出（记忆规范：竖着的整个胶囊容器内放圆形图标按钮）。
-        // 【已按要求移除菜单按钮，控制面板仅通过双指下滑手势唤出】
-        VerseLogger.info("控制面板已挂载（双指下滑唤出）", "Control")
     }
 
     /**
@@ -1001,7 +920,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 } else {
                     val loc = IntArray(2)
                     tv.getLocationInWindow(loc)
-                    // 与 ZL2 的 mapToGame 一致：窗口坐标 = 画面内坐标 × (渲染尺寸 / 显示尺寸)
+                    // 窗口坐标换算：窗口坐标 = 画面内坐标 × (渲染尺寸 / 显示尺寸)
                     val metrics = resources.displayMetrics
                     var renderWidth: Int
                     var renderHeight: Int

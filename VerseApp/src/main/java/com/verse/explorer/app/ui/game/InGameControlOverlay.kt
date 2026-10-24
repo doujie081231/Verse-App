@@ -8,7 +8,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Environment
 import android.os.Handler
@@ -21,14 +20,10 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.TranslateAnimation
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.SeekBar
-import android.widget.Spinner
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.tungsten.fcl.setting.MenuSetting
@@ -69,6 +64,9 @@ class InGameControlOverlay(
 
     private val density = activity.resources.displayMetrics.density
     private fun dp(v: Float): Int = (v * density).toInt()
+
+    /** 设置行构建器（标签 + 控件行、开关行、下拉行、滑条行、按钮行） */
+    private val rows = ControlRowBuilder(activity, fclAccent, verseRowBg, fclText)
 
     private var hintView: View? = null
     private var panelView: View? = null
@@ -307,8 +305,8 @@ class InGameControlOverlay(
 
     private fun buildLeftContent(content: LinearLayout) {
         val layouts = layoutFileList()
-        content.addView(sectionHeader("当前布局方案"))
-        content.addView(spinnerRow("当前布局方案", layouts, 0) { index ->
+        content.addView(rows.sectionHeader("当前布局方案"))
+        content.addView(rows.spinnerRow("当前布局方案", layouts, 0) { index ->
             val name = layouts.getOrNull(index) ?: return@spinnerRow
             runCatching {
                 activity.controlLayout?.loadLayout(Tools.CTRLMAP_PATH + "/" + name + ".json")
@@ -316,14 +314,14 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "加载布局失败: ${it.message}", Toast.LENGTH_SHORT).show()
             }
         })
-        content.addView(buttonRow("保存布局", "保存") {
+        content.addView(rows.buttonRow("保存布局", "保存") {
             activity.controlLayout?.openSaveDialog(null)
         })
-        content.addView(buttonRow("设为默认", "设默认") {
+        content.addView(rows.buttonRow("设为默认", "设默认") {
             activity.controlLayout?.openSetDefaultDialog()
         })
 
-        content.addView(switchRow("编辑模式", activity.controlLayout?.getModifiable() == true) { on ->
+        content.addView(rows.switchRow("编辑模式", activity.controlLayout?.getModifiable() == true) { on ->
             activity.controlLayout?.setModifiable(on)
             Toast.makeText(
                 activity,
@@ -333,29 +331,29 @@ class InGameControlOverlay(
             ).show()
             VerseLogger.info("控制面板：编辑模式=$on", "Control")
         })
-        content.addView(switchRow("显示控件边缘", false) { on ->
+        content.addView(rows.switchRow("显示控件边缘", false) { on ->
             activity.controlLayout?.setModifiable(on)
             VerseLogger.info("控制面板：显示控件边缘=$on", "Control")
         })
-        content.addView(switchRow("隐藏所有控件", false) { on ->
+        content.addView(rows.switchRow("隐藏所有控件", false) { on ->
             activity.controlLayout?.setControlVisible(!on)
             VerseLogger.info("控制面板：隐藏所有控件=$on", "Control")
         })
         // 通过 PREF_BUTTONSIZE 控制并在间距变化时重新加载布局生效）
-        content.addView(switchRow("自动吸附", MenuSetting.isAutoFit) { on ->
+        content.addView(rows.switchRow("自动吸附", MenuSetting.isAutoFit) { on ->
             MenuSetting.isAutoFit = on
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_FIT)
             applyAutoFit()
         })
-        content.addView(seekbarRow("自动吸附间距", 0, 10, MenuSetting.autoFitDist, "dp") { v ->
+        content.addView(rows.seekbarRow("自动吸附间距", 0, 10, MenuSetting.autoFitDist, "dp") { v ->
             MenuSetting.autoFitDist = v
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_FIT_DIST)
             if (MenuSetting.isAutoFit) applyAutoFit()
         })
 
         // 控件组（menu_left.xml edit_layout 区块）
-        content.addView(sectionHeader("控件组"))
-        content.addView(spinnerRow("当前控件组", layouts, 0) { index ->
+        content.addView(rows.sectionHeader("控件组"))
+        content.addView(rows.spinnerRow("当前控件组", layouts, 0) { index ->
             val name = layouts.getOrNull(index) ?: return@spinnerRow
             runCatching {
                 activity.controlLayout?.loadLayout(Tools.CTRLMAP_PATH + "/" + name + ".json")
@@ -363,22 +361,22 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "加载控件组失败: ${it.message}", Toast.LENGTH_SHORT).show()
             }
         })
-        content.addView(buttonRow("控件组", "管理") {
+        content.addView(rows.buttonRow("控件组", "管理") {
             activity.controlLayout?.openLoadDialog()
         })
-        content.addView(buttonRow("添加按键", "添加") {
+        content.addView(rows.buttonRow("添加按键", "添加") {
             addNewControl(ControlData())
         })
-        content.addView(buttonRow("添加方向控制键", "添加") {
+        content.addView(rows.buttonRow("添加方向控制键", "添加") {
             addNewControl(ControlJoystickData())
         })
 
         // 样式（menu_left.xml style 区块）
-        content.addView(sectionHeader("样式"))
-        content.addView(buttonRow("按键样式", "管理") {
+        content.addView(rows.sectionHeader("样式"))
+        content.addView(rows.buttonRow("按键样式", "管理") {
             editLastControl(isJoystick = false)
         })
-        content.addView(buttonRow("方向控制键样式", "管理") {
+        content.addView(rows.buttonRow("方向控制键样式", "管理") {
             editLastControl(isJoystick = true)
         })
     }
@@ -414,12 +412,12 @@ class InGameControlOverlay(
 
     private fun buildRightContent(content: LinearLayout) {
         // ===== 功能 =====
-        content.addView(sectionHeader("功能"))
-        content.addView(switchRow("锁定菜单键", MenuSetting.isLockMenuView) { on ->
+        content.addView(rows.sectionHeader("功能"))
+        content.addView(rows.switchRow("锁定菜单键", MenuSetting.isLockMenuView) { on ->
             MenuSetting.isLockMenuView = on
             MenuSetting.notifyChange(MenuSetting.Key.LOCK_MENU_VIEW)
         })
-        content.addView(switchRow("隐藏菜单键", MenuSetting.isHideMenuView) { on ->
+        content.addView(rows.switchRow("隐藏菜单键", MenuSetting.isHideMenuView) { on ->
             MenuSetting.isHideMenuView = on
             MenuSetting.notifyChange(MenuSetting.Key.HIDE_MENU_VIEW)
             activity.controlLayout?.setControlVisible(!on)
@@ -427,45 +425,45 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "菜单按键已隐藏，按下音量键打开菜单。", Toast.LENGTH_LONG).show()
             }
         })
-        content.addView(switchRow("显示FPS", MenuSetting.isShowFps) { on ->
+        content.addView(rows.switchRow("显示FPS", MenuSetting.isShowFps) { on ->
             MenuSetting.isShowFps = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_FPS)
             setFpsVisible(on)
         })
-        content.addView(buttonRow("游戏菜单", "打开") { onEsc() })
+        content.addView(rows.buttonRow("游戏菜单", "打开") { onEsc() })
         // 陶瓦联机（Verse 补充入口：直接唤出陶瓦联机对话框，未启用时提示）
-        content.addView(buttonRow("陶瓦联机", "打开") {
+        content.addView(rows.buttonRow("陶瓦联机", "打开") {
             hidePanel(false)
             activity.showMultiplayerEntry()
         })
         // 红石联机（Verse 补充入口：游戏内直接拉起/管理红石中转隧道，无需退出游戏）
-        content.addView(buttonRow("红石联机", "打开") {
+        content.addView(rows.buttonRow("红石联机", "打开") {
             hidePanel(false)
             activity.showRedstoneDialog()
         })
-        content.addView(buttonRow("快捷输入", "管理") { activity.showQuickInput() })
-        content.addView(buttonRow("发送键值", "发送") { showSendKeyDialog() })
-        content.addView(switchRow("禁用软键盘自适应", MenuSetting.isDisableSoftKeyAdjust) { on ->
+        content.addView(rows.buttonRow("快捷输入", "管理") { activity.showQuickInput() })
+        content.addView(rows.buttonRow("发送键值", "发送") { showSendKeyDialog() })
+        content.addView(rows.switchRow("禁用软键盘自适应", MenuSetting.isDisableSoftKeyAdjust) { on ->
             MenuSetting.isDisableSoftKeyAdjust = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_SOFT_KEY_ADJUST)
         })
-        content.addView(seekbarRow("物品栏缩放 - 宽度", 0, 100, MenuSetting.itemBarWidth, "%") { v ->
+        content.addView(rows.seekbarRow("物品栏缩放 - 宽度", 0, 100, MenuSetting.itemBarWidth, "%") { v ->
             MenuSetting.itemBarWidth = v
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_WIDTH)
         })
-        content.addView(seekbarRow("物品栏缩放 - 高度", 0, 100, MenuSetting.itemBarHeight, "%") { v ->
+        content.addView(rows.seekbarRow("物品栏缩放 - 高度", 0, 100, MenuSetting.itemBarHeight, "%") { v ->
             MenuSetting.itemBarHeight = v
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_HEIGHT)
         })
-        content.addView(seekbarRow("光标偏移", -150, 150, MenuSetting.cursorOffset.toInt(), "") { v ->
+        content.addView(rows.seekbarRow("光标偏移", -150, 150, MenuSetting.cursorOffset.toInt(), "") { v ->
             MenuSetting.cursorOffset = v.toDouble()
             MenuSetting.notifyChange(MenuSetting.Key.CURSOR_OFFSET)
             refreshWindowsSize()
         })
 
         // ===== 分辨率 =====
-        content.addView(sectionHeader("分辨率"))
-        content.addView(seekbarRow(
+        content.addView(rows.sectionHeader("分辨率"))
+        content.addView(rows.seekbarRow(
             "分辨率比例", 25, 300,
             (MenuSetting.windowScale * 100).toInt().coerceIn(25, 300), "%"
         ) { v ->
@@ -475,16 +473,16 @@ class InGameControlOverlay(
         })
 
         // ===== 手势 =====
-        content.addView(sectionHeader("手势"))
-        content.addView(switchRow("禁用手势", MenuSetting.isDisableGesture) { on ->
+        content.addView(rows.sectionHeader("手势"))
+        content.addView(rows.switchRow("禁用手势", MenuSetting.isDisableGesture) { on ->
             MenuSetting.isDisableGesture = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_GESTURE)
         })
-        content.addView(switchRow("禁用仿基岩版手势", MenuSetting.isDisableBEGesture) { on ->
+        content.addView(rows.switchRow("禁用仿基岩版手势", MenuSetting.isDisableBEGesture) { on ->
             MenuSetting.isDisableBEGesture = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_BE_GESTURE)
         })
-        content.addView(spinnerRow(
+        content.addView(rows.spinnerRow(
             "触控模式",
             listOf("建筑模式", "战斗模式"),
             MenuSetting.gestureMode
@@ -492,14 +490,14 @@ class InGameControlOverlay(
             MenuSetting.gestureMode = index
             MenuSetting.notifyChange(MenuSetting.Key.GESTURE_MODE)
         })
-        content.addView(switchRow("禁用左半屏触控", MenuSetting.isDisableLeftTouch) { on ->
+        content.addView(rows.switchRow("禁用左半屏触控", MenuSetting.isDisableLeftTouch) { on ->
             MenuSetting.isDisableLeftTouch = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_LEFT_TOUCH)
         })
 
         // ===== 鼠标 =====
-        content.addView(sectionHeader("鼠标"))
-        content.addView(spinnerRow(
+        content.addView(rows.sectionHeader("鼠标"))
+        content.addView(rows.spinnerRow(
             "鼠标控制模式",
             listOf("点击", "拖动"),
             MenuSetting.mouseMoveMode
@@ -507,28 +505,28 @@ class InGameControlOverlay(
             MenuSetting.mouseMoveMode = index
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_MOVE_MODE)
         })
-        content.addView(seekbarRow("鼠标灵敏度", 100, 1000, (MenuSetting.mouseSensitivity * 100).toInt(), "%") { v ->
+        content.addView(rows.seekbarRow("鼠标灵敏度", 100, 1000, (MenuSetting.mouseSensitivity * 100).toInt(), "%") { v ->
             MenuSetting.mouseSensitivity = v / 100.0
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_SENSITIVITY)
         })
-        content.addView(seekbarRow("鼠标灵敏度（当指针可见时）", 100, 1000, (MenuSetting.mouseSensitivityCursor * 100).toInt(), "%") { v ->
+        content.addView(rows.seekbarRow("鼠标灵敏度（当指针可见时）", 100, 1000, (MenuSetting.mouseSensitivityCursor * 100).toInt(), "%") { v ->
             MenuSetting.mouseSensitivityCursor = v / 100.0
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_SENSITIVITY_CURSOR)
         })
-        content.addView(seekbarRow("鼠标尺寸", 0, 30, MenuSetting.mouseSize, "dp") { v ->
+        content.addView(rows.seekbarRow("鼠标尺寸", 0, 30, MenuSetting.mouseSize, "dp") { v ->
             MenuSetting.mouseSize = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_SIZE)
             activity.applyCursorStyle()
         })
-        content.addView(seekbarRow("鼠标偏移X", -30, 30, MenuSetting.mouseOffsetX, "dp") { v ->
+        content.addView(rows.seekbarRow("鼠标偏移X", -30, 30, MenuSetting.mouseOffsetX, "dp") { v ->
             MenuSetting.mouseOffsetX = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_OFFSET_X)
         })
-        content.addView(seekbarRow("鼠标偏移Y", -30, 30, MenuSetting.mouseOffsetY, "dp") { v ->
+        content.addView(rows.seekbarRow("鼠标偏移Y", -30, 30, MenuSetting.mouseOffsetY, "dp") { v ->
             MenuSetting.mouseOffsetY = v
             MenuSetting.notifyChange(MenuSetting.Key.MOUSE_OFFSET_Y)
         })
-        content.addView(switchRow("实体鼠标控制", MenuSetting.isPhysicalMouseMode) { on ->
+        content.addView(rows.switchRow("实体鼠标控制", MenuSetting.isPhysicalMouseMode) { on ->
             MenuSetting.isPhysicalMouseMode = on
             MenuSetting.notifyChange(MenuSetting.Key.PHYSICAL_MOUSE_MODE)
             // 切换后立即按当前抓取状态同步指针捕获（抓取态捕获、GUI 态释放）
@@ -536,24 +534,24 @@ class InGameControlOverlay(
         })
 
         // ===== 手柄 =====
-        content.addView(sectionHeader("手柄"))
-        content.addView(switchRow("禁用手柄映射", gamepadDisabled) { on ->
+        content.addView(rows.sectionHeader("手柄"))
+        content.addView(rows.switchRow("禁用手柄映射", gamepadDisabled) { on ->
             gamepadDisabled = on
         })
-        content.addView(buttonRow("重置映射", "重置") {
+        content.addView(rows.buttonRow("重置映射", "重置") {
             Toast.makeText(activity, "重置映射（FCL 手柄栈未引入）", Toast.LENGTH_SHORT).show()
         })
-        content.addView(buttonRow("按键绑定", "打开") {
+        content.addView(rows.buttonRow("按键绑定", "打开") {
             Toast.makeText(activity, "按键绑定（FCL 手柄栈未引入）", Toast.LENGTH_SHORT).show()
         })
-        content.addView(seekbarRow("调整死区", 0, 100, (MenuSetting.gamepadDeadzone * 100).toInt(), "%") { v ->
+        content.addView(rows.seekbarRow("调整死区", 0, 100, (MenuSetting.gamepadDeadzone * 100).toInt(), "%") { v ->
             MenuSetting.gamepadDeadzone = v / 100.0
             MenuSetting.notifyChange(MenuSetting.Key.GAMEPAD_DEADZONE)
         })
 
         // ===== 陀螺仪 =====
-        content.addView(sectionHeader("陀螺仪"))
-        content.addView(switchRow("陀螺仪", MenuSetting.isEnableGyroscope) { on ->
+        content.addView(rows.sectionHeader("陀螺仪"))
+        content.addView(rows.switchRow("陀螺仪", MenuSetting.isEnableGyroscope) { on ->
             MenuSetting.isEnableGyroscope = on
             MenuSetting.notifyChange(MenuSetting.Key.ENABLE_GYROSCOPE)
             activity.gyroControl?.let {
@@ -563,7 +561,7 @@ class InGameControlOverlay(
                 Toast.makeText(activity, "陀螺仪已开启，点击画面锁定光标后生效", Toast.LENGTH_LONG).show()
             }
         })
-        content.addView(switchRow("反转陀螺仪", MenuSetting.isInvertGyroscope) { on ->
+        content.addView(rows.switchRow("反转陀螺仪", MenuSetting.isInvertGyroscope) { on ->
             MenuSetting.isInvertGyroscope = on
             MenuSetting.notifyChange(MenuSetting.Key.INVERT_GYROSCOPE)
             runCatching {
@@ -574,7 +572,7 @@ class InGameControlOverlay(
             }
         })
         content.addView(
-            seekbarRow("陀螺仪灵敏度", 0, 100, MenuSetting.gyroscopeSensitivity.coerceIn(0, 100), "") { v ->
+            rows.seekbarRow("陀螺仪灵敏度", 0, 100, MenuSetting.gyroscopeSensitivity.coerceIn(0, 100), "") { v ->
                 val clamped = v.coerceIn(0, 100)
                 MenuSetting.gyroscopeSensitivity = clamped
                 MenuSetting.notifyChange(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
@@ -583,29 +581,29 @@ class InGameControlOverlay(
         )
 
         // ===== 调试 =====
-        content.addView(sectionHeader("调试"))
-        content.addView(switchRow("显示内存", MenuSetting.isShowMemory) { on ->
+        content.addView(rows.sectionHeader("调试"))
+        content.addView(rows.switchRow("显示内存", MenuSetting.isShowMemory) { on ->
             MenuSetting.isShowMemory = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_MEMORY)
             setMemoryVisible(on)
         })
-        content.addView(switchRow("持续性能模式", MenuSetting.isPerformanceMode) { on ->
+        content.addView(rows.switchRow("持续性能模式", MenuSetting.isPerformanceMode) { on ->
             MenuSetting.isPerformanceMode = on
             MenuSetting.notifyChange(MenuSetting.Key.PERFORMANCE_MODE)
             activity.window.setSustainedPerformanceMode(on)
         })
-        content.addView(switchRow("显示日志", MenuSetting.isShowLog) { on ->
+        content.addView(rows.switchRow("显示日志", MenuSetting.isShowLog) { on ->
             MenuSetting.isShowLog = on
             MenuSetting.notifyChange(MenuSetting.Key.SHOW_LOG)
             updateLogWindowVisibility()
         })
-        content.addView(switchRow("自动显示日志", MenuSetting.isAutoShowLog) { on ->
+        content.addView(rows.switchRow("自动显示日志", MenuSetting.isAutoShowLog) { on ->
             MenuSetting.isAutoShowLog = on
             MenuSetting.notifyChange(MenuSetting.Key.AUTO_SHOW_LOG)
             updateLogWindowVisibility()
         })
         // 优雅拆解不可行，强制退出直接杀死整个进程（下次冷启动回到启动器主页）
-        content.addView(buttonRow("强制退出", "退出") {
+        content.addView(rows.buttonRow("强制退出", "退出") {
             AlertDialog.Builder(activity)
                 .setTitle("强制退出")
                 .setMessage("你确定要强制退出吗？")
@@ -751,165 +749,6 @@ class InGameControlOverlay(
             .show()
     }
 
-    // ===================== 通用行构建器 =====================
-
-    /** 分区标题（Verse 卡片分组：3dp 主题色竖条 + 13sp 加粗标题，分组间留白） */
-    private fun sectionHeader(header: String): View {
-        return LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(10f); bottomMargin = dp(4f) }
-            addView(View(activity).apply {
-                setBackgroundColor(fclAccent)
-                layoutParams = LinearLayout.LayoutParams(dp(3f), dp(14f)).apply { marginEnd = dp(6f) }
-            })
-            addView(TextView(activity).apply {
-                text = header
-                setTextColor(fclText)
-                textSize = 13f
-                setTypeface(typeface, Typeface.BOLD)
-                isSingleLine = true
-            })
-        }
-    }
-
-    /** 对齐设置行（Verse 行卡片：圆角深灰底、标签 13sp 靠左 + 控件靠右） */
-    private fun alignedRow(label: String, control: View): View {
-        return LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(10f).toFloat()
-                setColor(verseRowBg)
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(3f); bottomMargin = dp(3f) }
-            addView(TextView(activity).apply {
-                text = label
-                setTextColor(fclText)
-                textSize = 13f
-                isSingleLine = true
-                layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    1f
-                ).apply { gravity = Gravity.CENTER_VERTICAL }
-            })
-            addView(control)
-        }
-    }
-
-    private fun switchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit): View {
-        val sw = Switch(activity).apply {
-            isChecked = checked
-            textSize = 12f
-            trackTintList = android.content.res.ColorStateList.valueOf(fclAccent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-            setOnCheckedChangeListener { _, on -> onChange(on) }
-        }
-        return alignedRow(label, sw)
-    }
-
-    private fun spinnerRow(
-        label: String,
-        items: List<String>,
-        initialIndex: Int,
-        onSelected: (Int) -> Unit
-    ): View {
-        val spinner = Spinner(activity).apply {
-            val adapter = ArrayAdapter(activity, android.R.layout.simple_spinner_item, items).also {
-                it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            }
-            this.adapter = adapter
-            if (initialIndex in items.indices) setSelection(initialIndex)
-            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                // AdapterView 在 attach 时会自动回调一次 onItemSelected；该次并非用户操作，
-                // 若触发 loadLayout 会重载当前布局并把摇杆 detach（库内 100ms 回调时父容器
-                // 已为 null → NPE 崩溃），因此首回调只记录、仅在位置变化时视为用户选择
-                private var lastSelected: Int? = null
-
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    val last = lastSelected
-                    lastSelected = position
-                    if (last == null || last == position) return
-                    onSelected(position)
-                }
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-            }
-        }
-        return alignedRow(label, spinner)
-    }
-
-    private fun seekbarRow(
-        label: String,
-        min: Int,
-        max: Int,
-        initial: Int,
-        suffix: String,
-        onChanged: (Int) -> Unit
-    ): View {
-        val valueText = TextView(activity).apply {
-            setTextColor(fclText)
-            textSize = 12f
-            isSingleLine = true
-            text = "$initial$suffix"
-        }
-        val container = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(3f); bottomMargin = dp(3f) }
-            addView(alignedRow(label, valueText))
-            addView(SeekBar(activity).apply {
-                this.min = min
-                this.max = max
-                progress = initial.coerceIn(min, max)
-                progressTintList = android.content.res.ColorStateList.valueOf(fclAccent)
-                thumbTintList = android.content.res.ColorStateList.valueOf(fclAccent)
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
-                        valueText.text = "$progress$suffix"
-                        if (fromUser) onChanged(progress)
-                    }
-                    override fun onStartTrackingTouch(bar: SeekBar?) {}
-                    override fun onStopTrackingTouch(bar: SeekBar?) {}
-                })
-            })
-        }
-        return container
-    }
-
-    /** 按钮行（Verse 主按钮：标签左 + 主题色填充圆角按钮右） */
-    private fun buttonRow(label: String, buttonText: String, onClick: () -> Unit): View {
-        val btn = TextView(activity).apply {
-            text = buttonText
-            setTextColor(Color.parseColor("#141414"))
-            textSize = 12f
-            setTypeface(typeface, Typeface.BOLD)
-            isSingleLine = true
-            gravity = Gravity.CENTER
-            setPadding(dp(16f), dp(7f), dp(16f), dp(7f))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(8f).toFloat()
-                setColor(fclAccent)
-            }
-            setOnClickListener { onClick() }
-        }
-        return alignedRow(label, btn)
-    }
 
     fun showPanel() {
         val view = panelView ?: return
