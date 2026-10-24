@@ -8,8 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
-import com.verse.explorer.app.ui.game.GameActivity
+import com.verse.explorer.core.launch.LaunchRequest
 import com.verse.explorer.app.launch.LaunchIntentCodec
 
 /**
@@ -38,7 +37,7 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 
 class LaunchRestarter(private val activity: ComponentActivity) {
 
-    fun buildRestartIntent(params: GameLaunchParams): Intent {
+    fun buildRestartIntent(params: LaunchRequest): Intent {
         return LaunchIntentCodec.create(activity, params).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }

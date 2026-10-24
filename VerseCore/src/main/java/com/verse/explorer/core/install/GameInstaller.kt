@@ -1,6 +1,5 @@
 package com.verse.explorer.core.install
 
-import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.verse.explorer.core.config.GameConfig
@@ -9,7 +8,6 @@ import com.verse.explorer.core.download.MirrorSourceManager
 import com.verse.explorer.core.download.SmartDownloadClient
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.install.loader.LoaderInstallBackend
-import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
@@ -19,13 +17,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipInputStream
 
 data class InstallProgress(
@@ -50,19 +45,21 @@ enum class InstallStage {
     FAILED
 }
 
-class GameInstaller(private val context: Context, private val loaderBackend: LoaderInstallBackend) {
+class GameInstaller(private val snapshot: InstallationSnapshot, private val loaderBackend: LoaderInstallBackend) : VersionInstallOperation {
 
-    private val gameDir = GameConfig.getGameDir(context)
-    private val versionsDir = GameConfig.getVersionsDir(gameDir)
-    private val librariesDir = GameConfig.getLibrariesDir(gameDir)
-    private val assetsDir = GameConfig.getAssetsDir(gameDir)
-    private val nativesDir = GameConfig.getNativesDir(gameDir)
+    private val gameDir = snapshot.paths.root
+    private val versionsDir = snapshot.paths.versions
+    private val librariesDir = snapshot.paths.libraries
+    private val assetsDir = snapshot.paths.assets
+    private val nativesDir = snapshot.paths.natives
+
+    init { snapshot.paths.ensureDirectories() }
 
     private val downloadManager = DownloadManager()
     private val gson = GsonBuilder().setLenient().serializeNulls().create()
 
     // 智能混合下载客户端：小文件竞速、大文件测速分块、低速换源、镜像熔断
-    private val smartClient = SmartDownloadClient(context = context)
+    private val smartClient = SmartDownloadClient(source = snapshot.downloadSource)
 
     // 专用于 assets 小文件下载的快速客户端（callTimeout 10s 覆盖整链含重定向：
     // 镜像 302 到不可达节点时 10s 内快速失败换源，不占住 64 路并发窗口）
@@ -90,6 +87,8 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
         .dns(SmartDownloadClient.ipv4Only())
         .build()
 
+    private val downloadExecutor = InstallDownloadExecutor(downloadManager.httpClient, fastHttpClient, ::checkCancelled)
+
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
 
@@ -102,7 +101,7 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
     @Volatile
     var cancelled = false
 
-    fun cancel() {
+    override fun cancel() {
         cancelled = true
     }
 
@@ -112,46 +111,11 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
 
     class CancelledInstallException : Exception("安装已取消")
 
-    /** 并发下载聚合器：按文件累计已下载字节，500ms 窗口估算速度（供进度 UI 显示） */
-    private class DownloadAggregator {
-        private val lastByKey = ConcurrentHashMap<String, Long>()
-        private val bytesNow = AtomicLong()
-        private val lastTime = AtomicLong(System.currentTimeMillis())
-        private val lastBytes = AtomicLong()
-
-        @Volatile var speed: Long = 0L; private set
-        @Volatile var downloaded: Long = 0L; private set
-
-        fun reset() {
-            lastByKey.clear()
-            bytesNow.set(0L)
-            downloaded = 0L
-            speed = 0L
-            lastTime.set(System.currentTimeMillis())
-            lastBytes.set(0L)
-        }
-
-        fun report(key: String, fileDownloaded: Long) {
-            val last = lastByKey.put(key, fileDownloaded) ?: 0L
-            if (fileDownloaded <= last) return
-            val total = bytesNow.addAndGet(fileDownloaded - last)
-            downloaded = total
-            val now = System.currentTimeMillis()
-            val dt = now - lastTime.get()
-            if (dt >= 500) {
-                val db = total - lastBytes.get()
-                speed = db * 1000 / dt
-                lastBytes.set(total)
-                lastTime.set(now)
-            }
-        }
-    }
-
-    suspend fun installVersion(
+    override suspend fun installVersion(
         version: MinecraftVersion,
-        installName: String = version.id,
-        loaderType: String? = null,
-        loaderVersion: String? = null,
+        installName: String,
+        loaderType: String?,
+        loaderVersion: String?,
         progressCallback: (InstallProgress) -> Unit
     ): Boolean {
         return withContext(Dispatchers.IO) {
@@ -166,8 +130,11 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
                 // 已存在则整个下载阶段按文件级 SHA 校验跳过），加载器版本 id = 命名弹窗的
                 // 仅原版安装时实例名即版本目录名：json 的 id/jar 与 JAR 文件名同步写回，
                 // 否则 getVersion 会因目录名与 json id 不一致报 'xxx does not exist'。
-                val installId = installName.ifBlank { version.id }
-                val baseId = if (loaderType.isNullOrBlank() || loaderVersion.isNullOrBlank()) installId else version.id
+                val plan = InstallationPlan.create(version.id, installName, loaderType, loaderVersion)
+                val installId = plan.installId
+                val baseId = plan.baseId
+                snapshot.paths.version(installId)
+                snapshot.paths.version(baseId)
                 val versionDir = File(versionsDir, baseId)
                 if (!versionDir.exists()) versionDir.mkdirs()
 
@@ -246,7 +213,7 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
                             ) { progress ->
                                 val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
                                 val sizeStr = InstallFileUtils.formatSize(progress.downloaded) + "/" + InstallFileUtils.formatSize(progress.total)
-                                val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})"
+                                val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(snapshot.downloadSource)})"
                                 progressCallback(InstallProgress(
                                     InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f,
                                     "$baseId.jar", progress.mirrorName,
@@ -357,7 +324,7 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
                             val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
                             progressCallback(InstallProgress(
                                 InstallStage.DOWNLOADING_ASSETS,
-                                "下载资源索引... (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})",
+                                "下载资源索引... (${MirrorSourceManager.getSourceLabel(snapshot.downloadSource)})",
                                 0.65f + p * 0.03f,
                                 assetFile.name,
                                 progress.mirrorName,
@@ -561,171 +528,6 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
         return null
     }
 
-    private suspend fun downloadFileWithRetry(
-        url: String,
-        targetFile: File,
-        expectedSha1: String? = null,
-        onProgress: (Float, String) -> Unit = { _, _ -> },
-        maxRetries: Int = 3
-    ) {
-        var lastException: Exception? = null
-        for (attempt in 1..maxRetries) {
-            try {
-                downloadFileWithProgress(url, targetFile, expectedSha1, onProgress)
-                return
-            } catch (e: Exception) {
-                lastException = e
-                if (attempt < maxRetries) Thread.sleep(1000L * attempt)
-            }
-        }
-        throw lastException ?: Exception("Download failed after $maxRetries attempts")
-    }
-
-    private suspend fun downloadFileWithProgress(
-        url: String,
-        targetFile: File,
-        expectedSha1: String?,
-        onProgress: (Float, String) -> Unit
-    ) {
-        targetFile.parentFile?.mkdirs()
-
-        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
-
-        val request = okhttp3.Request.Builder().url(url)
-            .header("User-Agent", "VerseExplorerX/1.0")
-            .header("Accept", "*/*")
-            .build()
-
-        var totalSize = -1L
-        var downloaded = 0L
-
-        try {
-            downloadManager.httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
-
-                val body = response.body ?: throw Exception("Empty body: $url")
-                totalSize = body.contentLength()
-
-                body.byteStream().use { input ->
-                    tempFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-                            if (totalSize > 0) {
-                                val progress = downloaded.toFloat() / totalSize.toFloat()
-                                val sizeStr = InstallFileUtils.formatSize(downloaded) + "/" + InstallFileUtils.formatSize(totalSize)
-                                onProgress(progress, "下载中 $sizeStr")
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (totalSize >= 0 && downloaded != totalSize) {
-                tempFile.delete()
-                throw Exception("文件大小不匹配: 已下载 $downloaded, 期望 $totalSize")
-            }
-
-            if (expectedSha1 != null) {
-                val actualSha1 = InstallFileUtils.calculateSHA1(tempFile)
-                if (actualSha1.lowercase() != expectedSha1.lowercase()) {
-                    tempFile.delete()
-                    throw Exception("SHA1 校验失败 ${targetFile.name}: 期望=$expectedSha1, 实际=$actualSha1")
-                }
-            }
-
-            targetFile.delete()
-            if (!tempFile.renameTo(targetFile)) {
-                // renameTo 可能因跨挂载点失败，用拷贝回退
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
-            }
-        } catch (e: Exception) {
-            // 下载失败时删除临时文件，避免残留
-            tempFile.delete()
-            throw e
-        }
-    }
-
-    private suspend fun downloadFile(url: String, targetFile: File) {
-        targetFile.parentFile?.mkdirs()
-
-        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
-
-        val request = okhttp3.Request.Builder().url(url)
-            .header("User-Agent", "VerseExplorerX/1.0")
-            .header("Accept", "*/*")
-            .build()
-
-        try {
-            downloadManager.httpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
-                val body = response.body ?: throw Exception("Empty body: $url")
-                body.byteStream().use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
-                }
-            }
-            targetFile.delete()
-            if (!tempFile.renameTo(targetFile)) {
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
-            }
-        } catch (e: Exception) {
-            tempFile.delete()
-            throw e
-        }
-    }
-
-    private suspend fun downloadAssetFile(
-        url: String,
-        targetFile: File,
-        onBytes: (Long, Long) -> Unit = { _, _ -> },
-        isCancelled: () -> Boolean = { false }
-    ) {
-        targetFile.parentFile?.mkdirs()
-        val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
-        val request = okhttp3.Request.Builder().url(url)
-            .header("User-Agent", "VerseExplorerX/1.0")
-            .header("Accept", "*/*")
-            .build()
-        try {
-            fastHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
-                val body = response.body ?: throw Exception("Empty body: $url")
-                val totalBytes = body.contentLength().coerceAtLeast(-1L)
-                body.byteStream().use { input ->
-                    tempFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        var downloaded = 0L
-                        var lastReport = System.currentTimeMillis()
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            if (isCancelled()) throw CancelledInstallException()
-                            output.write(buffer, 0, bytesRead)
-                            downloaded += bytesRead
-                            val now = System.currentTimeMillis()
-                            if (now - lastReport >= 300) {
-                                onBytes(downloaded, totalBytes)
-                                lastReport = now
-                            }
-                        }
-                        onBytes(downloaded, totalBytes)
-                    }
-                }
-            }
-            targetFile.delete()
-            if (!tempFile.renameTo(targetFile)) {
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
-            }
-        } catch (e: Exception) {
-            tempFile.delete()
-            throw e
-        }
-    }
-
     /**
      * 始终保持 [concurrentAssets] 个活跃下载，一个完成立即补下一个，
      * 而非分批等待整批完成（避免慢文件拖住整批导致"下一下卡一下"）。
@@ -751,14 +553,14 @@ class GameInstaller(private val context: Context, private val loaderBackend: Loa
                         // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
                         // assets 官方 CDN 国内实测速度远优于镜像（镜像现为 302 跳转节点池，
                         // 大面积不可达），官方源固定排在最前，镜像只作兜底
-                        val urls = MirrorSourceManager.getMirrorUrls(context, url).let { list ->
+                        val urls = MirrorSourceManager.getMirrorUrls(snapshot.downloadSource, url).let { list ->
                             list.sortedByDescending { it.startsWith("https://resources.download.minecraft.net/") }
                         }
                         var success = false
                         for (mirrorUrl in urls) {
                             if (cancelled) throw CancelledInstallException()
                             try {
-                                downloadAssetFile(
+                                downloadExecutor.downloadAssetFile(
                                     mirrorUrl,
                                     assetPath,
                                     onBytes = { d, _ -> downloadAgg.report(assetPath.name, d) },

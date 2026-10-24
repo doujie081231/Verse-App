@@ -87,4 +87,32 @@ class GameSessionTest {
         assertFalse(session.start(LaunchRequest("1.21.1", "/game")))
         session.release()
     }
+
+    @Test fun startFailureStopsBackendAndIgnoresLateExit() = runBlocking {
+        val backend = FakeBackend().apply { startAction = { error("native initialization failed") } }
+        val session = GameSession(backend, this)
+        session.onSurfaceCreated("surface")
+        session.start(LaunchRequest("1.21.1", "/game"))
+        yield()
+        assertEquals(SessionPhase.FAILED, session.state.value.phase)
+        assertEquals(1, backend.stops)
+        assertFalse(session.onExit(0))
+        session.release()
+        session.release()
+        assertEquals(1, backend.releases)
+    }
+
+    @Test fun normalExitRemainsTerminalUntilExplicitRelease() = runBlocking {
+        val backend = FakeBackend()
+        val session = GameSession(backend, this)
+        session.onSurfaceCreated("surface")
+        session.start(LaunchRequest("1.21.1", "/game"))
+        yield()
+        assertTrue(session.onExit(0))
+        session.onSurfaceCreated("late")
+        assertFalse(session.onExit(6))
+        assertEquals(0, session.state.value.exitCode)
+        assertEquals(1, backend.starts)
+        session.release()
+    }
 }

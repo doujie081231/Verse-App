@@ -2,7 +2,7 @@ package com.verse.explorer.app.game
 
 import android.content.Context
 import com.verse.explorer.core.data.SettingsRepository
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
+import com.verse.explorer.core.launch.LaunchRequest
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.launcher.fcl.game.DefaultGameRepository
 import com.verse.explorer.launcher.fcl.game.Version
@@ -128,7 +128,7 @@ class OptionsInjector(private val activity: Context) {
     /**
      * 输出 options.txt 中的渲染相关键，仅用于排查画面问题，不修改玩家的游戏内设置。
      */
-    fun dumpRenderOptions(repository: DefaultGameRepository, version: Version, params: GameLaunchParams) {
+    fun dumpRenderOptions(repository: DefaultGameRepository, version: Version, params: LaunchRequest) {
         runCatching {
             val runDir = repository.getRunDirectory(version.id)
             val optionsFile = File(runDir, "options.txt")

@@ -1,17 +1,10 @@
 package com.verse.explorer.app.game.compat
 
-import android.graphics.SurfaceTexture
-import android.view.Surface
 import androidx.activity.ComponentActivity
 import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.core.data.SettingsRepository
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
+import com.verse.explorer.core.launch.LaunchRequest
 import com.verse.explorer.app.ui.VerseLogger
-import com.verse.explorer.app.ui.game.GameStatusOverlay
-import com.verse.explorer.app.ui.game.GameInputHandler
-import com.verse.explorer.launcher.bridge.CallbackBridge
-import com.verse.explorer.launcher.crash.CrashDetector
-import com.verse.explorer.launcher.crash.CrashResult
 import com.verse.explorer.launcher.fcl.auth.AuthInfo
 import com.verse.explorer.launcher.fcl.game.DefaultGameRepository
 import com.verse.explorer.launcher.fcl.game.JavaVersion
@@ -20,16 +13,7 @@ import com.verse.explorer.launcher.fcl.game.VerseJavaVersion
 import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
 import com.verse.explorer.launcher.fcl.util.FCLPath
-import com.verse.explorer.jvmlauncher.JvmLauncherAPI
-import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
-import com.tungsten.fclauncher.bridge.FCLBridge
-import com.tungsten.fclauncher.bridge.FCLBridgeCallback
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -58,7 +42,7 @@ internal class FclLaunchPreparation(
     private suspend fun updateProgress(title: String, message: String?) = progress(title, message)
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start
 
-    suspend fun prepare(params: GameLaunchParams): PreparedFclLaunch {
+    suspend fun prepare(params: LaunchRequest): PreparedFclLaunch {
         val t0 = System.currentTimeMillis()
         val gameDir = File(params.gameDirPath)
         VerseLogger.info("==========================================", TAG)
@@ -128,7 +112,7 @@ internal class FclLaunchPreparation(
         )
     }
 
-    private fun resolveFclVersion(params: GameLaunchParams, gameDir: File): Version {
+    private fun resolveFclVersion(params: LaunchRequest, gameDir: File): Version {
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
         return repository.getVersion(params.versionId)
@@ -143,7 +127,7 @@ internal class FclLaunchPreparation(
      * 避免用户装了不生效/进游戏即崩还不知道原因。
      */
     private fun runModCompatibilityCheck(
-        params: GameLaunchParams,
+        params: LaunchRequest,
         gameDir: File,
         verSettings: com.verse.explorer.core.data.VersionSettingsRepository.VersionSettings
     ) {
@@ -192,7 +176,7 @@ internal class FclLaunchPreparation(
         }
     }
 
-    private suspend fun createAuthInfo(params: GameLaunchParams): AuthInfo {
+    private suspend fun createAuthInfo(params: LaunchRequest): AuthInfo {
         // 外置登录：把验证服务器返回的 textures 属性一并交给游戏（--userProperties），
         // 否则客户端拿不到角色皮肤，只能显示默认皮肤
         val authlibServerUrl = params.authlibServerUrl
@@ -229,7 +213,7 @@ internal class FclLaunchPreparation(
     }
 
     private fun buildLaunchOptions(
-        params: GameLaunchParams,
+        params: LaunchRequest,
         javaVersion: JavaVersion,
         verSettings: com.verse.explorer.core.data.VersionSettingsRepository.VersionSettings
     ): LaunchOptions {
@@ -279,7 +263,7 @@ internal class FclLaunchPreparation(
             .create()
     }
 
-    private fun deployNatives(gameDir: File, params: GameLaunchParams): File {
+    private fun deployNatives(gameDir: File, params: LaunchRequest): File {
         val externalNativesDir = File(gameDir, "natives")
         val librariesDir = File(gameDir, "libraries")
         val internalNativesDir = nativesDeployer.copyNativesToInternalStorage(externalNativesDir, params.javaHome, librariesDir)

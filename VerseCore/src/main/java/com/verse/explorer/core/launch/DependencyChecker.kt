@@ -1,11 +1,9 @@
 package com.verse.explorer.core.launch
 
 import android.content.Context
-import android.os.Build
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.util.HashUtils
-import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
 import java.io.File
@@ -63,9 +61,7 @@ data class DependencyCheckResult(
     val canAutoFix: Boolean
 )
 
-class DependencyChecker(private val context: Context) {
-
-    private val gameDir = GameConfig.getGameDir(context)
+class DependencyChecker(private val context: Context, private val gameDir: File = GameConfig.getGameDir(context)) {
     private val gson = GsonBuilder().setLenient().create()
 
     fun checkAll(versionId: String): DependencyCheckResult {

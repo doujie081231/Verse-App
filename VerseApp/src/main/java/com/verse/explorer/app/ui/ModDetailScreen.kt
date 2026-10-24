@@ -1,9 +1,8 @@
 package com.verse.explorer.app.ui
 
-import android.app.Application
+import com.verse.explorer.app.install.*
 import android.content.Intent
 import android.net.Uri
-import android.widget.TextView
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -35,23 +33,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.RoseLoader
-import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.core.data.FavoritesRepository
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.download.DownloadCenter
 import com.verse.explorer.app.download.DownloadCenterState
-import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.ModpackInstallDialog
-import com.verse.explorer.app.ui.components.ModpackInstallPhase
-import com.verse.explorer.app.ui.components.ModpackInstallUiState
+import com.verse.explorer.app.install.ModpackInstallPhase
+import com.verse.explorer.app.install.ModpackInstallUiState
 import com.verse.explorer.app.ui.components.NoInstalledVersionsDialog
-import com.verse.explorer.app.ui.components.applyTaskEvent
-import com.verse.explorer.app.ui.components.withFixedStageRows
+import com.verse.explorer.app.install.applyTaskEvent
+import com.verse.explorer.app.install.withFixedStageRows
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.VerseVersionItem
@@ -59,27 +54,16 @@ import com.verse.explorer.app.ui.components.VersionPickerDialog
 import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
-import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
 import com.verse.explorer.app.appContainer
-import com.verse.explorer.core.install.modpack.ModpackTaskEvent
-import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceVersion
-import com.verse.explorer.core.util.FileUtils
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
 import com.verse.explorer.core.version.VersionType
-import com.tungsten.fclcore.game.DefaultGameRepository
-import com.tungsten.fclcore.task.Schedulers
-import io.noties.markwon.Markwon
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,23 +74,24 @@ fun ModDetailScreen(
     source: String = "modrinth"
 ) {
     val context = LocalContext.current
-    val modpackInstaller = remember(context.applicationContext) { context.appContainer.newModpackInstaller() }
-    val repository = remember {
-        ResourceRepository(context.applicationContext as Application)
-    }
+    val modpackController = remember(context.applicationContext, projectId) { context.appContainer.modpackTask("detail:$projectId") }
+    val installTaskState by modpackController.state.collectAsState()
+    val detailViewModel = com.verse.explorer.app.viewmodel.modDetailViewModel(projectId, source)
+    val detailState by detailViewModel.state.collectAsState()
     // 详情标题汉化依赖翻译表（可能未经资源列表页直接进入详情）
     LaunchedEffect(Unit) {
         com.verse.explorer.app.data.ModTranslationMapper.init(context.applicationContext)
     }
+    val resourceActions = remember(context.applicationContext, projectId) { context.appContainer.resourceActions("detail:$source:$projectId") }
+    val resourceInstallStatus by resourceActions.state.collectAsState()
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
-    var project by remember { mutableStateOf<ResourceDetail?>(null) }
-    var versions by remember { mutableStateOf<List<ResourceVersion>>(emptyList()) }
-    var versionsError by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val project = detailState.project
+    val versions = detailState.versions
+    val versionsError = detailState.versionsError
+    val isLoading = detailState.isLoading
+    val error = detailState.error
     var selectedVersion by remember { mutableStateOf<ResourceVersion?>(null) }
-    var retryCount by remember { mutableStateOf(0) }
 
     // 前置依赖：从版本列表聚合（描述 tab 内嵌展示），名称/图标按依赖自身来源解析
     val deps = remember(versions) {
@@ -114,17 +99,7 @@ fun ModDetailScreen(
             .distinctBy { it.projectId }
             .filter { it.projectId.isNotBlank() }
     }
-    var depDetails by remember { mutableStateOf<Map<String, ResourceDetail>>(emptyMap()) }
-    LaunchedEffect(deps) {
-        val map = mutableMapOf<String, ResourceDetail>()
-        deps.forEach { d ->
-            if (d.projectId !in map) {
-                runCatching { repository.getDetail(d.projectId, d.source) }
-                    .onSuccess { map[d.projectId] = it }
-            }
-        }
-        depDetails = map
-    }
+    val depDetails = detailState.dependencies
 
     var detailTab by remember { mutableStateOf("description") }
     var versionFilter by remember { mutableStateOf("") }
@@ -138,6 +113,12 @@ fun ModDetailScreen(
     var downloadDone by remember { mutableStateOf(false) }
     var downloadError by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(resourceInstallStatus) {
+        downloadDone = resourceInstallStatus.done
+        downloadText = resourceInstallStatus.text
+        downloadError = resourceInstallStatus.error
+    }
+
     // 本页提交的下载 key 前缀（整合包 zip / 单资源 / 前置模组）
     val modpackKeyPrefix = "modpack:$projectId:"
     val resourceKeyPrefix = "resource:$projectType:"
@@ -147,7 +128,7 @@ fun ModDetailScreen(
             item.state == DownloadCenterState.RUNNING
     }
     // 安装阶段不走下载中心（本地任务链），单独标记
-    var installInProgress by remember { mutableStateOf(false) }
+    val installInProgress = installTaskState.visible && installTaskState.phase == ModpackInstallPhase.INSTALLING
     val downloading = hasRunningDownload || installInProgress
 
     var showVersionPicker by remember { mutableStateOf(false) }
@@ -157,19 +138,15 @@ fun ModDetailScreen(
     var pickerMode by remember { mutableStateOf("main") }
 
     // 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流）
-    val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
     var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
-    var modpackJob by remember { mutableStateOf<Job?>(null) }
     /** 本次已下载的整合包 zip（安装完成/失败/取消后删除，避免介质残留） */
     var modpackZip by remember { mutableStateOf<File?>(null) }
 
     var showModpackNamingDialog by remember { mutableStateOf(false) }
     var modpackConfirmName by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        for (ev in modpackChannel) {
-            modpackState = modpackState.applyTaskEvent(ev)
-        }
+    LaunchedEffect(installTaskState) {
+        if (installTaskState.visible) modpackState = installTaskState
     }
 
     // 整合包文件下载进度（订阅下载中心条目，任务在应用级协程中执行）
@@ -218,102 +195,9 @@ fun ModDetailScreen(
         versionTabKeys = sorted
     }
 
-    val fetchData = suspend {
-        try {
-            val proj = repository.getDetail(projectId, source)
-            project = proj
-            VerseLogger.info("Project loaded: ${proj.title} (id=$projectId, type=$projectType, source=$source)", "ModDetail")
-            try {
-                val vers = repository.getVersions(projectId, source)
-                versions = vers
-                versionsError = null
-                selectedVersion = vers.firstOrNull()
-                computeVersionTabs(vers)
-                VerseLogger.info("Versions loaded: ${vers.size}, tabs: ${versionTabKeys.size}, depsTotal: ${vers.sumOf { it.dependencies.size }}, requiredDeps: ${vers.flatMap { it.dependencies }.count { it.type == "required" && it.projectId.isNotBlank() }}", "ModDetail")
-            } catch (e: Exception) {
-                // 版本列表失败要给用户可见反馈，不能静默显示"该筛选下暂无版本"
-                versionsError = "版本列表加载失败: ${e.message}"
-                VerseLogger.warn("Failed to load versions: ${e.message}\n${e.stackTraceToString()}", "ModDetail")
-            }
-            isLoading = false
-        } catch (e: Exception) {
-            val msg = e.message ?: "未知错误"
-            VerseLogger.error("Detail load failed: $msg (projectId=$projectId, type=$projectType, source=$source, retry=$retryCount)", "ModDetail")
-            error = "加载失败: $msg"
-            isLoading = false
-        }
-    }
-
-    LaunchedEffect(projectId, source, retryCount) {
-        if (projectId.isBlank()) {
-            error = "项目ID为空"
-            isLoading = false
-            return@LaunchedEffect
-        }
-        project = null
-        versions = emptyList()
-        versionsError = null
-        selectedVersion = null
-        downloadDone = false
-        downloadError = null
-        versionFilter = ""
-        detailTab = "description"
-        isLoading = true
-        error = null
-        scope.launch { fetchData() }
-    }
-
-    fun runModpackInstall(appContext: android.content.Context, file: File?, name: String?, ver: ResourceVersion?) {
-        if (file == null || !file.exists()) return
-        Schedulers.androidUIThread().execute {
-            modpackZip = file
-            installInProgress = true
-            modpackState = ModpackInstallUiState(
-                visible = true,
-                title = project?.title ?: ver?.versionNumber ?: file.nameWithoutExtension,
-                iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-                phase = ModpackInstallPhase.DOWNLOAD_FILE
-            ).withFixedStageRows()
-        }
-        VerseApplication.instance.appScope.launch {
-            val gameDir = GameConfig.getGameDir(appContext)
-            val result = modpackInstaller.installModpack(
-                gameDir = gameDir,
-                zipFile = file,
-                // 与版本命名弹窗一致：默认取 manifest.name（标题），命名后按用户输入
-                name = name
-            ) { ev ->
-                modpackChannel.trySend(ev)
-            }
-            Schedulers.androidUIThread().execute {
-                result.fold(
-                    onSuccess = {
-                        modpackZip?.delete()
-                        modpackZip = null
-                        installInProgress = false
-                        downloadDone = true
-                        downloadText = "整合包安装完成"
-                        modpackState = modpackState.copy(phase = ModpackInstallPhase.DONE)
-                    },
-                    onFailure = { e ->
-                        modpackZip?.delete()
-                        modpackZip = null
-                        if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
-                            installInProgress = false
-                            modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
-                        } else {
-                            installInProgress = false
-                            downloadError = e.message ?: "整合包安装失败"
-                            downloadText = downloadError ?: "整合包安装失败"
-                            modpackState = modpackState.copy(
-                                phase = ModpackInstallPhase.FAILED,
-                                error = e.message ?: "整合包安装失败"
-                            )
-                        }
-                    }
-                )
-            }
-        }
+    LaunchedEffect(versions) {
+        if (selectedVersion == null) selectedVersion = versions.firstOrNull()
+        computeVersionTabs(versions)
     }
 
     /**
@@ -357,27 +241,18 @@ fun ModDetailScreen(
         val appContext = context.applicationContext
         val runName = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
         val zipRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
+        val installSnapshot = appContext.appContainer.installationSnapshot()
+        val targetRoot = installSnapshot.paths.root
+        val repository = ResourceRepository(appContext, snapshot = installSnapshot)
+        val installTitle = project?.title ?: ver.versionNumber
+        val installIcon = project?.iconUrl?.takeIf { it.isNotBlank() }
         DownloadCenter.submit(
             key = itemKey,
             title = project?.title ?: ver.versionNumber,
             // 待安装动作：下载完成后（本页自动续接或重新进入本页时）执行安装
-            installAction = Runnable { runModpackInstall(appContext, zipRef.get(), runName, ver) },
+            installAction = Runnable { zipRef.get()?.let { file -> modpackController.start(targetRoot, file, runName, installTitle, installIcon) } },
             cleanupAction = Runnable { runCatching { zipRef.get()?.delete() } },
-            onComplete = { success, error ->
-                Schedulers.androidUIThread().execute {
-                    if (success) {
-                        downloadText = "整合包下载完成"
-                    } else {
-                        modpackZip = null
-                        downloadError = error ?: "整合包下载失败"
-                        downloadText = downloadError ?: "整合包下载失败"
-                        modpackState = modpackState.copy(
-                            phase = if (error == "已取消") ModpackInstallPhase.CANCELLED else ModpackInstallPhase.FAILED,
-                            error = error ?: "整合包下载失败"
-                        )
-                    }
-                }
-            },
+            onComplete = { success, error -> if (!success) modpackController.downloadFailed(installTitle, error) },
             task = { onProgress, isCancelled ->
                 val result = repository.downloadVersion("modpack", ver, isCancelled, onProgress)
                 result.getOrNull()?.let { zipRef.set(it) }
@@ -392,16 +267,7 @@ fun ModDetailScreen(
         if (item != null && item.state == DownloadCenterState.RUNNING) {
             DownloadCenter.cancel(item)
         } else {
-            modpackInstaller.cancel()
-            modpackJob?.cancel()
-            modpackJob = null
-            modpackZip?.delete()
-            modpackZip = null
-            val ph = modpackState.phase
-            if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
-                modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
-                installInProgress = false
-            }
+            modpackController.cancel()
         }
     }
 
@@ -410,17 +276,10 @@ fun ModDetailScreen(
         val ver = selectedVersion ?: return
         val name = modpackConfirmName ?: project?.title?.trim()?.takeIf { it.isNotBlank() } ?: ver.versionNumber
         val gameDir = GameConfig.getGameDir(context.applicationContext)
-        if (VersionManager(gameDir).versionIdConflicts(name)) {
-            val repo = DefaultGameRepository(gameDir)
-            runCatching { repo.refreshVersions() }
-            if (repo.isModpack(name)) {
-                // 真已装（安装完整落盘）：换名重装，重新走命名弹窗
-                modpackConfirmName = null
-                showModpackNamingDialog = true
-                return
-            }
-            // 半成品版本目录（modpack.json 缺失）：清理后用旧名重试
-            runCatching { repo.removeVersionFromDisk(name) }
+        if (modpackController.requiresNewName(gameDir, name)) {
+            modpackConfirmName = null
+            showModpackNamingDialog = true
+            return
         }
         startModpackInstall(ver, name)
     }
@@ -474,170 +333,12 @@ fun ModDetailScreen(
         }
     }
 
-    /** 判断目标版本的 folder 目录下是否已有同名（且同 SHA1，若已知）文件 */
-    fun isFileInstalledInTargets(
-        versionsDir: File,
-        targetVersions: List<MinecraftVersion>,
-        folder: String,
-        fileName: String,
-        sha1: String
-    ): Boolean = targetVersions.any { tv ->
-        val f = File(File(versionsDir, tv.id), "$folder/$fileName")
-        if (!f.isFile || f.length() == 0L) false
-        else if (sha1.isBlank()) true
-        else runCatching { FileUtils.calculateSha1(f).equals(sha1, ignoreCase = true) }.getOrDefault(false)
-    }
-
-    /**
-     * 将全部必需前置模组安装到选中的版本（隔离安装到各版本的 mods 文件夹）：
-     * 依赖逐项解析后去重（项目 id + 本地文件名 + 本地已装文件 SHA1），再逐项
-     * 提交到下载中心并发下载（各自独立进度），不再串行阻塞。
-     */
     fun startDepsForVersions(targetVersions: List<MinecraftVersion>) {
-        if (downloading || targetVersions.isEmpty()) return
-        val versionIds = targetVersions.map { it.id }
-        val appContext = context.applicationContext
-        scope.launch {
-            val deps = versions.flatMap { it.dependencies }
-                .distinctBy { it.projectId }
-                .filter { it.projectId.isNotBlank() && it.type == "required" }
-            if (deps.isEmpty()) {
-                Toast.makeText(context, "没有需要安装的前置模组", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            // 解析各依赖的最新版本文件（按依赖自身来源解析），并做去重/已装跳过
-            // gameVersions 与宿主版本有交集才兼容；loaders 能精确匹配的候选优先
-            val rootVersion = selectedVersion
-            fun pickCompatible(list: List<ResourceVersion>): ResourceVersion? {
-                if (list.isEmpty()) return null
-                val rootGV = rootVersion?.gameVersions.orEmpty()
-                if (rootGV.isEmpty()) return list.firstOrNull()
-                val intersected = list.filter { v -> v.gameVersions.any { it in rootGV } }
-                if (intersected.isEmpty()) return list.firstOrNull()
-                val rootLoaders = rootVersion?.loaders.orEmpty()
-                if (rootLoaders.isEmpty()) return intersected.firstOrNull()
-                return intersected.firstOrNull { v -> v.loaders.any { it in rootLoaders } } ?: intersected.firstOrNull()
-            }
-            val planned = mutableListOf<Pair<String, ResourceVersion>>() // (队列 key, 版本)
-            val seenFileKeys = mutableSetOf<String>()
-            var skippedInstalled = 0
-            var resolveFailed = 0
-            val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(appContext))
-            for (d in deps) {
-                val ver = runCatching { pickCompatible(repository.getVersions(d.projectId, d.source)) }.getOrNull()
-                val primary = ver?.primaryFile ?: ver?.files?.firstOrNull()
-                if (ver == null || primary == null || primary.url.isBlank()) {
-                    resolveFailed++
-                    continue
-                }
-                val safeName = (primary.filename.ifBlank { "${ver.id}.jar" })
-                    .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
-                // 批次内去重：同一文件（名+SHA1）只入队一次
-                val fileKey = "$safeName:${primary.sha1}"
-                if (!seenFileKeys.add(fileKey)) continue
-                // 本地已装去重：目标版本的 mods 中已有同名同 SHA1 文件时跳过
-                if (isFileInstalledInTargets(versionsDir, targetVersions, "mods", safeName, primary.sha1)) {
-                    skippedInstalled++
-                    continue
-                }
-                planned.add("dep:$projectId:${d.projectId}" to ver)
-            }
-
-            val queued = AtomicInteger(0)
-            val ok = AtomicInteger(0)
-            val fail = AtomicInteger(0)
-            if (planned.isEmpty()) {
-                val msg = buildString {
-                    if (skippedInstalled > 0) append("前置模组均已安装")
-                    else if (resolveFailed > 0) append("前置模组解析失败")
-                    else append("没有需要安装的前置模组")
-                }
-                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            downloadDone = false
-            downloadError = null
-            downloadText = "准备安装前置模组..."
-            planned.forEach { (key, ver) ->
-                if (DownloadCenter.findByKey(key) != null) {
-                    // 已在队列中，视为完成计数，避免汇总回调永不触发
-                    ok.incrementAndGet()
-                    return@forEach
-                }
-                val primary = ver.primaryFile ?: ver.files.firstOrNull()
-                DownloadCenter.submit(
-                    key = key,
-                    title = primary?.filename ?: ver.versionNumber,
-                    onComplete = { success, _ ->
-                        Schedulers.androidUIThread().execute {
-                            if (success) ok.incrementAndGet() else fail.incrementAndGet()
-                            if (ok.get() + fail.get() >= queued.get()) {
-                                if (fail.get() == 0) {
-                                    downloadDone = true
-                                    downloadText = "前置模组已安装到 ${versionIds.size} 个版本"
-                                } else {
-                                    downloadError = "完成:成功 ${ok.get()} / 失败 ${fail.get()}"
-                                    downloadText = downloadError ?: "下载失败"
-                                }
-                                Toast.makeText(
-                                    appContext,
-                                    if (fail.get() == 0) "前置模组安装完成 (${ok.get()})"
-                                    else "完成:成功 ${ok.get()} / 失败 ${fail.get()}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        }
-                    },
-                    task = { onProgress, isCancelled ->
-                        repository.downloadVersionForVersions("mod", ver, versionIds, isCancelled, onProgress).isSuccess
-                    }
-                )
-                queued.incrementAndGet()
-            }
-            if (skippedInstalled > 0) {
-                Toast.makeText(appContext, "已跳过 $skippedInstalled 个已安装的前置模组", Toast.LENGTH_SHORT).show()
-            }
-            if (resolveFailed > 0) {
-                Toast.makeText(appContext, "$resolveFailed 个前置模组解析失败", Toast.LENGTH_SHORT).show()
-            }
-        }
+        if (!downloading) resourceActions.startDepsForVersions(projectId, versions, selectedVersion, targetVersions)
     }
 
-    /** 安装到选中的多个版本：提交到下载中心，页面退出不中断 */
     fun startDownloadForVersions(targetVersions: List<MinecraftVersion>) {
-        val ver = selectedVersion ?: return
-        if (targetVersions.isEmpty()) return
-        val itemKey = "$resourceKeyPrefix${ver.id}"
-        if (DownloadCenter.findByKey(itemKey) != null) {
-            Toast.makeText(context, "该资源已在下载队列中", Toast.LENGTH_SHORT).show()
-            return
-        }
-        downloadDone = false
-        downloadError = null
-        downloadText = "准备下载..."
-        val appContext = context.applicationContext
-        val primary = ver.primaryFile ?: ver.files.firstOrNull()
-        DownloadCenter.submit(
-            key = itemKey,
-            title = primary?.filename?.takeIf { it.isNotBlank() } ?: (project?.title ?: ver.versionNumber),
-            onComplete = { success, error ->
-                Schedulers.androidUIThread().execute {
-                    if (success) {
-                        downloadDone = true
-                        downloadText = "已安装到 ${targetVersions.size} 个版本"
-                        Toast.makeText(appContext, "已安装到 ${targetVersions.size} 个版本", Toast.LENGTH_SHORT).show()
-                    } else if (error != "已取消") {
-                        downloadError = error ?: "下载失败"
-                        downloadText = downloadError ?: "下载失败"
-                        Toast.makeText(appContext, downloadError ?: "下载失败", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            },
-            task = { onProgress, isCancelled ->
-                repository.downloadVersionForVersions(projectType, ver, targetVersions.map { it.id }, isCancelled, onProgress).isSuccess
-            }
-        )
-        Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
+        resourceActions.startDownloadForVersions(projectType, project?.title, selectedVersion, targetVersions)
     }
 
     // 按当前筛选标签过滤版本
@@ -681,7 +382,7 @@ fun ModDetailScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Icon(Icons.Outlined.CloudOff, null, Modifier.size(48.dp), VerseColors.PcTextMuted)
                         Text(error ?: "未知错误", color = VerseColors.PcTextSecondary, fontSize = 13.sp)
-                        OutlinedButton(onClick = { retryCount++ }, shape = RoundedCornerShape(8.dp)) {
+                        OutlinedButton(onClick = { detailViewModel.reload() }, shape = RoundedCornerShape(8.dp)) {
                             Text("重试", fontSize = 13.sp)
                         }
                     }
@@ -1185,13 +886,13 @@ fun ModDetailScreen(
             modpackState.phase == ModpackInstallPhase.INSTALLING
         Dialog(onDismissRequest = {
             // 下载/安装进行中不允许直接关闭（与版本下载弹窗一致）
-            if (!modpackRunning) modpackState = modpackState.copy(visible = false)
+            if (!modpackRunning) { modpackController.dismiss(); modpackState = modpackState.copy(visible = false) }
         }) {
             ModpackInstallDialog(
                 state = modpackState,
                 onCancel = { cancelModpackInstall() },
                 onRetry = { retryModpackInstall() },
-                onClose = { modpackState = modpackState.copy(visible = false) }
+                onClose = { modpackController.dismiss(); modpackState = modpackState.copy(visible = false) }
             )
         }
     }
