@@ -27,6 +27,12 @@ BASELINE = ROOT / "tools" / "fclcore-baseline.json"
 
 # 构建产物与 IDE 缓存不属于源码，不参与校验
 EXCLUDED_DIR_NAMES = {"build", ".gradle", ".idea", "out"}
+TEXT_SUFFIXES = {".java", ".kt", ".kts", ".xml", ".json", ".properties", ".txt", ".md"}
+
+
+def normalized_bytes(path: Path, data: bytes) -> bytes:
+    """Ignore checkout line endings for text; never rewrite binary content."""
+    return data.replace(b"\r\n", b"\n") if path.suffix.lower() in TEXT_SUFFIXES else data
 
 
 def iter_source_files():
@@ -41,11 +47,7 @@ def iter_source_files():
 
 
 def sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return hashlib.sha256(normalized_bytes(path, path.read_bytes())).hexdigest()
 
 
 def snapshot() -> dict:
@@ -80,6 +82,8 @@ def main() -> int:
 
     if args.update:
         payload = {
+            "schemaVersion": 2,
+            "textNormalization": "LF",
             "说明": "FclCore 源码哈希基线。有意改动后请更新本文件，并在 FclCore/VERSE-CHANGES.md 第 2 节记账。",
             "生成命令": "python tools/fclcore_drift.py --update",
             "files": current,
