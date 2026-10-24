@@ -91,6 +91,26 @@ diff -rq --exclude=build --exclude=.git \
    上游无法合并，任何无收益改动都会永久抬高维护成本。
 5. **注释与命名**：中文注释、不得出现来源字样（参考/迁移自/移植自/对齐 XX 等）。
 
+### 4.1 自动校验（规矩的执行手段）
+
+规矩写在文档里没人执行等于没有，所以加了机器校验：
+
+- 工具：`tools/fclcore_drift.py`
+- 基线：`tools/fclcore-baseline.json`（702 个文件的 SHA-256，自包含，不依赖上游快照）
+
+```bash
+python tools/fclcore_drift.py --check    # 校验（CI 每次 push 自动跑）
+python tools/fclcore_drift.py --update   # 有意改动后刷新基线
+```
+
+任何对 `FclCore/src` 的新增 / 修改 / 删除都会被列出来并以退出码 1 失败，
+提示「去第 2 节记账 + 更新第 3 节数字 + 刷新基线」。CI 步骤名：
+`Check FclCore drift`，排在单测与构建之前，改错 FclCore 会在 10 秒内被拦住。
+
+> 为什么用哈希基线而不是 diff：`.fcl-repo`（上游快照）没有入库，CI 里没有对照物。
+> 哈希基线只回答「FclCore 有没有被动过」，这正是规矩要守的东西。
+> 漂移**规模**仍用第 3 节的 diff 统计（本地有上游快照时执行）。
+
 ---
 
 ## 5. 未来选项（当前不做）

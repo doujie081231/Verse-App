@@ -29,19 +29,18 @@ class JreResolver(
             else javaDetector.getRequiredJavaVersion(params.versionId, gameDir)
 
         // 安装器自己的目标目录：files/jre/jre-<大版本>-<架构>
-        val installTarget = File(
+        val installTarget = JreCandidates.installTargetOf(
             JavaRuntimeManager.getJreDir(activity),
-            "jre-$requiredVersion-${JavaRuntimeManager.getArchName()}"
+            requiredVersion,
+            JavaRuntimeManager.getArchName()
         )
 
-        val candidates = mutableListOf<String>()
-        if (!params.javaHome.isNullOrEmpty()) candidates.add(params.javaHome)
-        // 兜底运行时必须与游戏所需的大版本一致：findJavaHome() 返回的是「最高版本」，
-        // 拿 Java 25 启动 1.12 会因 -Xbootclasspath/p 不再支持而直接退出
-        findRuntimeForVersion(requiredVersion)?.let {
-            if (it != params.javaHome) candidates.add(it)
-        }
-        candidates.add(installTarget.absolutePath)
+        // 候选顺序：参数指定 → 同大版本已安装运行时 → 安装器目标目录（见 JreCandidates）
+        val candidates = JreCandidates.plan(
+            explicitHome = params.javaHome,
+            installedForVersion = findRuntimeForVersion(requiredVersion),
+            installTarget = installTarget.absolutePath
+        )
 
         for (home in candidates) {
             val reason = jreInvalidReason(home)

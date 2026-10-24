@@ -12,6 +12,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check FclCore drift
+        run: python3 tools/fclcore_drift.py --check
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:

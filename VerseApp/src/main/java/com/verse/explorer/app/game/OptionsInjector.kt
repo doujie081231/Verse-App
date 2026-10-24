@@ -9,7 +9,6 @@ import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.renderer.RendererManager
 import com.tungsten.fcl.setting.MenuSetting
 import java.io.File
-import java.time.Instant
 
 /**
  * 启动前 options.txt 注入器。
@@ -38,13 +37,7 @@ class OptionsInjector(private val activity: Context) {
                 File(repository.getRunDirectory(versionId), "options.txt"),
                 File(File(File(repository.getBaseDirectory(), "versions"), versionId), "options.txt")
             )
-            targets.distinct().forEach { optionsFile ->
-                if (optionsFile.parentFile != null) optionsFile.parentFile.mkdirs()
-                val content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
-                if (!content.contains("onboardAccessibility:")) {
-                    optionsFile.appendText("\nonboardAccessibility:false\n")
-                }
-            }
+            OptionsFileWriter.writeOnboardingSkip(targets)
         }.onFailure {
             VerseLogger.warn("注入 onboardAccessibility 失败: ${it.message}", TAG)
         }
@@ -62,47 +55,23 @@ class OptionsInjector(private val activity: Context) {
         }
         runCatching {
             val runDir = repository.getRunDirectory(version.id)
-            var optionsFile = File(runDir, "options.txt")
-            val yosbrFile = File(File(File(runDir, "config"), "yosbr"), "options.txt")
-            if (!optionsFile.exists() && yosbrFile.exists()) {
-                VerseLogger.info("使用 Yosbr Mod 中的 options.txt", TAG)
-                optionsFile = yosbrFile
-            }
-
             val releaseTime = version.releaseTime ?: version.time
-            val mc1_1 = Instant.parse("2012-01-12T00:00:00Z")
-            val mc1_11 = Instant.parse("2016-06-08T00:00:00Z")
+            val outcome = OptionsFileWriter.writeGameLanguage(runDir, releaseTime)
+
+            if (outcome.usedYosbr) {
+                VerseLogger.info("使用 Yosbr Mod 中的 options.txt", TAG)
+            }
             // 1.0 及以下版本无语言选项
-            if (releaseTime != null && !releaseTime.isAfter(mc1_1)) {
+            if (outcome.requiredLang == null) {
                 VerseLogger.info("1.0 及以下版本，无语言选项", TAG)
                 return@runCatching
             }
-            val requiredLang = if (releaseTime != null && releaseTime.isAfter(mc1_1) && !releaseTime.isAfter(mc1_11)) {
-                "zh_CN"
-            } else {
-                "zh_cn"
-            }
-
-            var content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
-            val langRegex = Regex("^lang:(.+)$", RegexOption.MULTILINE)
-            val currentLang = langRegex.find(content)?.groupValues?.get(1)?.trim() ?: "none"
-
             // 强制中文：无论是否已有存档/语言选择，每次启动都写入 requiredLang
-            if (currentLang != requiredLang) {
-                content = if (content.isNotEmpty() && currentLang != "none") {
-                    content.replace(langRegex, "lang:$requiredLang")
-                } else if (content.isNotEmpty()) {
-                    content + "\nlang:$requiredLang"
-                } else {
-                    "lang:$requiredLang\n"
-                }
-                VerseLogger.info("已将游戏语言设置为 $requiredLang（原 $currentLang）", TAG)
+            if (outcome.changed) {
+                VerseLogger.info("已将游戏语言设置为 ${outcome.requiredLang}（原 ${outcome.previousLang}）", TAG)
             } else {
-                VerseLogger.info("当前语言已为 $requiredLang，无需修改", TAG)
+                VerseLogger.info("当前语言已为 ${outcome.requiredLang}，无需修改", TAG)
             }
-
-            optionsFile.parentFile?.mkdirs()
-            optionsFile.writeText(content)
         }.onFailure {
             VerseLogger.warn("自动设置中文失败: ${it.message}", TAG)
         }
@@ -125,59 +94,36 @@ class OptionsInjector(private val activity: Context) {
     ) {
         runCatching {
             val runDir = repository.getRunDirectory(version.id)
-            runDir.mkdirs()
-            val optionsFile = File(runDir, "options.txt")
-            if (!optionsFile.exists()) {
-                optionsFile.writeText("")
-            }
 
-            var content = optionsFile.readText()
-
-            // preferredGraphicsBackend：GL 渲染器强制 opengl（Vulkan 后端下 MobileGlues 的
-            // 窗口/EGL 初始化失败 "Invalid window"）；其余走 default（MC 自选）。
-            // 26.3 起选项类被模块化拆分，后端键名可能非 preferredGraphicsBackend，
-            // 对 MobileGlues 额外写入一组候选键（MC 只读取它识别的那个）。
-            // 值一律小写（default/opengl/vulkan），大写变体 MC 不识别会回落默认后端。
+            // GL 渲染器强制 opengl（Vulkan 后端下其窗口/EGL 初始化失败
+            // "Failed to query window size in pixels: Invalid window"）；
+            // 其余按版本级/全局设置写 default / opengl / vulkan。
             val rendererConfig = RendererManager.getRendererById(activity, renderer)
             val isMobileGlues = rendererConfig != null &&
                 (rendererConfig.glName.contains("mobileglues", ignoreCase = true) ||
                     rendererConfig.displayName.contains("MobileGlues", ignoreCase = true))
-            if (isMobileGlues) {
-                content = setOption(content, "preferredGraphicsBackend", "\"opengl\"")
-                content = setOption(content, "graphicsApi", "\"opengl\"")
-                content = setOption(content, "graphicsBackend", "\"opengl\"")
-                content = setOption(content, "apiPreference", "\"opengl\"")
-                content = setOption(content, "renderBackend", "\"opengl\"")
+            val backend = if (isMobileGlues) {
+                "opengl"
             } else {
-                // default 由 MC 自选（26.3 探测到 Vulkan 强制 Vulkan），opengl/vulkan 显式指定。
                 // 版本级独立设置优先；26.2+ 版本在全局仍是 default 时按实测适配为 vulkan
                 // （G925 实测：default 时 MC 探测回落 GL 后端 glGetError mismatch 失败，
                 // 显式 vulkan 才走 Krypton/系统驱动正常），用户显式选择的值不受影响
-                val backend = backendOverride ?: run {
+                backendOverride ?: run {
                     val global = SettingsRepository.getGraphicsBackend()
                     if (global == "default" &&
                         com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(version.id)
                     ) "vulkan" else global
                 }
-                content = setOption(content, "preferredGraphicsBackend", "\"$backend\"")
             }
 
             // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
             // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
-            optionsFile.writeText(content)
+            OptionsFileWriter.writeBackend(runDir, OptionsFileWriter.backendEntries(isMobileGlues, backend))
             VerseLogger.info("已注入渲染后端: ${SettingsRepository.getGraphicsBackend()}", TAG)
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }
     }
-
-    /**
-     * options.txt 精确替换/追加单个键。value 为原始 options 行等号后的字面量（字符串需自带引号）。
-     * 只改目标键，不整写模板，规避 MC 26.2 对旧格式行 "Skipping bad option" 的启动期异常。
-     * 纯文本逻辑在 OptionsText（可单测）。
-     */
-    private fun setOption(content: String, key: String, value: String): String =
-        OptionsText.setOption(content, key, value)
 
     /**
      * 输出 options.txt 中的渲染相关键，仅用于排查画面问题，不修改玩家的游戏内设置。

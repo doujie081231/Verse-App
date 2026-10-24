@@ -137,6 +137,23 @@ $env:JAVA_HOME="D:\verse-android-sdk\jdk17\jdk-17.0.2"
 - 测试跑本地 JVM，不需真机；`VerseApp`/`VerseCore` 已配 `unitTests.returnDefaultValues`（android.jar 桩返回默认值）。
 - 测试数据统一放各模块 `src/test/resources/`（如 `VerseCore/src/test/resources/modrinth/in_versions.json`），禁止写机器绝对路径。
 - CI（`.github/workflows/build-android.yml`）在 Build 前跑同一测试命令，失败即红。
+- 当前 9 个测试类、60 个用例，集中在启动链与安装链的纯逻辑：
+  `OptionsFileWriter`（options 写入结果）、`JreCandidates`（JRE 候选顺序）、
+  `LibraryFilter`（库规则与 maven 坐标）、`OptionsText`、`JreValidator`、
+  `VulkanCheckManager`、`MenuSetting.resolveRenderSize`、`LanNetworkScanner`、
+  `ModrinthParseTest`（资源解析）。
+
+### 2.7 FclCore 漂移校验
+
+```bash
+python tools/fclcore_drift.py --check    # CI 每次 push 自动执行
+python tools/fclcore_drift.py --update   # 有意改动 FclCore 后刷新基线
+```
+
+- 基线：`tools/fclcore-baseline.json`（702 个源文件的 SHA-256，自包含，不依赖未入库的 `.fcl-repo`）。
+- 任何对 `FclCore/src` 的新增/修改/删除都会让 CI 在第一步就失败，提示去
+  [FclCore/VERSE-CHANGES.md](<file:///d:/Verse Explorer X/Verse Android/FclCore/VERSE-CHANGES.md>) 记账。
+- 规矩：**改 FclCore 必须同时做三件事**——记账、更新漂移数字、刷新基线。
 
 ---
 
@@ -181,6 +198,12 @@ $env:JAVA_HOME="D:\verse-android-sdk\jdk17\jdk-17.0.2"
 18. **新功能/新代码必须带单元测试**：能抽纯函数的逻辑（文本处理、版本比较、目录校验、参数计算）优先抽成 `internal object` 纯函数并写表驱动测试；不要往私有方法里堆不可测逻辑。
 19. 测试命令见 2.6；行为中性重构以「编译 + 测试 + 逐文件 diff 审查」为验证标准，真机回归按用户另行安排。
 20. 测试落选目标（需 Robolectric 的 SharedPreferences 类、依赖面大的启动环境类）记录在案，不强行单测；需要时再评估引入 Robolectric。
+21. **启动链的可测模式**（已落地的三个样板，加新逻辑照此办理）：
+    - 判定（要 Context / SharedPreferences / 硬件探测）留在原类；
+    - 效果（写文件、算顺序、比版本）抽成不依赖 Android 的 `internal object`，原类委托；
+    - 测试直接打抽出来的对象，用 `TemporaryFolder` 造目录、用固定时间戳造版本。
+    例：`OptionsInjector` → `OptionsFileWriter`、`JreResolver` → `JreCandidates`。
+22. **改 FclCore 必须同时记账 + 刷新基线**（见 2.7），CI 会拦。
 
 ---
 
