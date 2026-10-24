@@ -697,10 +697,11 @@ class GameLaunchOrchestrator(
     private suspend fun createAuthInfo(params: GameLaunchParams): AuthInfo {
         // 外置登录：把验证服务器返回的 textures 属性一并交给游戏（--userProperties），
         // 否则客户端拿不到角色皮肤，只能显示默认皮肤
-        val userProperties = if (!params.authlibServerUrl.isNullOrEmpty()) {
+        val authlibServerUrl = params.authlibServerUrl
+        val userProperties = if (!authlibServerUrl.isNullOrEmpty()) {
             val textures = runCatching {
                 VerseApplication.authlibAuthenticator
-                    .fetchTexturesValue(params.authlibServerUrl, params.uuid)
+                    .fetchTexturesValue(authlibServerUrl, params.uuid)
             }.getOrNull()
             if (textures.isNullOrEmpty()) "{}" else """{"textures":["$textures"]}"""
         } else {
