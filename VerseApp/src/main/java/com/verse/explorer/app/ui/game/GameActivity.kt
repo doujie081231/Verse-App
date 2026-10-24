@@ -34,6 +34,7 @@ import com.verse.explorer.app.R
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.version.VersionJsonResolver
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
+import com.verse.explorer.app.launch.LaunchIntentCodec
 import com.verse.explorer.app.game.GameLaunchOrchestrator
 import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
@@ -153,25 +154,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1001)
             }
 
-            val versionId = intent.getStringExtra("versionId")
-            val gameDirPath = intent.getStringExtra("gameDir")
-            val javaHome = intent.getStringExtra("javaHome")
-
-            val javaVersion = intent.getIntExtra("javaVersion", 0)
-            val maxMemory = intent.getIntExtra("maxMemory", 2048)
-            val minMemory = intent.getIntExtra("minMemory", 512)
-            val gcType = intent.getStringExtra("gcType") ?: "G1GC"
-            val customJvmArgs = intent.getStringExtra("customJvmArgs") ?: ""
-            val gameWidth = intent.getIntExtra("width", 854)
-            val gameHeight = intent.getIntExtra("height", 480)
-            val renderer = intent.getStringExtra("renderer") ?: "gl4es"
-            val launchMethod = intent.getStringExtra("launchMethod") ?: "pojav"
-            val username = intent.getStringExtra("username") ?: "Player"
-            val uuid = intent.getStringExtra("uuid") ?: "00000000000000000000000000000000"
-            val isMultiplayer = intent.getBooleanExtra("multiplayerMode", false)
-            val accessToken = intent.getStringExtra("accessToken") ?: "0"
-            val userType = intent.getStringExtra("userType") ?: "mojang"
-            val authlibServerUrl = intent.getStringExtra("authlibServerUrl")
+            val params = LaunchIntentCodec.read(intent).getOrElse {
+                Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
+                finish()
+                return
+            }
+            val versionId = params.versionId
+            val gameDirPath = params.gameDirPath
+            val javaHome = params.javaHome
+            val javaVersion = params.javaVersion
+            val maxMemory = params.maxMemory
+            val minMemory = params.minMemory
+            val gcType = params.gcType
+            val customJvmArgs = params.customJvmArgs
+            val gameWidth = params.gameWidth
+            val gameHeight = params.gameHeight
+            val renderer = params.renderer
+            val launchMethod = params.launchMethod
+            val username = params.username
+            val userType = params.userType
+            val isMultiplayer = params.isMultiplayer
 
             VerseLogger.info("GameActivity.onCreate: intent 参数", "GameActivity")
             VerseLogger.info("  versionId=$versionId, gameDir=$gameDirPath", "GameActivity")
@@ -181,12 +183,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             VerseLogger.info("  window=$gameWidth x $gameHeight, multiplayer=$isMultiplayer", "GameActivity")
             VerseLogger.info("  username=$username, userType=$userType", "GameActivity")
             VerseLogger.info("  customJvmArgs=$customJvmArgs", "GameActivity")
-
-            if (versionId == null || gameDirPath == null) {
-                Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
-                finish()
-                return
-            }
 
             // TouchController 模组：在 Java 虚拟机启动前启动控制代理并写入套接字环境变量，
             // 模组启动后即可与启动器建立连接（坐标转发在内置触控布局挂载前完成配置）
@@ -263,28 +259,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             )
             logManager.javaHomeProvider = { orchestrator.javaHome }
 
-            orchestrator.configure(
-                GameLaunchParams(
-                    versionId = versionId,
-                    gameDirPath = gameDirPath,
-                    javaHome = javaHome,
-                    javaVersion = javaVersion,
-                    maxMemory = maxMemory,
-                    minMemory = minMemory,
-                    gcType = gcType,
-                    customJvmArgs = customJvmArgs,
-                    gameWidth = gameWidth,
-                    gameHeight = gameHeight,
-                    renderer = renderer,
-                    launchMethod = launchMethod,
-                    username = username,
-                    uuid = uuid,
-                    isMultiplayer = isMultiplayer,
-                    accessToken = accessToken,
-                    userType = userType,
-                    authlibServerUrl = authlibServerUrl
-                )
-            )
+            orchestrator.configure(params)
 
             orchestrator.startLaunch()
             // 首帧信号到达前保留启动卡片（JVM 启动后显示「正在等待游戏画面出现」，可手动关闭）；
