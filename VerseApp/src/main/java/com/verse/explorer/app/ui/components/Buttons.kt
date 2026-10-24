@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * 通用按钮与文字组件（对位 ZL2 ui/components/Buttons.kt）。
+ * 通用按钮与文字组件。
  */
 
 /** 按下时缩放到 0.95 的按钮 */

@@ -23,7 +23,7 @@ import com.verse.explorer.app.ui.theme.cardTitleColor
 import com.verse.explorer.app.ui.theme.onCardColor
 
 /**
- * 背景卡片组件（对位 ZL2 ui/components/BackgroundCard.kt）。
+ * 背景卡片组件。
  *
  * 使用方式与原本的 [Card] 无异，但 [BackgroundCard] 配置了更舒适的背景颜色：
  * 容器色取 cardColor（受背景内容不透明度影响），并在内容层叠加背景毛玻璃。
@@ -57,7 +57,7 @@ fun BackgroundCard(
 }
 
 /**
- * 可点击的背景卡片组件（对位 ZL2 ui/components/BackgroundCard.kt 的第二重载）。
+ * 可点击的背景卡片组件。
  */
 @Composable
 fun BackgroundCard(
@@ -93,7 +93,7 @@ fun BackgroundCard(
 }
 
 /**
- * 适合在背景卡片组件顶部使用的标题栏 Layout（对位 ZL2 CardTitleLayout）。
+ * 适合在背景卡片组件顶部使用的标题栏 Layout。
  * @param alpha 组件背景颜色不透明度
  */
 @Composable

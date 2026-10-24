@@ -37,7 +37,7 @@ import com.verse.explorer.app.ui.theme.itemColor
 import com.verse.explorer.app.ui.theme.onItemColor
 
 /**
- * 通用布局组件（对位 ZL2 ui/components/Layouts.kt）。
+ * 通用布局组件。
  */
 
 /**
@@ -153,7 +153,7 @@ fun LittleTextLabel(
     }
 }
 
-/** 单选条目（对位 ZL2 SimpleListItem 单选重载） */
+/** 单选条目 */
 @Composable
 fun SimpleListItem(
     modifier: Modifier = Modifier,
@@ -185,7 +185,7 @@ fun SimpleListItem(
     }
 }
 
-/** 多选条目（对位 ZL2 SimpleListItem 复选重载） */
+/** 多选条目 */
 @Composable
 fun SimpleListItem(
     modifier: Modifier = Modifier,

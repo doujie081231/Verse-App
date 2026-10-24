@@ -506,13 +506,12 @@ public class DefaultLauncher extends Launcher {
     /**
      * 将 classpath 中的官方 LWJGL 各模块 jar 替换为本地 LWJGL-Pojav 套装并置于最前。
      * 套装（lwjgl.jar / lwjgl-glfw.jar / lwjgl-opengl.jar / lwjgl-vma.jar /
-     * lwjgl-spvc.jar / lwjgl-shaderc.jar ...）迁移自 FCL LWJGL-Pojav，
-     * 与 Pojav patched liblwjgl*.so / libpojavexec.so 配对；
+     * lwjgl-spvc.jar / lwjgl-shaderc.jar ...）需与配套的 liblwjgl*.so / libpojavexec.so 配对；
      * lwjgl-glfw.jar 的 GLFW 含 glfwGetMonitorName（MC 1.19.4+/26.x Monitor 必需）。
      * 官方 org.lwjgl 模块（3.4.x）的 ThreadLocalUtil 与 patched native 符号不一致，
      * 会在 GL.createCapabilities 时抛 UnsatisfiedLinkError，必须整体剔除。
      *
-     * 对齐 Pojav 的 lwjglx 老版本方案：本地 lwjgl-lwjglx.jar 额外提供 LWJGL2 API 兼容层
+     * 兼容旧版方案：本地 lwjgl-lwjglx.jar 额外提供 LWJGL2 API 兼容层
      * （org.lwjgl.opengl.Display、org.lwjgl.input.Mouse/Keyboard、org.lwjgl.Sys 等），
      * 因此老版本（1.12.2 及以下，依赖 lwjgl-2.9.4/jinput/lwjgl_util）的官方 jar
      * 也必须一并替换并剔除。否则官方 lwjgl2 jar 会按名加载 liblwjgl.so（LWJGL2 ABI），

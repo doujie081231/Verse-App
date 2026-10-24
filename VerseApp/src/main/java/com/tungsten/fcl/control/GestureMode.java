@@ -1,8 +1,7 @@
 package com.tungsten.fcl.control;
 
 /**
- * FCL 触控手势模式（menu_right.xml gesture_mode_spinner，原样移植自
- * .fcl-temp/FCL/src/main/java/com/tungsten/fcl/control/GestureMode.java）。
+ * 触控手势模式（取值对应 menu_right.xml 的 gesture_mode_spinner）。
  * BUILD(0)=建筑模式，FIGHT(1)=战斗模式。
  */
 public enum GestureMode {

@@ -63,7 +63,7 @@ public class TouchCharInput extends androidx.appcompat.widget.AppCompatEditText 
      */
     public void switchKeyboardState(){
         // MC 26.3+ SDL 渲染路径：游戏内文本输入由 SDL 输入法接管，GLFW 字符通道无效
-        // （分支结构照搬 FCL TouchCharInput.switchKeyboardState）
+        // （分支结构与设置侧键盘状态切换逻辑一致）
         if (com.tungsten.fcl.game.sdl.SdlBridge.getSdlEnabled()
                 && com.tungsten.fcl.game.sdl.SdlBridge.isSdlRenderActive()) {
             if (org.libsdl.app.SDLActivity.isSDLEditKeyboardShown()) {

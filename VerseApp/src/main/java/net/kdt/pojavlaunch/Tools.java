@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 
 /**
- * 迁移自 PojavLauncher 的宿主适配类（仅保留触控模块所需的成员）：
+ * 触控模块的宿主适配类（仅保留触控所需的成员）：
  * 输入出口仍走 org.lwjgl.glfw.CallbackBridge，不在本类处理。
  */
 public final class Tools {
@@ -96,7 +96,7 @@ public final class Tools {
         }
     }
 
-    /** 把任务投递到主线程（Pojav 触控模块迁移：SideDialogView 等编辑 UI 使用） */
+    /** 把任务投递到主线程（控制编辑 UI 使用） */
     public static void runOnUiThread(Runnable runnable) {
         if (sContext == null) {
             runnable.run();

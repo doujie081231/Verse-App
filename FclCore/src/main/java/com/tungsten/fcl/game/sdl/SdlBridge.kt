@@ -1,6 +1,6 @@
 /*
  * Fold Craft Launcher
- * SDL 集成状态桥（由启动器与游戏 JVM 共享），移植自 ZalithLauncher2 feat/sdl3
+ * SDL 集成状态桥（由启动器与游戏 JVM 共享）
  */
 package com.tungsten.fcl.game.sdl
 
@@ -18,7 +18,7 @@ import org.libsdl.app.SDLSurface
 import org.lwjgl.glfw.CallbackBridge
 
 /**
- * SDL 集成状态桥，由启动器与游戏 JVM 共享（移植自 ZalithLauncher2 feat/sdl3）。
+ * SDL 集成状态桥，由启动器与游戏 JVM 共享。
  */
 @Keep
 object SdlBridge {

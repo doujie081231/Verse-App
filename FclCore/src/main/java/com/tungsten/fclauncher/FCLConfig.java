@@ -46,7 +46,7 @@ public class FCLConfig implements Serializable {
     private boolean useVKDriverSystem = false;
     private boolean pojavBigCore = false;
     private InstalledModLoaders installedModLoaders = null;
-    // LWJGL 栈版本（对齐 FCL FCLConfig）：默认 3.3.3，启动前由 DefaultLauncher 按版本 JSON 解析设置
+    // LWJGL 栈版本：默认 3.3.3，启动前由 DefaultLauncher 按版本 JSON 解析设置
     private String lwjglVersion = "3.3.3";
 
     public FCLConfig(Context context, String logDir, String javaPath, String workingDir, Renderer renderer, String[] args) {

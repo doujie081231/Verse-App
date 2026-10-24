@@ -291,8 +291,8 @@ public final class OptiFineInstallTask extends Task<Version> {
             if (exitCode != 0) {
                 // 宿主适配：OptiFine patcher 是 Java 17+ 字节码。
                 // aarch64 真机上 jre-8/JRE11 会直接 JIT 崩溃（Field too big for insn），
-                // 且 FCL 原版 FCLauncher 的 JNI 桥未实现 JDK25 符号，jre-25 不可用。
-                // 因此起跳 JRE 21（OptiFine patcher 在该版本的 FCL/Pojav 上可运行），失败回退 17。
+                // 且 JNI 桥未实现 JDK25 符号，jre-25 不可用。
+                // 因此起跳 JRE 21（OptiFine patcher 在该版本上可运行），失败回退 17。
                 // 递归调用仍在持锁期间（监视器可重入）。
                 if (java == 21) {
                     runJVMProcess(command, 17);

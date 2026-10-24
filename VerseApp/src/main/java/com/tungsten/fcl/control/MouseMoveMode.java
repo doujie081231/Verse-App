@@ -1,8 +1,7 @@
 package com.tungsten.fcl.control;
 
 /**
- * FCL 鼠标控制模式（menu_right.xml mouse_mode_spinner，原样移植自
- * .fcl-temp/FCL/src/main/java/com/tungsten/fcl/control/MouseMoveMode.java）。
+ * 鼠标控制模式（取值对应 menu_right.xml 的 mouse_mode_spinner）。
  * CLICK(0)=点击，SLIDE(1)=拖动。
  */
 public enum MouseMoveMode {

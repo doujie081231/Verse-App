@@ -41,25 +41,25 @@ private val creditItems = listOf(
     CreditItem(
         R.drawable.credit_pcl,
         "Plain Craft Launcher 2",
-        "借鉴了其优秀的多线程下载技术，大幅提升了文件下载速度与稳定性",
+        "多线程下载与任务调度方案",
         "https://github.com/Meloong-Git/PCL"
     ),
     CreditItem(
         R.drawable.credit_fcl,
         "Fold Craft Launcher",
-        "参考了其游戏启动链路与触控布局仓库体系，让启动与触控方案更加完善",
+        "游戏启动链路与控制布局仓库体系",
         "https://github.com/FCL-Team/FoldCraftLauncher"
     ),
     CreditItem(
         R.drawable.credit_pojav,
         "PojavLauncher",
-        "提供了 Android 端 Java 运行环境与游戏渲染的底层方案",
+        "Android 端 Java 运行环境与游戏渲染底层方案",
         "https://github.com/PojavLauncherTeam/PojavLauncher"
     ),
     CreditItem(
         R.drawable.credit_zalith,
         "Zalith Launcher 2",
-        "其控制布局格式为布局编辑与多启动器布局互通提供了参照",
+        "控制布局格式与布局编辑交互",
         "https://github.com/ZalithLauncher/ZalithLauncher2"
     ),
     CreditItem(

@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 
 /**
- * 导航栏 item 组件（对位 ZL2 ui/components/_SimpleRail.kt 的 TextRailItem）。
+ * 导航栏 item 组件。
  *
  * 可包含图标与文字。当 item 被选中时，会触发一个从中心向外扩展的胶囊形背景动画。
  */

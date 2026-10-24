@@ -1,7 +1,7 @@
 package net.kdt.pojavlaunch.utils;
 
 /**
- * 宿主适配：读取 MC options.txt 的 GUI 缩放（Pojav 触控模块用 getMcScale 缩放热键栏）。
+ * 宿主适配：读取 MC options.txt 的 GUI 缩放（触控模块用 getMcScale 缩放热键栏）。
  * 简化实现：直接返回 1.0（不随 MC 设置缩放）。
  */
 public class MCOptionUtils {

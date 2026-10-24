@@ -12,8 +12,7 @@ import java.util.ArrayList
 import java.util.List
 
 /**
- * 游戏内日志窗口（原样移植自 .fcl-temp/FCL/src/main/java/com/tungsten/fcl/control/view/LogWindow.java，
- * 去掉 fcllibrary FCLTextView 依赖，改用普通 TextView）。
+ * 游戏内日志窗口（普通 TextView 实现）。
  * appendLog 带 200ms/200 条防刷屏熔断，超过 100 行自动清屏。
  */
 class LogWindow(context: Context) : ScrollView(context) {

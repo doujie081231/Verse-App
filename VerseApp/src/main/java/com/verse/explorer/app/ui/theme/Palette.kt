@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.dp
 import com.verse.explorer.app.ui.influencedByBackgroundColor
 
 /**
- * ZL2 语义色 token 层（对位 ZalithLauncher2 的 ui/theme/Palette.kt）。
+ * 语义色 token 层。
  *
  * 这些函数是 ZL2 全部页面与组件的取色入口：页面不再直接读取 MaterialTheme.colorScheme，
  * 而是通过 backgroundColor / cardColor / itemColor / cardTitleColor 取得语义色，
@@ -24,7 +24,7 @@ fun backgroundColor(): Color = MaterialTheme.colorScheme.surfaceContainer
 fun onBackgroundColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant
 
 /**
- * 卡片背景颜色（对位 ZL2 cardColor）
+ * 卡片背景颜色
  * @param influencedByBackground 是否受背景内容影响，更改自身不透明度
  */
 @Composable
@@ -48,7 +48,7 @@ fun cardTitleColor(
 ): Color = MaterialTheme.colorScheme.surface.copy(alpha = alpha)
 
 /**
- * 卡片上的 Item 背景颜色（对位 ZL2 itemColor）
+ * 卡片上的 Item 背景颜色
  * @param influencedByBackground 是否受背景内容影响，更改自身不透明度
  */
 @Composable

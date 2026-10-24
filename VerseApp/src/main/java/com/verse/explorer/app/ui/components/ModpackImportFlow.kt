@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * 整合包本地 / 外部分享导入流程（复刻 ModDetailScreen 的整合包安装链路：
+ * 整合包本地 / 外部分享导入流程（与 ModDetailScreen 的整合包安装链路一致：
  *
  * 流程：
  * 1. importSource（SAF 选中或微信等 ACTION_SEND 分享的 content:// Uri）非空时

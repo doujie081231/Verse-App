@@ -24,7 +24,7 @@ fun carr(vararg items: JsonElement): JsonArray {
  */
 object CcJson {
 
-    /** 剥离行注释与块注释（状态机移植自 cc.py strip_json_comments）。 */
+    /** 剥离行注释与块注释（逐字符状态机扫描，字符串字面量内的注释符不误伤）。 */
     fun stripJsonComments(text: String): String {
         val result = StringBuilder(text.length)
         var inString = false

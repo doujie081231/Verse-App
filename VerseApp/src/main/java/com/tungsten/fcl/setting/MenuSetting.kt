@@ -7,11 +7,11 @@ import java.io.File
 import java.io.IOException
 
 /**
- * FCL 控制栏设置（原样移植自 .fcl-temp/FCL/src/main/java/com/tungsten/fcl/setting/MenuSetting.kt）。
+ * 游戏内控制栏设置。
  *
- * 差异说明：FCL 原版用 fakefx Simple*Property 做双向绑定，本项目无 fakefx 依赖，
- * 改用 Kotlin 普通可变属性 + 变更监听器，序列化键名、默认值与 FCL 的 Serializer 完全一致，
- * 持久化到 <filesDir>/menu_setting.json（与 FCL 的 FCLPath.FILES_DIR + "/menu_setting.json" 对齐）。
+ * 差异说明：旧实现用 Simple*Property 做双向绑定，本项目无 fakefx 依赖，
+ * 改用 Kotlin 普通可变属性 + 变更监听器，序列化键名、默认值与旧版序列化格式完全一致，
+ * 持久化到 <filesDir>/menu_setting.json（与旧版路径保持一致，保证配置兼容）。
  */
 object MenuSetting {
 
@@ -34,7 +34,7 @@ object MenuSetting {
 
     private val listeners = mutableListOf<(MenuSettingChange) -> Unit>()
 
-    /** 与 FCL MenuSetting.Serializer 的键名完全一致的 Json 键 */
+    /** 与旧版序列化格式完全一致的 Json 键 */
     object Key {
         const val AUTO_FIT = "autoFit"
         const val AUTO_FIT_DIST = "autoFitDist"
@@ -77,7 +77,7 @@ object MenuSetting {
         const val GAMEPAD_DEADZONE = "gamepadDeadzone"
     }
 
-    // ===== 属性（默认值与 FCL MenuSetting 一致） =====
+    // ===== 属性（默认值与旧版一致） =====
     var isAutoFit: Boolean = true
     var autoFitDist: Int = 0
     var isLockMenuView: Boolean = false
@@ -118,7 +118,7 @@ object MenuSetting {
     var cursorOffset: Double = 0.0
     var gamepadDeadzone: Double = 0.2
 
-    /** 变更回调，与 FCL 的 addPropertyChangedListener 对应（参数为触发的键名，可能为 null=批量刷新） */
+    /** 变更回调（参数为触发的键名，可能为 null=批量刷新） */
     fun addPropertyChangedListener(listener: (MenuSettingChange) -> Unit) {
         listeners.add(listener)
     }
@@ -133,7 +133,7 @@ object MenuSetting {
         save()
     }
 
-    /** 与 FCL GameMenu.setup() 的加载逻辑对应：存在则读取，损坏则删除重建默认 */
+    /** 加载逻辑：存在则读取，损坏则删除重建默认 */
     fun init(filesDir: File) {
         if (initialized) return
         initialized = true
@@ -252,5 +252,5 @@ object MenuSetting {
     }
 }
 
-/** 设置变更事件（与 FCL InvalidationListener 对应；key 为发生变更的键名，null 表示整体刷新） */
+/** 设置变更事件（key 为发生变更的键名，null 表示整体刷新） */
 data class MenuSettingChange(val key: String?)

@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 /**
- * 宿主适配：Pojav 触控模块引用的启动器偏好 shim，默认值对齐 Pojav 默认。
+ * 宿主适配：触控模块引用的启动器偏好 shim，默认值与触控模块一致。
  * 后续如需持久化可在此接入 SharedPreferences。
  */
 public class LauncherPreferences {

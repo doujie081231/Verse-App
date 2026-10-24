@@ -4,7 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 /**
- * 宿主适配：Pojav 触控模块引用的 MainActivity 成员 shim。
+ * 宿主适配：触控模块引用的 MainActivity 成员 shim。
  * 输入切换动作由 Verse GameActivity 承担（启动游戏时注入 hostHandler）。
  */
 public class MainActivity {

@@ -9,7 +9,7 @@ import android.view.View;
 import org.lwjgl.glfw.CallbackBridge;
 
 /**
- * 宿主适配：代表游戏渲染面，供 Pojav 触控模块引用。
+ * 宿主适配：代表游戏渲染面，供触控模块引用。
  * 挂接在 Verse GameActivity 的触控覆盖层中（R.id.main_game_render_view）。
  * 输入经 org.lwjgl.glfw.CallbackBridge 直达游戏 GLFW 窗口。
  */

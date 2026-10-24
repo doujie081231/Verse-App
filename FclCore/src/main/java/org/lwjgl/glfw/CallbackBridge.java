@@ -32,7 +32,7 @@ public class CallbackBridge {
     private static FCLBridge fclBridge = null;
     private static boolean isGrabbing = false;
     private static final Consumer<Boolean> grabListener = isGrabbing -> CallbackBridge.fclBridge.setCursorMode(isGrabbing ? FCLBridge.CursorDisabled : FCLBridge.CursorEnabled);
-    // 触控控件抓取监听（Pojav 触控模块迁移：ControlButton/Touchpad/HotbarView 等注册）
+    // 触控控件抓取监听（ControlButton/Touchpad/HotbarView 等注册）
     private static final java.util.List<GrabListener> grabListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
 
     /** 鼠标指针形状监听（原生 glfwSetCursor 上报的 GLFW 标准光标编号） */
@@ -141,8 +141,8 @@ public class CallbackBridge {
     }
 
     public static void sendKeycode(int keycode, char keychar, int scancode, int modifiers, boolean isDown) {
-        // 键码直通：Verse 与 Pojav 触控模块均使用标准 GLFW 键码（如 GLFW_KEY_A=65），
-        // 不再经过 FCL 旧键码映射表的二次转换（原转换会查表失败而吞掉按键）。
+        // 键码直通：启动器与触控模块均使用标准 GLFW 键码（如 GLFW_KEY_A=65），
+        // 不再经过旧键码映射表的二次转换（原转换会查表失败而吞掉按键）。
         if (keycode != 0) {
             nativeSendKey(keycode, scancode, isDown ? 1 : 0, modifiers);
         }
@@ -328,8 +328,8 @@ public class CallbackBridge {
     }
 
     //Called from JRE side
-    // 从 Pojav/FCL 迁移：libpojavexec（预编译 Pojav 版）JNI_OnLoad 的 dalvik 分支会
-    // GetStaticMethodID(onDirectInputEnable)，缺少该方法会导致异常挂起、输入注册全链失败。
+        // libpojavexec（预编译版）JNI_OnLoad 的 dalvik 分支会
+        // GetStaticMethodID(onDirectInputEnable)，缺少该方法会导致异常挂起、输入注册全链失败。
     // Verse 无 direct gamepad 机制，仅需方法存在（空实现）。
     @SuppressWarnings("unused")
     private static void onDirectInputEnable() {
@@ -441,8 +441,8 @@ public class CallbackBridge {
                 // GameActivity.onSurfaceTextureSizeChanged 的 pushEventWindow 仍被
                 // graphicOutputShown 门控（首帧前不推送），导致 CallbackBridge.windowWidth
                 // 恒为 0 → SDLSurface "Window size: 0x0" → SDL 窗口/GL 上下文创建异常。
-                // 这里在 SDL JNI 绑定前补发真实窗口尺寸（对齐 FCL JVMActivity 在
-                // onSurfaceTextureAvailable 无条件设置 CallbackBridge.windowWidth）。
+                // 这里在 SDL JNI 绑定前补发真实窗口尺寸（宿主 Activity 在
+                // surface 就绪时同样会设置 CallbackBridge.windowWidth）。
                 ensureSdlWindowSize();
                 // 26.3 RenderPearl glGetError mismatch：LWJGL 的 GL provider（libng_gl4es.so）
                 // 与 SDL_GL_GetProcAddress（SDL3 走系统 eglGetProcAddress）不是同一实现。

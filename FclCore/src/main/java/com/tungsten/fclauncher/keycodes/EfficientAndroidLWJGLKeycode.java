@@ -28,7 +28,7 @@ import org.lwjgl.glfw.CallbackBridge;
 import java.util.Arrays;
 
 /**
- * <a href="https://github.com/PojavLauncherTeam/PojavLauncher/blob/v3_openjdk/app_pojavlauncher/src/main/java/net/kdt/pojavlaunch/EfficientAndroidLWJGLKeycode.java">Modified from PojavLauncher</a>
+ * Android 按键事件到 LWJGL 键码的高效映射表。
  */
 public class EfficientAndroidLWJGLKeycode {
 

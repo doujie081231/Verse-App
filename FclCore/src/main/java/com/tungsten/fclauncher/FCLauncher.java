@@ -305,14 +305,14 @@ public class FCLauncher {
 
     private static void addRendererEnv(FCLConfig config, HashMap<String, String> envMap) {
         addRendererEnvInner(config, envMap);
-        // SDL 需要独立的 GL/EGL 库绝对路径（对齐 FCL 1.3.3.5 FCLauncher.addRendererEnv L274-300）：
+        // SDL 需要独立的 GL/EGL 库绝对路径：
         // MC 26.x（RenderPearl）校验 SDL_GL_GetProcAddress("glGetError") 与 LWJGL provider 同源，
         // SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。插件渲染器同样生效。
         Renderer renderer = config.getRenderer();
         String egl = envMap.get("POJAVEXEC_EGL");
         // MobileGlues 的 EGL 对 SDL 的 window surface 创建不兼容（SDL 用它建 surface 失败 →
         // MC Window "Invalid window"）；SDL 改回系统 EGL 建窗口，GL 函数仍经
-        // SDL_OPENGL_LIBRARY + versesdl 代理解析自渲染器库。Pojav 系同样不向 SDL 注入
+        // SDL_OPENGL_LIBRARY + versesdl 代理解析自渲染器库；同样不向 SDL 注入
         // MobileGlues 作为 EGL 库。
         boolean mobileGluesEgl = egl != null && egl.contains("mobileglues");
         if (egl != null && !egl.startsWith("/") && !mobileGluesEgl) {

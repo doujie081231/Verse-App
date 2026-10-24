@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * 滚动边缘渐隐（对位 ZL2 ui/components/_Scroll.kt 的 fadeEdge 部分）。
+ * 滚动边缘渐隐。
  *
  * 为可滚动组件增加边缘渐隐效果，直观提示用户该区域可滑动。
  * 依赖 graphicsLayer(compositingStrategy = Offscreen) 让混合模式只影响当前组件。
