@@ -18,6 +18,7 @@ import com.verse.explorer.core.java.JavaRuntime
 import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.java.JavaVersion
 import com.verse.explorer.core.version.VersionManager
+import com.verse.explorer.core.launch.LaunchRequest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,39 +106,37 @@ class GameLaunchController(private val context: Context) {
                     message = "正在启动 Minecraft..."
                 )
 
-                val intent = Intent(context, GameActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra("javaHome", javaHome.absolutePath)
-                    putExtra("javaVersion", javaVersion)
-                    putExtra("versionId", version.id)
-                    putExtra("gameDir", gameDir.absolutePath)
-                    putExtra("assetsDir", GameConfig.getAssetsDir(gameDir).absolutePath)
-                    putExtra("librariesDir", GameConfig.getLibrariesDir(gameDir).absolutePath)
-                    putExtra("nativesDir", GameConfig.getNativesDir(gameDir).absolutePath)
-                    putExtra("maxMemory", maxMemory)
-                    putExtra("minMemory", minMemory)
-                    putExtra("gcType", gcType)
-                    putExtra("customJvmArgs", customJvmArgs)
-                    putExtra("width", settingsRepo.getGameWidth())
-                    putExtra("height", settingsRepo.getGameHeight())
-                    putExtra("renderer", renderer)
-                    putExtra("launchMethod", launchMethod)
-                    putExtra("username", account.username)
-                    putExtra("TERRACOTTA_PLAYER", account.username)
-                    putExtra("uuid", account.uuid)
-                    putExtra("accessToken", account.accessToken)
-                    putExtra("userType", when (account.type.name) {
+                val request = LaunchRequest(
+                    versionId = version.id,
+                    gameDirPath = gameDir.absolutePath,
+                    javaHome = javaHome.absolutePath,
+                    javaVersion = javaVersion,
+                    maxMemory = maxMemory,
+                    minMemory = minMemory,
+                    gcType = gcType,
+                    customJvmArgs = customJvmArgs,
+                    gameWidth = settingsRepo.getGameWidth(),
+                    gameHeight = settingsRepo.getGameHeight(),
+                    renderer = renderer,
+                    launchMethod = launchMethod,
+                    username = account.username,
+                    uuid = account.uuid,
+                    accessToken = account.accessToken,
+                    userType = when (account.type.name) {
                         "MICROSOFT" -> "msa"
                         "MOJANG" -> "mojang"
                         else -> "mojang"
-                    })
-                    // 外置登录：把验证服务器 API 根透传给启动链，供 authlib-injector 注入
-                    putExtra(
-                        "authlibServerUrl",
-                        if (account.type.name == "AUTHLIB") account.serverUrl else null
-                    )
+                    },
+                    authlibServerUrl = if (account.type.name == "AUTHLIB") account.serverUrl else null,
+                    isMultiplayer = multiplayerArgs != null
+                )
+                val intent = LaunchIntentCodec.create(context, request).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra("assetsDir", GameConfig.getAssetsDir(gameDir).absolutePath)
+                    putExtra("librariesDir", GameConfig.getLibrariesDir(gameDir).absolutePath)
+                    putExtra("nativesDir", GameConfig.getNativesDir(gameDir).absolutePath)
+                    putExtra("TERRACOTTA_PLAYER", account.username)
                     if (multiplayerArgs != null) {
-                        putExtra("multiplayerMode", true)
                         multiplayerArgs.forEach { (k, v) -> putExtra(k, v) }
                     }
                 }

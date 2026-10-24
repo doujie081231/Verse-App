@@ -7,6 +7,8 @@ import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.java.JavaRuntimeManager
+import com.verse.explorer.core.launch.LaunchRequest
+import com.verse.explorer.app.launch.LaunchIntentCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -158,11 +160,12 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
             return
         }
 
-        val intent = android.content.Intent(activity, GameActivity::class.java)
-        intent.putExtra("javaHome", javaHome)
-        intent.putExtra("versionId", targetVersion)
-        intent.putExtra("gameDir", gameDir.absolutePath)
-        intent.putExtra("renderer", settingsRepo.getRenderer())
+        val intent = LaunchIntentCodec.create(activity, LaunchRequest(
+            versionId = targetVersion,
+            gameDirPath = gameDir.absolutePath,
+            javaHome = javaHome,
+            renderer = settingsRepo.getRenderer()
+        ))
         activity.startActivity(intent)
     }
 }
