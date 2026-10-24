@@ -1,5 +1,10 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.SettingsViewModel
+import com.verse.explorer.app.viewmodel.activityViewModel
+import com.verse.explorer.core.settings.SettingsEvent
+import com.verse.explorer.core.settings.AdvancedSetting
+
 import android.content.Intent
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -39,7 +44,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.R
 import com.verse.explorer.app.BuildConfig
-import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.data.MousePointerSetting
 import com.verse.explorer.app.data.UpdateChecker
 import com.verse.explorer.app.data.VersePersonalization
@@ -64,7 +68,6 @@ import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.paletteStyleLabel
 import com.verse.explorer.app.ui.theme.paletteSwatch
 import com.materialkolor.PaletteStyle
-import com.tungsten.fcl.setting.MenuSetting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,55 +78,53 @@ import net.kdt.pojavlaunch.prefs.LauncherPreferences
 @Composable
 fun SettingsScreen(navController: NavHostController) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val settingsRepo = SettingsRepository
+    val viewModel = activityViewModel(SettingsViewModel::class.java)
     // 控制栏设置（windowScale 渲染比例等）持久化到 menu_setting.json；init 幂等，先于 GameActivity 初始化
-    MenuSetting.init(context.filesDir)
     // 鼠标指针自定义图片与热点的持久化目录（幂等）
-    MousePointerSetting.init(context.filesDir)
     // 子页索引与 pages 列表的顺序保持一致。
     var selectedPage by remember { mutableIntStateOf(0) }
     val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "手柄设置", "关于")
-    var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
+    var renderScale by viewModel.renderScaleBinding
     // 启动设置状态。
-    var maxMemory by remember { mutableFloatStateOf(settingsRepo.getMaxMemory().toFloat()) }
-    var minMemory by remember { mutableFloatStateOf(settingsRepo.getMinMemory().toFloat()) }
-    var gcType by remember { mutableStateOf(settingsRepo.getGcType()) }
-    var customJvmArgs by remember { mutableStateOf(settingsRepo.getCustomJvmArgs()) }
-    var renderer by remember { mutableStateOf(settingsRepo.getRenderer()) }
-    var launchMethod by remember { mutableStateOf(settingsRepo.getLaunchMethod()) }
-    var gameWidth by remember { mutableStateOf(settingsRepo.getGameWidth().toString()) }
-    var gameHeight by remember { mutableStateOf(settingsRepo.getGameHeight().toString()) }
-    var fullscreen by remember { mutableStateOf(settingsRepo.getFullscreen()) }
-    var ignoreNotch by remember { mutableStateOf(DisplayNotch.ignoreNotch) }
-    var downloadSource by remember { mutableStateOf(settingsRepo.getDownloadSource()) }
-    var javaVersion by remember { mutableStateOf(settingsRepo.getJavaVersion()) }
-    var language by remember { mutableStateOf(settingsRepo.getLanguage()) }
-    var keepScreenOn by remember { mutableStateOf(settingsRepo.getKeepScreenOn()) }
-    var showFps by remember { mutableStateOf(settingsRepo.getShowFps()) }
-    var autoSetChinese by remember { mutableStateOf(settingsRepo.isAutoSetChinese()) }
-    var debugMode by remember { mutableStateOf(settingsRepo.getDebugMode()) }
-    var windowTitle by remember { mutableStateOf(settingsRepo.getWindowTitle()) }
-    var launcherVisibility by remember { mutableStateOf(settingsRepo.getLauncherVisibility()) }
+    var maxMemory by viewModel.maxMemoryBinding
+    var minMemory by viewModel.minMemoryBinding
+    var gcType by viewModel.gcTypeBinding
+    var customJvmArgs by viewModel.customJvmArgsBinding
+    var renderer by viewModel.rendererBinding
+    var launchMethod by viewModel.launchMethodBinding
+    var gameWidth by viewModel.gameWidthBinding
+    var gameHeight by viewModel.gameHeightBinding
+    var fullscreen by viewModel.fullscreenBinding
+    var ignoreNotch by viewModel.ignoreNotchBinding
+    var downloadSource by viewModel.downloadSourceBinding
+    var javaVersion by viewModel.javaVersionBinding
+    var language by viewModel.languageBinding
+    var keepScreenOn by viewModel.keepScreenOnBinding
+    var showFps by viewModel.showFpsBinding
+    var autoSetChinese by viewModel.autoSetChineseBinding
+    var debugMode by viewModel.debugModeBinding
+    var windowTitle by viewModel.windowTitleBinding
+    var launcherVisibility by viewModel.launcherVisibilityBinding
     var showSnapshots by remember { mutableStateOf(false) }
     // VerseX 渲染器：pipeline 缓存（M1）+ 整体开关（后续异步提交等接入）
-    var versexRenderer by remember { mutableStateOf(settingsRepo.getVersexRenderer()) }
-    var versexPipelineCache by remember { mutableStateOf(settingsRepo.getVersexPipelineCache()) }
+    var versexRenderer by viewModel.versexRendererBinding
+    var versexPipelineCache by viewModel.versexPipelineCacheBinding
     // 图形 API（default/opengl/vulkan，写 MC options.txt preferredGraphicsBackend）
-    var graphicsBackend by remember { mutableStateOf(settingsRepo.getGraphicsBackend()) }
+    var graphicsBackend by viewModel.graphicsBackendBinding
     // Vulkan 驱动器（true=系统驱动 / false=Turnip，UI 值转字符串驱动下拉）
-    var vkDriver by remember { mutableStateOf(if (settingsRepo.getVkDriverSystem()) "system" else "turnip") }
-    var notCheckGame by remember { mutableStateOf(settingsRepo.getNotCheckGame()) }
-    var debugLog by remember { mutableStateOf(settingsRepo.getDebugLog()) }
-    var requestMicPermission by remember { mutableStateOf(settingsRepo.getRequestMicPermission()) }
-    var themeColor by remember { mutableStateOf(settingsRepo.getThemeColor()) }
+    var vkDriver by viewModel.vkDriverBinding
+    var notCheckGame by viewModel.notCheckGameBinding
+    var debugLog by viewModel.debugLogBinding
+    var requestMicPermission by viewModel.requestMicPermissionBinding
+    var themeColor by viewModel.themeColorBinding
     // 个性化：自定义强调色取色器 + 背景透明度 + 导入回调
     var showColorPicker by remember { mutableStateOf(false) }
     var previousAccent by remember { mutableStateOf<Color?>(null) }
-    var bgOpacity by remember { mutableIntStateOf(VersePersonalization.backgroundOpacity) }
+    var bgOpacity by viewModel.bgOpacityBinding
     // 背景模糊半径（0..40 Dp）/ 模糊类型 / 视频背景音量（改即存，与背景透明度一致）
-    var bgBlur by remember { mutableIntStateOf(VersePersonalization.backgroundBlur) }
-    var bgBlurType by remember { mutableStateOf(VersePersonalization.backgroundBlurType) }
-    var bgVideoVolume by remember { mutableIntStateOf(VersePersonalization.videoVolume) }
+    var bgBlur by viewModel.bgBlurBinding
+    var bgBlurType by viewModel.bgBlurTypeBinding
+    var bgVideoVolume by viewModel.bgVideoVolumeBinding
     // 版本更新检查（关于页手动触发）
     var checkingUpdate by remember { mutableStateOf(false) }
     var aboutUpdateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
@@ -203,70 +204,11 @@ fun SettingsScreen(navController: NavHostController) {
         }
     }
 
-    fun saveAll() {
-        settingsRepo.apply {
-            setMaxMemory(maxMemory.toInt())
-            setMinMemory(minMemory.toInt())
-            setGcType(gcType)
-            setCustomJvmArgs(customJvmArgs)
-            setRenderer(renderer)
-            setLaunchMethod(launchMethod)
-            setGameWidth(gameWidth.toIntOrNull() ?: 854)
-            setGameHeight(gameHeight.toIntOrNull() ?: 480)
-            setFullscreen(fullscreen)
-            setIgnoreNotch(ignoreNotch)
-            setDownloadSource(downloadSource)
-            setJavaVersion(javaVersion)
-            setLanguage(language)
-            setKeepScreenOn(keepScreenOn)
-            setShowFps(showFps)
-            setAutoSetChinese(autoSetChinese)
-            setDebugMode(debugMode)
-            setWindowTitle(windowTitle)
-            setLauncherVisibility(launcherVisibility)
-            setThemeColor(themeColor)
-        }
-        MenuSetting.windowScale = renderScale.coerceIn(25, 300) / 100.0
-        MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
-    }
+    fun saveAll() = viewModel.onEvent(SettingsEvent.Save)
 
     fun resetAll() {
-        settingsRepo.resetToDefaults()
-        maxMemory = 2048f; minMemory = 512f; gcType = "G1GC"
-        customJvmArgs = ""; renderer = "nggl4es"; launchMethod = "pojav"
-        gameWidth = "854"; gameHeight = "480"; fullscreen = false
-        ignoreNotch = false
-        DisplayNotch.updateIgnoreNotch(false)
-        downloadSource = "bmclapi"; javaVersion = "17"
-        language = "简体中文"; keepScreenOn = true; showFps = false
-        autoSetChinese = true
-        debugMode = false
-        windowTitle = ""; launcherVisibility = "keep"
-        graphicsBackend = "default"
-        vkDriver = if (settingsRepo.getVkDriverSystem()) "system" else "turnip"
-        showSnapshots = false; themeColor = "white"
-        // 同步重置个性化内存态（背景文件 + 强调色 + 透明度）
-        VerseColors.customAccent = null
-        VerseColors.applySchemeAccents(primary = null, secondary = null, tertiary = null)
-        SettingsRepository.setThemeAccent("")
-        VersePersonalization.setStyle("none")
-        VersePersonalization.setOpacity(95)
-        VersePersonalization.applyBackgroundBlur(0)
-        VersePersonalization.applyBackgroundBlurType("background")
-        VersePersonalization.applyVideoVolume(0)
-        // 主题与外观回默认：浅色黑白主题 / 跟随系统 / 菜单停靠左侧 / 全屏开
-        VersePersonalization.applyColorTheme(ColorThemeType.LIGHT.name)
-        VersePersonalization.applyThemeCustomColor(0xFF0000FF.toInt())
-        VersePersonalization.applyPaletteStyle("TonalSpot")
-        VersePersonalization.applyDarkMode(DarkMode.FOLLOW_SYSTEM.name)
-        VersePersonalization.applyActionMenuSide(ActionMenuSide.START.name)
-        VersePersonalization.applyLauncherFullScreen(true)
-        VersePersonalization.clear(context, "image")
-        VersePersonalization.clear(context, "video")
-        bgOpacity = 95
-        bgBlur = 0
-        bgBlurType = "background"
-        bgVideoVolume = 0
+        viewModel.onEvent(SettingsEvent.Reset)
+        showSnapshots = false
     }
 
     // 根容器：左侧栏 + 内容区；顶层承载取色器全屏宿主（SideDialogView 从右侧滑入）
@@ -365,7 +307,7 @@ fun SettingsScreen(navController: NavHostController) {
                             }
                             PcSwitchRow("VerseX Pipeline 缓存", "缓存已编译的渲染管线对象，消除世界加载/切场景编译卡顿", versexPipelineCache) { on ->
                                 versexPipelineCache = on
-                                settingsRepo.setVersexPipelineCache(on)
+                                viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.PIPELINE_CACHE))
                             }
                             PcDropdownRow(
                                 "图形 API",
@@ -375,7 +317,7 @@ fun SettingsScreen(navController: NavHostController) {
                                     "opengl" to "OpenGL",
                                     "vulkan" to "Vulkan"
                                 )
-                            ) { graphicsBackend = it; settingsRepo.setGraphicsBackend(it) }
+                            ) { graphicsBackend = it; viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.GRAPHICS_BACKEND)) }
                             PcDropdownRow(
                                 "Vulkan 驱动器",
                                 vkDriver,
@@ -385,23 +327,23 @@ fun SettingsScreen(navController: NavHostController) {
                                 )
                             ) {
                                 vkDriver = it
-                                settingsRepo.setVkDriverSystem(it == "system")
+                                viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.VULKAN_DRIVER))
                             }
                             PcSwitchRow(
                                 "不检查游戏完整性",
                                 "跳过启动前的游戏文件完整性检查以加快启动",
                                 notCheckGame
-                            ) { notCheckGame = it; settingsRepo.setNotCheckGame(it) }
+                            ) { notCheckGame = it; viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.SKIP_GAME_CHECK)) }
                             PcSwitchRow(
                                 "输出调试日志",
                                 "游戏内输出详细调试日志，便于排查问题",
                                 debugLog
-                            ) { debugLog = it; settingsRepo.setDebugLog(it) }
+                            ) { debugLog = it; viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.DEBUG_LOG)) }
                             PcSwitchRow(
                                 "请求麦克风权限",
                                 "启动游戏时请求麦克风权限（用于语音聊天模组）",
                                 requestMicPermission
-                            ) { requestMicPermission = it; settingsRepo.setRequestMicPermission(it) }
+                            ) { requestMicPermission = it; viewModel.onEvent(SettingsEvent.PersistAdvanced(AdvancedSetting.MICROPHONE)) }
                             PcSwitchRow("显示快照版本", "在版本列表中显示快照版本", showSnapshots) { showSnapshots = it }
                             PcDropdownRow(
                                 "启动器可见性",
@@ -837,7 +779,7 @@ fun SettingsScreen(navController: NavHostController) {
                                         text = "恢复默认强调色",
                                         onClick = {
                                             VerseColors.customAccent = null
-                                            SettingsRepository.setThemeAccent("")
+                                            viewModel.setThemeAccent("")
                                         },
                                         variant = PcButtonVariant.OUTLINE
                                     )
@@ -1243,7 +1185,7 @@ fun SettingsScreen(navController: NavHostController) {
                     if (VersePersonalization.colorTheme == ColorThemeType.CUSTOM.name) {
                         VersePersonalization.applyThemeCustomColor(argb)
                     }
-                    SettingsRepository.setThemeAccent(String.format("%08X", argb))
+                    viewModel.setThemeAccent(String.format("%08X", argb))
                     showColorPicker = false
                 }
             )

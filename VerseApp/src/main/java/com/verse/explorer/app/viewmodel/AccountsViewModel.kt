@@ -216,14 +216,4 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
         return authlibAuth.authenticate(serverUrl, username, password, profileId)
     }
 
-    companion object {
-        @Volatile
-        private var cached: AccountsViewModel? = null
-
-        /** 应用级共享实例：切换页签时复用账号状态，避免整页重建后重复加载账号数据 */
-        fun shared(application: Application): AccountsViewModel =
-            cached ?: synchronized(this) {
-                cached ?: AccountsViewModel(application).also { cached = it }
-            }
-    }
 }

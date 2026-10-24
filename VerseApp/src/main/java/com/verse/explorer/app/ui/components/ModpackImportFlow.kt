@@ -10,7 +10,7 @@ import com.verse.explorer.app.download.DownloadCenter
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
-import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.app.appContainer
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.version.VersionManager
 import com.tungsten.fclcore.task.Schedulers
@@ -38,6 +38,7 @@ fun ModpackImportFlow(
     onImported: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val modpackInstaller = remember(context.applicationContext) { context.appContainer.newModpackInstaller() }
     val scope = rememberCoroutineScope()
 
     // 待安装的缓存整合包文件 + manifest 标题（默认命名）
@@ -76,7 +77,7 @@ fun ModpackImportFlow(
                     false
                 } else {
                     val title = try {
-                        ModpackInstaller.readModpack(file).name.trim()
+                        modpackInstaller.readModpack(file).name.trim()
                     } catch (e: Exception) {
                         VerseLogger.warn("整合包格式识别失败: ${e.message}", "ModpackImport")
                         ""
@@ -113,7 +114,7 @@ fun ModpackImportFlow(
         modpackState = ModpackInstallUiState(visible = true, title = defaultName).withFixedStageRows()
         modpackJob = scope.launch {
             val gameDir = GameConfig.getGameDir(context.applicationContext)
-            val result = ModpackInstaller.installModpack(
+            val result = modpackInstaller.installModpack(
                 gameDir = gameDir,
                 zipFile = file,
                 name = name
@@ -140,7 +141,7 @@ fun ModpackImportFlow(
     }
 
     fun cancelInstall() {
-        ModpackInstaller.cancel()
+        modpackInstaller.cancel()
         modpackJob?.cancel()
         modpackJob = null
         pendingFile?.let { cleanupZip(it) }
@@ -177,7 +178,7 @@ fun ModpackImportFlow(
         modpackState = ModpackInstallUiState(visible = true, title = name).withFixedStageRows()
         modpackJob = scope.launch {
             val gameDir2 = GameConfig.getGameDir(context.applicationContext)
-            val result = ModpackInstaller.installModpack(gameDir2, file, name) { ev -> modpackChannel.trySend(ev) }
+            val result = modpackInstaller.installModpack(gameDir2, file, name) { ev -> modpackChannel.trySend(ev) }
             result.fold(
                 onSuccess = {
                     cleanupZip(file)

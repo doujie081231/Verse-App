@@ -1,4 +1,4 @@
-package com.verse.explorer.core.install.loader
+package com.verse.explorer.launcher.adapter.install
 
 import android.util.Log
 import com.tungsten.fclcore.download.BMCLAPIDownloadProvider
@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.time.Instant
+import com.verse.explorer.core.install.loader.LoaderInstallBackend
 
 /**
  * download 模块任务：ForgeInstallTask(新/旧版分派) / NeoForgeInstallTask /
@@ -27,18 +28,20 @@ import java.time.Instant
  * - 完成后把安装任务产出的补丁版本原样写回 versions/<id>/<id>.json（仅 id 改实命名、
  *   inheritsFrom 指向基础原版），库/参数/游戏JAR沿继承链由启动侧 resolve 合并——
  */
-object FclLoaderInstaller {
+class FclLoaderInstallBackend : LoaderInstallBackend {
 
-    private const val BMCL = "https://bmclapi2.bangbang93.com"
-    private const val FABRIC_META = "https://meta.fabricmc.net/v2/versions/loader"
+    companion object {
+        private const val BMCL = "https://bmclapi2.bangbang93.com"
+        private const val FABRIC_META = "https://meta.fabricmc.net/v2/versions/loader"
+    }
 
-    suspend fun installFcl(
+    override suspend fun install(
         gameDir: File,
         versionId: String,
         loaderType: String,
         loaderVersion: String,
-        baseVersionId: String = versionId,
-        newVersionId: String = "$versionId-$loaderType-$loaderVersion",
+        baseVersionId: String,
+        newVersionId: String,
         progress: (String, Float) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {

@@ -8,6 +8,7 @@ import com.verse.explorer.core.download.DownloadManager
 import com.verse.explorer.core.download.MirrorSourceManager
 import com.verse.explorer.core.download.SmartDownloadClient
 import com.verse.explorer.core.version.MinecraftVersion
+import com.verse.explorer.core.install.loader.LoaderInstallBackend
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
@@ -49,7 +50,7 @@ enum class InstallStage {
     FAILED
 }
 
-class GameInstaller(private val context: Context) {
+class GameInstaller(private val context: Context, private val loaderBackend: LoaderInstallBackend) {
 
     private val gameDir = GameConfig.getGameDir(context)
     private val versionsDir = GameConfig.getVersionsDir(gameDir)
@@ -424,7 +425,7 @@ class GameInstaller(private val context: Context) {
                         "安装 $loaderType $loaderVersion...",
                         0.92f
                     ))
-                    val loaderResult = com.verse.explorer.core.install.loader.FclLoaderInstaller.installFcl(
+                    val loaderResult = loaderBackend.install(
                         gameDir = gameDir,
                         versionId = version.id,
                         loaderType = loaderType,

@@ -1,264 +1,67 @@
 package com.verse.explorer.app.viewmodel
 
 import android.app.Application
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.compose.runtime.*
-import com.verse.explorer.core.data.SettingsRepository
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import com.verse.explorer.app.settings.AndroidSettingsStore
+import com.verse.explorer.core.settings.SettingsEditor
+import com.verse.explorer.core.settings.SettingsEvent
+import com.verse.explorer.core.settings.SettingsUiState
+import kotlin.reflect.KProperty
+
+class SettingsBinding<T>(private val read: () -> T, private val edit: (T) -> Unit) {
+    operator fun getValue(owner: Any?, property: KProperty<*>): T = read()
+    operator fun setValue(owner: Any?, property: KProperty<*>, value: T) = edit(value)
+}
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val settingsRepo = SettingsRepository
-
-    var gameDir by mutableStateOf(settingsRepo.getGameDir())
-        private set
-    var maxMemory by mutableStateOf(settingsRepo.getMaxMemory())
-        private set
-    var minMemory by mutableStateOf(settingsRepo.getMinMemory())
-        private set
-    var rendererType by mutableStateOf(settingsRepo.getRenderer())
-        private set
-    var showVirtualMouse by mutableStateOf(settingsRepo.getShowVirtualMouse())
-        private set
-    var virtualMouseOpacity by mutableStateOf(settingsRepo.getVirtualKeyOpacity())
-        private set
-    var theme by mutableStateOf(settingsRepo.getTheme())
-        private set
-    var language by mutableStateOf(settingsRepo.getLanguage())
-        private set
-    var keepScreenOn by mutableStateOf(settingsRepo.getKeepScreenOn())
-        private set
-    var showFps by mutableStateOf(settingsRepo.getShowFps())
-        private set
-    var forceLandscape by mutableStateOf(settingsRepo.getForceLandscape())
+    private val store = AndroidSettingsStore(application)
+    private val editor = SettingsEditor(store)
+    var uiState by mutableStateOf(editor.state.value)
         private set
 
-    var downloadSource by mutableStateOf(settingsRepo.getDownloadSource())
-        private set
-    var versionSource by mutableStateOf(settingsRepo.getVersionSource())
-        private set
-    var maxThreads by mutableStateOf(settingsRepo.getMaxThreads())
-        private set
-    var speedLimit by mutableStateOf(settingsRepo.getSpeedLimit())
-        private set
-    var targetFolder by mutableStateOf(settingsRepo.getTargetFolder())
-        private set
-    var sslVerify by mutableStateOf(settingsRepo.getVerifySsl())
-        private set
-
-    var communitySource by mutableStateOf(settingsRepo.getCommunitySource())
-        private set
-    var fileNameFormat by mutableStateOf(settingsRepo.getFileNameFormat())
-        private set
-    var modStyle by mutableStateOf(settingsRepo.getModStyle())
-        private set
-    var ignoreQuilt by mutableStateOf(settingsRepo.getIgnoreQuilt())
-        private set
-
-    var showIcons by mutableStateOf(settingsRepo.getShowIcons())
-        private set
-    var iconStyle by mutableStateOf(settingsRepo.getIconStyle())
-        private set
-    var autoUpdate by mutableStateOf(settingsRepo.getAutoUpdate())
-        private set
-    var backgroundMusic by mutableStateOf(settingsRepo.getBackgroundMusic())
-        private set
-    var soundEffects by mutableStateOf(settingsRepo.getSoundEffects())
-        private set
-    var vibration by mutableStateOf(settingsRepo.getVibration())
-        private set
-    var notifications by mutableStateOf(settingsRepo.getNotifications())
-        private set
-    var logLevel by mutableStateOf(settingsRepo.getLogLevel())
-        private set
-    var debugMode by mutableStateOf(settingsRepo.getDebugMode())
-        private set
-
-    fun updateGameDir(dir: String) {
-        gameDir = dir
-        settingsRepo.setGameDir(dir)
+    fun onEvent(event: SettingsEvent) {
+        editor.onEvent(event)
+        uiState = editor.state.value
     }
 
-    fun updateMaxMemory(memory: Int) {
-        maxMemory = memory
-        settingsRepo.setMaxMemory(memory)
-    }
+    fun setThemeAccent(value: String) = store.setThemeAccent(value)
 
-    fun updateMinMemory(memory: Int) {
-        minMemory = memory
-        settingsRepo.setMinMemory(memory)
-    }
+    private fun <T> bind(read: (SettingsUiState) -> T, edit: (SettingsUiState, T) -> SettingsUiState) =
+        SettingsBinding({ read(uiState) }) { value -> onEvent(SettingsEvent.Edit { edit(it, value) }) }
 
-    fun updateRendererType(type: String) {
-        rendererType = type
-        settingsRepo.setRenderer(type)
-    }
-
-    fun updateShowVirtualMouse(show: Boolean) {
-        showVirtualMouse = show
-        settingsRepo.setShowVirtualMouse(show)
-    }
-
-    fun updateVirtualMouseOpacity(opacity: Float) {
-        virtualMouseOpacity = opacity
-        settingsRepo.setVirtualKeyOpacity(opacity)
-    }
-
-    fun updateTheme(newTheme: String) {
-        theme = newTheme
-        settingsRepo.setTheme(newTheme)
-    }
-
-    fun updateLanguage(lang: String) {
-        language = lang
-        settingsRepo.setLanguage(lang)
-    }
-
-    fun updateKeepScreenOn(keep: Boolean) {
-        keepScreenOn = keep
-        settingsRepo.setKeepScreenOn(keep)
-    }
-
-    fun updateShowFps(show: Boolean) {
-        showFps = show
-        settingsRepo.setShowFps(show)
-    }
-
-    fun updateForceLandscape(force: Boolean) {
-        forceLandscape = force
-        settingsRepo.setForceLandscape(force)
-    }
-
-    fun updateDownloadSource(source: String) {
-        downloadSource = source
-        settingsRepo.setDownloadSource(source)
-    }
-
-    fun updateVersionSource(source: String) {
-        versionSource = source
-        settingsRepo.setVersionSource(source)
-    }
-
-    fun updateMaxThreads(threads: Int) {
-        maxThreads = threads
-        settingsRepo.setMaxThreads(threads)
-    }
-
-    fun updateSpeedLimit(limit: Int) {
-        speedLimit = limit
-        settingsRepo.setSpeedLimit(limit)
-    }
-
-    fun updateTargetFolder(folder: String) {
-        targetFolder = folder
-        settingsRepo.setTargetFolder(folder)
-    }
-
-    fun updateSslVerify(verify: Boolean) {
-        sslVerify = verify
-        settingsRepo.setVerifySsl(verify)
-    }
-
-    fun updateCommunitySource(source: String) {
-        communitySource = source
-        settingsRepo.setCommunitySource(source)
-    }
-
-    fun updateFileNameFormat(format: String) {
-        fileNameFormat = format
-        settingsRepo.setFileNameFormat(format)
-    }
-
-    fun updateModStyle(style: String) {
-        modStyle = style
-        settingsRepo.setModStyle(style)
-    }
-
-    fun updateIgnoreQuilt(ignore: Boolean) {
-        ignoreQuilt = ignore
-        settingsRepo.setIgnoreQuilt(ignore)
-    }
-
-    fun updateShowIcons(show: Boolean) {
-        showIcons = show
-        settingsRepo.setShowIcons(show)
-    }
-
-    fun updateIconStyle(style: String) {
-        iconStyle = style
-        settingsRepo.setIconStyle(style)
-    }
-
-    fun updateAutoUpdate(auto: Boolean) {
-        autoUpdate = auto
-        settingsRepo.setAutoUpdate(auto)
-    }
-
-    fun updateBackgroundMusic(enabled: Boolean) {
-        backgroundMusic = enabled
-        settingsRepo.setBackgroundMusic(enabled)
-    }
-
-    fun updateSoundEffects(enabled: Boolean) {
-        soundEffects = enabled
-        settingsRepo.setSoundEffects(enabled)
-    }
-
-    fun updateVibration(enabled: Boolean) {
-        vibration = enabled
-        settingsRepo.setVibration(enabled)
-    }
-
-    fun updateNotifications(enabled: Boolean) {
-        notifications = enabled
-        settingsRepo.setNotifications(enabled)
-    }
-
-    fun updateLogLevel(level: String) {
-        logLevel = level
-        settingsRepo.setLogLevel(level)
-    }
-
-    fun updateDebugMode(debug: Boolean) {
-        debugMode = debug
-        settingsRepo.setDebugMode(debug)
-    }
-
-    fun resetAll() {
-        gameDir = "/storage/emulated/0/VerseExplorerX"
-        maxMemory = 2048
-        minMemory = 512
-        rendererType = "gl4es"
-        showVirtualMouse = true
-        virtualMouseOpacity = 0.7f
-        theme = "深色"
-        language = "简体中文"
-        keepScreenOn = true
-        showFps = false
-        forceLandscape = true
-        downloadSource = "优先使用官方源，在加载缓慢时切换镜像源"
-        versionSource = "优先使用官方源，在加载缓慢时切换镜像源"
-        maxThreads = 32
-        speedLimit = 0
-        targetFolder = ""
-        sslVerify = false
-        communitySource = "尽量使用官方源"
-        fileNameFormat = "[机械动力] create-1.21.1-6.0.4"
-        modStyle = "标题显示译名，详情显示文件名"
-        ignoreQuilt = true
-        showIcons = true
-        iconStyle = "彩色图标"
-        autoUpdate = true
-        backgroundMusic = true
-        soundEffects = true
-        vibration = true
-        notifications = true
-        logLevel = "INFO"
-        debugMode = false
-        settingsRepo.resetToDefaults()
-    }
+    val renderScaleBinding: SettingsBinding<Int> = bind({ it.renderScale }) { state, value -> state.copy(renderScale = value) }
+    val maxMemoryBinding: SettingsBinding<Float> = bind({ it.maxMemory }) { state, value -> state.copy(maxMemory = value) }
+    val minMemoryBinding: SettingsBinding<Float> = bind({ it.minMemory }) { state, value -> state.copy(minMemory = value) }
+    val gcTypeBinding: SettingsBinding<String> = bind({ it.gcType }) { state, value -> state.copy(gcType = value) }
+    val customJvmArgsBinding: SettingsBinding<String> = bind({ it.customJvmArgs }) { state, value -> state.copy(customJvmArgs = value) }
+    val rendererBinding: SettingsBinding<String> = bind({ it.renderer }) { state, value -> state.copy(renderer = value) }
+    val launchMethodBinding: SettingsBinding<String> = bind({ it.launchMethod }) { state, value -> state.copy(launchMethod = value) }
+    val gameWidthBinding: SettingsBinding<String> = bind({ it.gameWidth }) { state, value -> state.copy(gameWidth = value) }
+    val gameHeightBinding: SettingsBinding<String> = bind({ it.gameHeight }) { state, value -> state.copy(gameHeight = value) }
+    val fullscreenBinding: SettingsBinding<Boolean> = bind({ it.fullscreen }) { state, value -> state.copy(fullscreen = value) }
+    val ignoreNotchBinding: SettingsBinding<Boolean> = bind({ it.ignoreNotch }) { state, value -> state.copy(ignoreNotch = value) }
+    val downloadSourceBinding: SettingsBinding<String> = bind({ it.downloadSource }) { state, value -> state.copy(downloadSource = value) }
+    val javaVersionBinding: SettingsBinding<String> = bind({ it.javaVersion }) { state, value -> state.copy(javaVersion = value) }
+    val languageBinding: SettingsBinding<String> = bind({ it.language }) { state, value -> state.copy(language = value) }
+    val keepScreenOnBinding: SettingsBinding<Boolean> = bind({ it.keepScreenOn }) { state, value -> state.copy(keepScreenOn = value) }
+    val showFpsBinding: SettingsBinding<Boolean> = bind({ it.showFps }) { state, value -> state.copy(showFps = value) }
+    val autoSetChineseBinding: SettingsBinding<Boolean> = bind({ it.autoSetChinese }) { state, value -> state.copy(autoSetChinese = value) }
+    val debugModeBinding: SettingsBinding<Boolean> = bind({ it.debugMode }) { state, value -> state.copy(debugMode = value) }
+    val windowTitleBinding: SettingsBinding<String> = bind({ it.windowTitle }) { state, value -> state.copy(windowTitle = value) }
+    val launcherVisibilityBinding: SettingsBinding<String> = bind({ it.launcherVisibility }) { state, value -> state.copy(launcherVisibility = value) }
+    val versexRendererBinding: SettingsBinding<Boolean> = bind({ it.versexRenderer }) { state, value -> state.copy(versexRenderer = value) }
+    val versexPipelineCacheBinding: SettingsBinding<Boolean> = bind({ it.versexPipelineCache }) { state, value -> state.copy(versexPipelineCache = value) }
+    val graphicsBackendBinding: SettingsBinding<String> = bind({ it.graphicsBackend }) { state, value -> state.copy(graphicsBackend = value) }
+    val vkDriverBinding: SettingsBinding<String> = bind({ it.vkDriver }) { state, value -> state.copy(vkDriver = value) }
+    val notCheckGameBinding: SettingsBinding<Boolean> = bind({ it.notCheckGame }) { state, value -> state.copy(notCheckGame = value) }
+    val debugLogBinding: SettingsBinding<Boolean> = bind({ it.debugLog }) { state, value -> state.copy(debugLog = value) }
+    val requestMicPermissionBinding: SettingsBinding<Boolean> = bind({ it.requestMicPermission }) { state, value -> state.copy(requestMicPermission = value) }
+    val themeColorBinding: SettingsBinding<String> = bind({ it.themeColor }) { state, value -> state.copy(themeColor = value) }
+    val bgOpacityBinding: SettingsBinding<Int> = bind({ it.bgOpacity }) { state, value -> state.copy(bgOpacity = value) }
+    val bgBlurBinding: SettingsBinding<Int> = bind({ it.bgBlur }) { state, value -> state.copy(bgBlur = value) }
+    val bgBlurTypeBinding: SettingsBinding<String> = bind({ it.bgBlurType }) { state, value -> state.copy(bgBlurType = value) }
+    val bgVideoVolumeBinding: SettingsBinding<Int> = bind({ it.bgVideoVolume }) { state, value -> state.copy(bgVideoVolume = value) }
 }

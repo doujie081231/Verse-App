@@ -33,16 +33,12 @@ import java.util.Date
 import java.util.Locale
 
 class VerseApplication : Application(), ImageLoaderFactory {
+    val container: AppContainer by lazy { AppContainer(this) }
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** 应用级协程作用域：供跨页面长任务（如整合包安装）使用，不随页面销毁而取消 */
     val appScope: CoroutineScope get() = applicationScope
-
-    /** 当前前台 Activity（供下载中心发起 Android 13 通知权限请求等一次性 UI 操作） */
-    @Volatile
-    var currentActivity: android.app.Activity? = null
-        private set
 
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
@@ -78,18 +74,6 @@ class VerseApplication : Application(), ImageLoaderFactory {
         if (isCrashProcess()) return // 崩溃页进程：跳过数据库/JRE 等重初始化
         writeBootLog("Application.onCreate started")
         instance = this
-        // 跟踪前台 Activity（下载中心通知权限请求等一次性 UI 操作使用）
-        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
-            override fun onActivityStarted(activity: android.app.Activity) { currentActivity = activity }
-            override fun onActivityResumed(activity: android.app.Activity) {}
-            override fun onActivityPaused(activity: android.app.Activity) {}
-            override fun onActivityStopped(activity: android.app.Activity) {
-                if (currentActivity === activity) currentActivity = null
-            }
-            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
-            override fun onActivityDestroyed(activity: android.app.Activity) {}
-        })
         // 陶瓦联机：提供应用级 Context 供后台推送 VPN 通知状态
         com.verse.explorer.app.terracotta.TerracottaController.appContext = this
         com.verse.explorer.app.install.FclCoreHost.init(this)
