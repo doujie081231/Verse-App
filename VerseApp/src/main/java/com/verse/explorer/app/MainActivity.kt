@@ -2,48 +2,29 @@ package com.verse.explorer.app
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
-import android.util.Log
-import android.view.View
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.view.WindowCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.verse.explorer.app.setup.RuntimeSetupManager
 import com.verse.explorer.app.ui.DisplayNotch
 import com.verse.explorer.app.ui.MainScreen
 import com.verse.explorer.app.ui.RuntimeSetupScreen
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.components.RoseLoader
-import com.verse.explorer.app.ui.game.GameActivity
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.VerseExplorerTheme
-import com.verse.explorer.core.config.GameConfig
-import com.verse.explorer.core.java.JavaRuntimeManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
-import java.io.File
 
 class MainActivity : ComponentActivity() {
 
@@ -54,23 +35,27 @@ class MainActivity : ComponentActivity() {
 
     private val eulaAgreed = mutableStateOf(false)
     private val permissionGranted = mutableStateOf(false)
-    private val setupComplete = mutableStateOf(false)
-    private val stateChecked = mutableStateOf(false)
+    /** 运行时检查完成标志（MainLaunchCoordinator 读写） */
+    internal val setupComplete = mutableStateOf(false)
+    /** 启动页状态检查完成标志（MainLaunchCoordinator 读写） */
+    internal val stateChecked = mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.values.all { it }
-        if (allGranted || hasStoragePermission()) {
+        if (allGranted || hasStoragePermission(this)) {
             permissionGranted.value = true
         }
     }
+
+    private val launchCoordinator = MainLaunchCoordinator(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         // 冷启动（分享点开应用未运行）：处理 ACTION_SEND 整合包
-        handleShareIntent(intent)
+        handleShareIntent(intent) { uri -> shareImportUri.value = uri }
 
         // 写入启动标记日志，确认 MainActivity.onCreate 被执行
         try {
@@ -83,22 +68,23 @@ class MainActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // 启动器部分屏幕全屏/忽略刘海：按设置组合应用窗口显示模式（设置变更即时生效）
         applyWindowDisplayMode(
+            this,
             SettingsRepository.getLauncherFullScreen(),
             SettingsRepository.getIgnoreNotch()
         )
 
         val prefs = getSharedPreferences("launcher", MODE_PRIVATE)
         eulaAgreed.value = prefs.getBoolean("isAgree", false)
-        permissionGranted.value = hasStoragePermission()
+        permissionGranted.value = hasStoragePermission(this)
 
         if (eulaAgreed.value && permissionGranted.value) {
-            checkRuntimeAsync()
+            launchCoordinator.checkRuntimeAsync()
         }
 
         setContent {
             // 观察启动器全屏与忽略刘海设置变化：变更即时应用到窗口
             LaunchedEffect(VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch) {
-                applyWindowDisplayMode(VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch)
+                applyWindowDisplayMode(this@MainActivity, VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch)
             }
             // 启动时应用已保存的个性化设置（颜色主题/深浅三态/背景等由主题层响应式读取）+ 自定义强调色
             LaunchedEffect(Unit) {
@@ -130,7 +116,7 @@ class MainActivity : ComponentActivity() {
                     // 权限授予后自动触发运行时检查
                     LaunchedEffect(permissionGranted.value) {
                         if (permissionGranted.value && !stateChecked.value) {
-                            checkRuntimeAsync()
+                            launchCoordinator.checkRuntimeAsync()
                         }
                     }
 
@@ -140,7 +126,7 @@ class MainActivity : ComponentActivity() {
                         if (!showPermission) return@LaunchedEffect
                         repeat(20) {
                             kotlinx.coroutines.delay(800)
-                            if (hasStoragePermission()) {
+                            if (hasStoragePermission(this@MainActivity)) {
                                 permissionGranted.value = true
                                 return@LaunchedEffect
                             }
@@ -160,8 +146,8 @@ class MainActivity : ComponentActivity() {
 
                     if (showPermission) {
                         PermissionRequestDialog(
-                            onRequest = { requestStoragePermissionCompat() },
-                            onRecheck = { permissionGranted.value = hasStoragePermission() },
+                            onRequest = { requestStoragePermissionCompat(this@MainActivity, permissionLauncher) },
+                            onRecheck = { permissionGranted.value = hasStoragePermission(this@MainActivity) },
                             onCancel = { finish() }
                         )
                         return@Surface
@@ -197,7 +183,7 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         jreReady = jreReady.value,
                         onLaunchGame = { versionId ->
-                            launchGame(versionId)
+                            launchCoordinator.launchGame(versionId)
                         },
                         shareImportUri = shareImportUri.value,
                         onShareImportHandled = { shareImportUri.value = null }
@@ -210,277 +196,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // singleTask 热启动：分享/打开方式到达时更新待导入 Uri
-        handleShareIntent(intent)
-    }
-
-    /**
-     * 应用「启动器部分屏幕全屏」与「忽略刘海」组合后的窗口显示模式：
-     *  - 全屏开=沉浸式全屏（隐藏系统栏）并延伸到刘海区域（SHORT_EDGES/ALWAYS）；
-     *  - 全屏关但忽略刘海开=系统栏保留悬浮，内容仍延伸到刘海/系统栏区域（edge-to-edge）；
-     *  - 两者都关=退出沉浸、内容避让系统栏与刘海。
-     */
-    private fun applyWindowDisplayMode(fullScreen: Boolean, ignoreNotch: Boolean) {
-        if (fullScreen) {
-            window.setFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-            )
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                window.decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        or View.SYSTEM_UI_FLAG_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                )
-            }
-            setDisplayCutoutMode(extendToCutout = true)
-        } else if (ignoreNotch) {
-            // 不隐藏系统栏，但内容延伸到刘海/系统栏后方（时间悬浮显示在画面上）
-            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                window.decorView.systemUiVisibility = (
-                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                        or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                )
-            }
-            setDisplayCutoutMode(extendToCutout = true)
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            WindowCompat.setDecorFitsSystemWindows(window, true)
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-                window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
-            }
-            setDisplayCutoutMode(extendToCutout = false)
-        }
-    }
-
-    /** 刘海显示模式：延伸=ALWAYS（API 30+ 全朝向）/SHORT_EDGES；避让=NEVER */
-    private fun setDisplayCutoutMode(extendToCutout: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val mode = if (extendToCutout) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else {
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            } else {
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
-            }
-            val params = window.attributes
-            if (params.layoutInDisplayCutoutMode != mode) {
-                params.layoutInDisplayCutoutMode = mode
-                window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                window.attributes = params
-            }
-        }
-    }
-
-    /** 解析外部分享/打开进来的整合包 Uri：
-     *  ACTION_SEND（微信等长按文件「分享」→ EXTRA_STREAM）；
-     *  ACTION_VIEW（文件管理器点击 zip/mrpack「打开方式」→ data，走 ModpackImportAlias 入口） */
-    private fun handleShareIntent(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_SEND -> {
-                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                } ?: return
-                shareImportUri.value = uri
-            }
-            Intent.ACTION_VIEW -> {
-                val uri = intent.data ?: return
-                shareImportUri.value = uri
-            }
-        }
-    }
-
-    @Volatile
-    private var runtimeCheckRunning = false
-
-    private fun checkRuntimeAsync() {
-        if (runtimeCheckRunning || stateChecked.value) return
-        runtimeCheckRunning = true
-        GlobalScope.launch(Dispatchers.IO) {
-            try {
-                RuntimeSetupManager.loadPaths(this@MainActivity)
-                val status = RuntimeSetupManager.checkAllComponents(this@MainActivity)
-                val allReady = status.all { (component, ready) ->
-                    component.isOptional || ready
-                }
-                if (allReady) {
-                    setupComplete.value = true
-                    jreReady.value = true
-                    VerseLogger.info("所有运行时已就绪，跳过设置", "MainActivity")
-                } else {
-                    val missing = status.filter { !it.value }.keys.joinToString { it.displayName }
-                    VerseLogger.info("缺少运行时: $missing", "MainActivity")
-                }
-                stateChecked.value = true
-            } catch (e: Exception) {
-                VerseLogger.error("运行时检查失败: ${e.message}", "MainActivity")
-                stateChecked.value = true
-            } finally {
-                runtimeCheckRunning = false
-            }
-        }
-    }
-
-    fun launchGame(versionId: String?) {
-        if (!jreReady.value) {
-            Toast.makeText(this, "Java运行时尚未初始化完成，请稍候...", Toast.LENGTH_LONG).show()
-            return
-        }
-        val settingsRepo = com.verse.explorer.core.data.SettingsRepository
-        val gameDir = GameConfig.getGameDir(this)
-        val javaVerSetting = settingsRepo.getJavaVersion()
-        val javaVer = javaVerSetting.toIntOrNull() ?: 17
-
-        val anyJavaInstalled = JavaRuntimeManager.hasJava(this)
-        val specificJavaOk = javaVerSetting.isEmpty() || javaVerSetting.toIntOrNull() == null ||
-            JavaRuntimeManager.hasJava(this, javaVer)
-
-        if (!anyJavaInstalled) {
-            Toast.makeText(this, "正在自动安装Java运行时，请稍候...", Toast.LENGTH_LONG).show()
-            GlobalScope.launch(Dispatchers.IO) {
-                val javaVersion = when {
-                    javaVer <= 8 -> "java8"
-                    javaVer >= 21 -> "java21"
-                    else -> "java17"
-                }
-                val installResult = JavaRuntimeManager.installJre(
-                    context = this@MainActivity,
-                    javaVersion = javaVersion
-                ) { progress ->
-                    runOnUiThread {
-                        Toast.makeText(this@MainActivity, progress.message, Toast.LENGTH_SHORT).show()
-                    }
-                }
-                runOnUiThread {
-                    if (installResult.isSuccess) {
-                        startGameWithJava(versionId, gameDir)
-                    } else {
-                        Toast.makeText(this@MainActivity, "Java安装失败，请到Java页面手动安装", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            return
-        }
-
-        startGameWithJava(versionId, gameDir)
-    }
-
-    private fun startGameWithJava(versionId: String?, gameDir: File) {
-        var javaHome: String? = null
-
-        val settingsRepo = com.verse.explorer.core.data.SettingsRepository
-        val javaVerSetting = settingsRepo.getJavaVersion()
-        val requiredJavaVer = javaVerSetting.toIntOrNull() ?: 17
-
-        val allRuntimes = JavaRuntimeManager.getInstalledRuntimes(this)
-        val preferredRuntime = allRuntimes.find { it.version == requiredJavaVer }
-        if (preferredRuntime != null) {
-            javaHome = preferredRuntime.path.absolutePath
-        }
-
-        val jreDir = File(gameDir, "jre")
-        if (javaHome == null && jreDir.exists()) {
-            jreDir.listFiles()?.forEach { dir ->
-                if (dir.isDirectory) {
-                    val javaBin = File(dir, "bin/java")
-                    if (javaBin.exists()) {
-                        javaHome = dir.absolutePath
-                    }
-                }
-            }
-        }
-
-        val internalJreDir = File(filesDir, "jre")
-        if (javaHome == null && internalJreDir.exists()) {
-            internalJreDir.listFiles()?.forEach { dir ->
-                if (dir.isDirectory) {
-                    val javaBin = File(dir, "bin/java")
-                    if (javaBin.exists()) {
-                        javaHome = dir.absolutePath
-                    }
-                }
-            }
-        }
-
-        if (javaHome == null) {
-            val best = allRuntimes.maxByOrNull { it.version }
-            if (best != null) {
-                javaHome = best.path.absolutePath
-            }
-        }
-
-        if (javaHome == null) {
-            Toast.makeText(this, "Java安装失败，请到设置中手动安装", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        var targetVersion = versionId
-        if (targetVersion.isNullOrEmpty()) {
-            val versionsDir = File(gameDir, "versions")
-            if (versionsDir.exists()) {
-                targetVersion = versionsDir.listFiles()
-                    ?.filter { it.isDirectory }
-                    ?.sortedByDescending { it.lastModified() }
-                    ?.firstOrNull()?.name
-            }
-        }
-
-        if (targetVersion.isNullOrEmpty()) {
-            Toast.makeText(this, "请先安装Minecraft版本", Toast.LENGTH_LONG).show()
-            return
-        }
-
-        val intent = Intent(this, GameActivity::class.java)
-        intent.putExtra("javaHome", javaHome)
-        intent.putExtra("versionId", targetVersion)
-        intent.putExtra("gameDir", gameDir.absolutePath)
-        intent.putExtra("renderer", settingsRepo.getRenderer())
-        startActivity(intent)
-    }
-
-    private fun hasStoragePermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun requestStoragePermissionCompat() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                    startActivity(intent)
-                }
-            }
-        } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                permissionLauncher.launch(
-                    arrayOf(
-                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        android.Manifest.permission.READ_EXTERNAL_STORAGE
-                    )
-                )
-            }
-        }
+        handleShareIntent(intent) { uri -> shareImportUri.value = uri }
     }
 
     override fun onResume() {
@@ -488,6 +204,7 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         // 恢复前台时重申窗口显示模式（系统栏可能已被系统重置）
         applyWindowDisplayMode(
+            this,
             VersePersonalization.launcherFullScreen,
             DisplayNotch.ignoreNotch
         )
@@ -495,207 +212,10 @@ class MainActivity : ComponentActivity() {
         // 每次回到前台都重新核对存储权限：部分机型从授权页返回后 AppOps 状态更新有延迟，
         // 只在「未完成初始化」时检查会让已授权的用户一直卡在权限页
         if (eulaAgreed.value) {
-            val hasPerm = hasStoragePermission()
+            val hasPerm = hasStoragePermission(this)
             if (hasPerm != permissionGranted.value) {
                 permissionGranted.value = hasPerm
                 VerseLogger.info("Permission state changed: $hasPerm", "MainActivity")
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun EulaAgreementDialog(
-    onAgree: () -> Unit,
-    onDisagree: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VerseColors.PcBgPrimary),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .fillMaxHeight(0.72f),
-            shape = RoundedCornerShape(20.dp),
-            color = VerseColors.PcBgCard
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp)
-            ) {
-                Text(
-                    text = "用户协议与免责声明",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = VerseColors.PcTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "请仔细阅读以下协议，继续使用即表示您同意所有条款",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.PcTextSecondary,
-                    fontSize = 13.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 协议内容（可滑动：竖屏小屏下内容可能超出容器高度）
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .background(
-                            VerseColors.PcBgHover,
-                            RoundedCornerShape(12.dp)
-                        )
-                        .padding(16.dp)
-                ) {
-                    Text(
-                        text = """
-本软件为 Minecraft 第三方启动器，与 Mojang / Microsoft 无关。
-
-• 本软件不会修改 Minecraft 的任何源代码
-• 本软件不提供任何盗版 Minecraft 副本
-• 使用本软件需要拥有合法的 Minecraft 账号
-• 本软件开源免费，禁止用于商业用途
-• 运行 Minecraft 需要安装 Java 运行时环境
-• 下载的游戏文件来自 Mojang 官方服务器
-• 用户需自行承担使用本软件的所有风险
-• 开发者不对任何使用本软件造成的损失负责
-
-继续使用即表示您已阅读并同意以上条款。
-                        """.trimIndent(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = VerseColors.PcTextSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 22.sp
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onDisagree,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = VerseColors.PcTextSecondary
-                        )
-                    ) {
-                        Text("不同意", fontSize = 14.sp)
-                    }
-                    Button(
-                        onClick = onAgree,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = VerseColors.PcAccent,
-                            contentColor = VerseColors.PcAccentText
-                        )
-                    ) {
-                        Text("同意并继续", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun PermissionRequestDialog(
-    onRequest: () -> Unit,
-    onRecheck: () -> Unit,
-    onCancel: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VerseColors.PcBgPrimary),
-        contentAlignment = Alignment.Center
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth(0.88f),
-            shape = RoundedCornerShape(20.dp),
-            color = VerseColors.PcBgCard
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp)
-            ) {
-                Text(
-                    text = "存储权限",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = VerseColors.PcTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = """
-Verse 需要存储权限来：
-
-• 保存 Minecraft 游戏文件和存档
-• 管理模组、光影和资源包
-• 下载和安装游戏版本
-
-请授予"所有文件访问权限"以确保软件正常运行。
-                    """.trimIndent(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VerseColors.PcTextSecondary,
-                    fontSize = 13.sp,
-                    lineHeight = 20.sp
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = onCancel,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = VerseColors.PcTextSecondary
-                        )
-                    ) {
-                        Text("退出", fontSize = 14.sp)
-                    }
-                    Button(
-                        onClick = onRequest,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = VerseColors.PcAccent,
-                            contentColor = VerseColors.PcAccentText
-                        )
-                    ) {
-                        Text("授予权限", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                TextButton(
-                    onClick = onRecheck,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        "已授权？点此重新检测",
-                        fontSize = 13.sp,
-                        color = VerseColors.PcAccent
-                    )
-                }
             }
         }
     }
