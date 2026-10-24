@@ -414,7 +414,7 @@ class DependencyDownloader(private val context: Context) {
             for (libElement in libraries) {
                 val lib = libElement.asJsonObject
                 val rules = lib.getAsJsonArray("rules")
-                if (rules != null && !evaluateRules(rules)) continue
+                if (rules != null && !DependencyUtils.evaluateRules(rules)) continue
 
                 val downloads = lib.getAsJsonObject("downloads") ?: continue
                 val artifact = downloads.getAsJsonObject("artifact") ?: continue
@@ -530,7 +530,7 @@ class DependencyDownloader(private val context: Context) {
                 val lib = libElement.asJsonObject
                 val libName = lib.get("name")?.asString ?: "unknown"
                 val rules = lib.getAsJsonArray("rules")
-                if (rules != null && !evaluateRules(rules)) continue
+                if (rules != null && !DependencyUtils.evaluateRules(rules)) continue
 
                 val downloads = lib.getAsJsonObject("downloads") ?: continue
                 val classifiers = downloads.getAsJsonObject("classifiers") ?: continue
@@ -803,7 +803,7 @@ class DependencyDownloader(private val context: Context) {
                 val lib = libElement.asJsonObject
                 val libName = lib.get("name")?.asString ?: "unknown"
                 val rules = lib.getAsJsonArray("rules")
-                if (rules != null && !evaluateRules(rules)) continue
+                if (rules != null && !DependencyUtils.evaluateRules(rules)) continue
 
                 val downloads = lib.getAsJsonObject("downloads") ?: continue
                 val classifiers = downloads.getAsJsonObject("classifiers") ?: continue
@@ -834,7 +834,7 @@ class DependencyDownloader(private val context: Context) {
                 if (nativeFile.exists() && nativeFile.length() > 1024) {
                     try {
                         val soFilesBefore = nativesDir.listFiles()?.filter { it.name.endsWith(".so") }?.size ?: 0
-                        extractZip(nativeFile, nativesDir)
+                        DependencyUtils.extractZip(nativeFile, nativesDir)
                         val soFilesAfter = nativesDir.listFiles()?.filter { it.name.endsWith(".so") }?.size ?: 0
                         val newSoFiles = soFilesAfter - soFilesBefore
                         
@@ -906,7 +906,7 @@ class DependencyDownloader(private val context: Context) {
 
                         if (totalSize > 0) {
                             val progress = downloaded.toFloat() / totalSize.toFloat()
-                            val sizeStr = "${formatSize(downloaded)}/${formatSize(totalSize)}"
+                            val sizeStr = "${DependencyUtils.formatSize(downloaded)}/${DependencyUtils.formatSize(totalSize)}"
                             onProgress(progress, "下载中 $sizeStr")
                         }
                     }
@@ -965,64 +965,5 @@ class DependencyDownloader(private val context: Context) {
         } finally {
             conn.disconnect()
         }
-    }
-
-    private fun extractZip(zipFile: File, targetDir: File) {
-        var entryCount = 0
-        var soFileCount = 0
-        
-        ZipInputStream(zipFile.inputStream()).use { zipIn ->
-            var entry = zipIn.nextEntry
-            while (entry != null) {
-                if (!entry.isDirectory && !entry.name.contains("META-INF")) {
-                    val fileName = entry.name.substringAfterLast("/")
-                    val file = File(targetDir, fileName)
-                    file.parentFile?.mkdirs()
-                    
-                    file.outputStream().use { output -> zipIn.copyTo(output) }
-                    entryCount++
-                    
-                    if (fileName.endsWith(".so")) {
-                        soFileCount++
-                        println("[DependencyDownloader]   Extracted: $fileName (${file.length()} bytes)")
-                    }
-                }
-                zipIn.closeEntry()
-                entry = zipIn.nextEntry
-            }
-        }
-        
-        println("[DependencyDownloader] extractZip: $zipFile.name -> $entryCount files ($soFileCount .so)")
-    }
-
-    private fun evaluateRules(rules: com.google.gson.JsonArray): Boolean {
-        if (rules.size() == 0) return true
-
-        var allowed = false
-        for (ruleElement in rules) {
-            val rule = ruleElement.asJsonObject
-            val action = rule.get("action")?.asString ?: continue
-            val os = rule.getAsJsonObject("os")
-            val features = rule.getAsJsonObject("features")
-
-            if (features != null) continue
-
-            if (os != null) {
-                val osName = os.get("name")?.asString ?: continue
-                if (osName == "linux") {
-                    allowed = action == "allow"
-                }
-            } else {
-                allowed = action == "allow"
-            }
-        }
-        return allowed
-    }
-
-    private fun formatSize(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        if (bytes < 1024 * 1024) return String.format("%.1f KB", bytes / 1024.0)
-        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024))
-        return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
     }
 }

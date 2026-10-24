@@ -232,7 +232,7 @@ class GameInstaller(private val context: Context) {
                     if (clientUrl != null) {
                         val needDownload = !clientJar.exists() || clientJar.length() < 1024 ||
                             (clientSize > 0 && clientJar.length() != clientSize) ||
-                            (clientSha1 != null && try { calculateSHA1(clientJar).lowercase() != clientSha1.lowercase() } catch (_: Exception) { true })
+                            (clientSha1 != null && try { InstallFileUtils.calculateSHA1(clientJar).lowercase() != clientSha1.lowercase() } catch (_: Exception) { true })
 
                         if (needDownload) {
                             // 智能混合下载：自动测速选最快源 + 分块并发 + 低速换源
@@ -244,7 +244,7 @@ class GameInstaller(private val context: Context) {
                                 isCancelled = { cancelled }
                             ) { progress ->
                                 val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
-                                val sizeStr = formatSize(progress.downloaded) + "/" + formatSize(progress.total)
+                                val sizeStr = InstallFileUtils.formatSize(progress.downloaded) + "/" + InstallFileUtils.formatSize(progress.total)
                                 val msg = "下载中 $sizeStr (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})"
                                 progressCallback(InstallProgress(
                                     InstallStage.DOWNLOADING_CLIENT, msg, 0.05f + p * 0.15f,
@@ -260,7 +260,7 @@ class GameInstaller(private val context: Context) {
                     }
                 }
 
-                val validLibraries = filterValidLibraries(versionJson)
+                val validLibraries = LibraryFilter.filterValidLibraries(versionJson)
                 val totalLibs = validLibraries.size
 
                 checkCancelled()
@@ -545,74 +545,6 @@ class GameInstaller(private val context: Context) {
         return null
     }
 
-    private fun filterValidLibraries(versionJson: JsonObject): List<JsonObject> {
-        val result = mutableListOf<JsonObject>()
-        val libsArray = versionJson.get("libraries")?.asJsonArray ?: return result
-
-        for (element in libsArray) {
-            val lib = element.asJsonObject
-            val name = lib.get("name")?.asString ?: ""
-
-            val rules = lib.get("rules")?.asJsonArray
-            if (rules != null) {
-                val allowed = evaluateRules(rules.map { it.asJsonObject })
-                if (!allowed) continue
-            }
-
-            val downloads = lib.get("downloads")?.asJsonObject
-            val artifact = downloads?.get("artifact")?.asJsonObject
-
-            if (artifact != null && artifact.has("url") && artifact.has("path")) {
-                result.add(downloads)
-            } else if (lib.has("name")) {
-                val nameParts = name.split(":")
-                if (nameParts.size >= 3) {
-                    val group = nameParts[0].replace(".", "/")
-                    val artifactName = nameParts[1]
-                    val version = nameParts[2]
-                    val basePath = "$group/$artifactName/$version/$artifactName-$version"
-                    val libUrl = lib.get("url")?.asString
-                    val jarPath = "$basePath.jar"
-                    if (libUrl != null) {
-                        val fakeDownloads = JsonObject()
-                        val fakeArtifact = JsonObject()
-                        fakeArtifact.addProperty("path", jarPath)
-                        fakeArtifact.addProperty("url", "$libUrl/$jarPath")
-                        fakeDownloads.add("artifact", fakeArtifact)
-                        result.add(fakeDownloads)
-                    }
-                }
-            }
-        }
-
-        return result
-    }
-
-/**
-     */
-    private fun evaluateRules(rules: List<JsonObject>): Boolean {
-        if (rules.isEmpty()) return true
-        
-        for (rule in rules) {
-            val action = rule.get("action")?.asString ?: continue
-            val os = rule.get("os")?.asJsonObject
-            
-            var osMatch = true
-            if (os != null) {
-                val osName = os.get("name")?.asString ?: ""
-                osMatch = osName.isEmpty() || osName == "linux"
-            }
-            
-            if (action == "allow") {
-                if (osMatch) return true
-            } else {
-                if (osMatch) return false
-            }
-        }
-        
-        return false
-    }
-
     private suspend fun downloadFileWithRetry(
         url: String,
         targetFile: File,
@@ -667,7 +599,7 @@ class GameInstaller(private val context: Context) {
                             downloaded += bytesRead
                             if (totalSize > 0) {
                                 val progress = downloaded.toFloat() / totalSize.toFloat()
-                                val sizeStr = formatSize(downloaded) + "/" + formatSize(totalSize)
+                                val sizeStr = InstallFileUtils.formatSize(downloaded) + "/" + InstallFileUtils.formatSize(totalSize)
                                 onProgress(progress, "下载中 $sizeStr")
                             }
                         }
@@ -681,7 +613,7 @@ class GameInstaller(private val context: Context) {
             }
 
             if (expectedSha1 != null) {
-                val actualSha1 = calculateSHA1(tempFile)
+                val actualSha1 = InstallFileUtils.calculateSHA1(tempFile)
                 if (actualSha1.lowercase() != expectedSha1.lowercase()) {
                     tempFile.delete()
                     throw Exception("SHA1 校验失败 ${targetFile.name}: 期望=$expectedSha1, 实际=$actualSha1")
@@ -859,7 +791,7 @@ class GameInstaller(private val context: Context) {
         for (element in libsArray) {
             val lib = element.asJsonObject
             val rules = lib.get("rules")?.asJsonArray
-            if (rules != null && !evaluateRules(rules.map { it.asJsonObject })) continue
+            if (rules != null && !LibraryFilter.evaluateRules(rules.map { it.asJsonObject })) continue
 
             val downloads = lib.get("downloads")?.asJsonObject ?: continue
 
@@ -923,7 +855,7 @@ class GameInstaller(private val context: Context) {
         for (element in libsArray) {
             val lib = element.asJsonObject
             val rules = lib.get("rules")?.asJsonArray
-            if (rules != null && !evaluateRules(rules.map { it.asJsonObject })) continue
+            if (rules != null && !LibraryFilter.evaluateRules(rules.map { it.asJsonObject })) continue
 
             val downloads = lib.get("downloads")?.asJsonObject ?: continue
 
@@ -938,7 +870,7 @@ class GameInstaller(private val context: Context) {
 
                 val needDownload = if (!nativeFile.exists()) true
                 else if (nativeSha1 != null) {
-                    try { calculateSHA1(nativeFile).lowercase() != nativeSha1.lowercase() } catch (_: Exception) { true }
+                    try { InstallFileUtils.calculateSHA1(nativeFile).lowercase() != nativeSha1.lowercase() } catch (_: Exception) { true }
                 } else false
 
                 if (needDownload) {
@@ -971,7 +903,7 @@ class GameInstaller(private val context: Context) {
             val nativeFile = File(librariesDir, nativePath)
             val needDownload = if (!nativeFile.exists()) true
             else if (nativeSha1 != null) {
-                try { calculateSHA1(nativeFile).lowercase() != nativeSha1.lowercase() } catch (_: Exception) { true }
+                try { InstallFileUtils.calculateSHA1(nativeFile).lowercase() != nativeSha1.lowercase() } catch (_: Exception) { true }
             } else false
 
             if (needDownload) {
@@ -1040,7 +972,7 @@ class GameInstaller(private val context: Context) {
         for (element in libsArray) {
             val lib = element.asJsonObject
             val rules = lib.get("rules")?.asJsonArray
-            if (rules != null && !evaluateRules(rules.map { it.asJsonObject })) continue
+            if (rules != null && !LibraryFilter.evaluateRules(rules.map { it.asJsonObject })) continue
 
             val downloads = lib.get("downloads")?.asJsonObject ?: continue
             val artifact = downloads.get("artifact")?.asJsonObject ?: continue
@@ -1052,7 +984,7 @@ class GameInstaller(private val context: Context) {
             if (targetFile.exists() && targetFile.length() > 1024) {
                 if (sha1 != null) {
                     try {
-                        if (calculateSHA1(targetFile).lowercase() == sha1.lowercase()) continue
+                        if (InstallFileUtils.calculateSHA1(targetFile).lowercase() == sha1.lowercase()) continue
                     } catch (_: Exception) {}
                 } else continue
             }
@@ -1081,27 +1013,6 @@ class GameInstaller(private val context: Context) {
             }
 
             onProgress?.invoke((index + 1).toFloat() / missingLibs.size)
-        }
-    }
-
-    private fun calculateSHA1(file: File): String {
-        val md = java.security.MessageDigest.getInstance("SHA-1")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (input.read(buffer).also { bytesRead = it } != -1) {
-                md.update(buffer, 0, bytesRead)
-            }
-        }
-        return md.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun formatSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0)} KB"
-            bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / (1024.0 * 1024))} MB"
-            else -> "${"%.2f".format(bytes / (1024.0 * 1024 * 1024))} GB"
         }
     }
 }
