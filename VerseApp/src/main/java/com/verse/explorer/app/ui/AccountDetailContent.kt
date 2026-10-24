@@ -41,11 +41,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.verse.explorer.app.data.account.CapeRepository
-import com.verse.explorer.app.data.account.DefaultSkinRepository
-import com.verse.explorer.app.data.account.MsSkinRepository
-import com.verse.explorer.app.data.account.SkinHeadCrop
-import com.verse.explorer.app.data.account.SkinUploadRepository
+import com.verse.explorer.core.data.account.CapeRepository
+import com.verse.explorer.core.data.account.DefaultSkinRepository
+import com.verse.explorer.core.data.account.MsSkinRepository
+import com.verse.explorer.core.data.account.SkinHeadCrop
+import com.verse.explorer.core.data.account.SkinUploadRepository
 import com.verse.explorer.app.skin.SkinFigureRenderer
 import com.verse.explorer.app.ui.components.FCLSkinViewer
 import com.verse.explorer.app.ui.components.PcButton

@@ -78,8 +78,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.VersionMetaRepository
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.VersionMetaRepository
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.BackgroundCard
 import com.verse.explorer.app.ui.components.DisabledAlpha

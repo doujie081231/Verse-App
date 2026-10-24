@@ -33,7 +33,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.data.lan.LanNetworkScanner
+import com.verse.explorer.core.data.lan.LanNetworkScanner
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.terracotta.TerracottaMultiplayerDialog
 import com.verse.explorer.app.terracotta.TerracottaTexts

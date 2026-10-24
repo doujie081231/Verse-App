@@ -23,7 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.verse.explorer.app.data.GamepadBindingsRepository
+import com.verse.explorer.core.data.GamepadBindingsRepository
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard

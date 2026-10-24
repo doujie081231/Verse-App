@@ -173,7 +173,7 @@ internal fun ResourceDetailDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val useMirror = com.verse.explorer.app.data.SettingsRepository.getDownloadSource() != "mojang"
+    val useMirror = com.verse.explorer.core.data.SettingsRepository.getDownloadSource() != "mojang"
 
     var project by remember { mutableStateOf<ModrinthProject?>(null) }
     var versions by remember { mutableStateOf<List<ModrinthVersion>>(emptyList()) }

@@ -41,8 +41,8 @@ import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.VerseApplication
-import com.verse.explorer.app.data.FavoritesRepository
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.FavoritesRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.download.DownloadCenter
 import com.verse.explorer.app.download.DownloadCenterState
 import com.verse.explorer.app.ui.components.GlassCard

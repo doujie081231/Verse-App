@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data
+package com.verse.explorer.core.data
 
 import android.content.Context
 import com.google.gson.Gson

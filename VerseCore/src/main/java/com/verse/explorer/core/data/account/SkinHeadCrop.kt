@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.account
+package com.verse.explorer.core.data.account
 
 import android.graphics.Bitmap
 import android.graphics.Canvas

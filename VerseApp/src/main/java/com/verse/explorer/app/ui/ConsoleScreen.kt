@@ -35,8 +35,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import com.caverock.androidsvg.SVG
 import com.caverock.androidsvg.SVGParseException
 import com.verse.explorer.app.ui.components.RoseLoader
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.feedback.FeedbackRepository
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.feedback.FeedbackRepository
 import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant

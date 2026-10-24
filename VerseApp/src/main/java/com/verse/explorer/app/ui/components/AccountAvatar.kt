@@ -20,7 +20,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.verse.explorer.app.data.account.AvatarRepository
+import com.verse.explorer.core.data.account.AvatarRepository
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.account.Account
 import kotlinx.coroutines.Dispatchers

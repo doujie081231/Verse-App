@@ -137,7 +137,7 @@ private fun loadFullSkin(context: Context, account: Account): Bitmap? {
 /** 披风位图解析：本地装备披风 → 微软官方披风 URL → 无披风（null） */
 private fun loadCape(context: Context, account: Account): Bitmap? {
     // 本地装备披风（披风库选中项）
-    val selected = com.verse.explorer.app.data.account.CapeRepository.selected(context, account.id)
+    val selected = com.verse.explorer.core.data.account.CapeRepository.selected(context, account.id)
     if (selected != null && selected.file.exists()) {
         BitmapFactory.decodeFile(selected.file.absolutePath)?.let { return it }
     }

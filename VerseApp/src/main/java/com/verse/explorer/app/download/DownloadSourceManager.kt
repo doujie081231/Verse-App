@@ -17,7 +17,7 @@ object DownloadSourceManager {
     fun getSourceLabel(source: String): String = MirrorSourceManager.getSourceLabel(source)
 
     fun getCurrentSourceLabel(): String {
-        val source = com.verse.explorer.app.data.SettingsRepository.getDownloadSource()
+        val source = com.verse.explorer.core.data.SettingsRepository.getDownloadSource()
         return MirrorSourceManager.getSourceLabel(source)
     }
 }

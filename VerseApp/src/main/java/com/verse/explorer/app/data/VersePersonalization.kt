@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.verse.explorer.core.data.SettingsRepository
 import java.io.File
 
 /**

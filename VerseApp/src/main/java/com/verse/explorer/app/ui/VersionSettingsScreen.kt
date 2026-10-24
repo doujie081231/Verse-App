@@ -48,9 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.VersionMetaRepository
-import com.verse.explorer.app.data.VersionSettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.VersionMetaRepository
+import com.verse.explorer.core.data.VersionSettingsRepository
 import com.verse.explorer.app.documents.GameFolderProvider
 import com.verse.explorer.app.ui.components.BackgroundCard
 import com.verse.explorer.app.ui.components.CardTitleLayout

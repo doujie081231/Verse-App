@@ -34,7 +34,7 @@ import com.verse.explorer.app.ui.RuntimeSetupScreen
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.game.GameActivity
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.VerseExplorerTheme
@@ -338,7 +338,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Java运行时尚未初始化完成，请稍候...", Toast.LENGTH_LONG).show()
             return
         }
-        val settingsRepo = com.verse.explorer.app.data.SettingsRepository
+        val settingsRepo = com.verse.explorer.core.data.SettingsRepository
         val gameDir = GameConfig.getGameDir(this)
         val javaVerSetting = settingsRepo.getJavaVersion()
         val javaVer = javaVerSetting.toIntOrNull() ?: 17
@@ -380,7 +380,7 @@ class MainActivity : ComponentActivity() {
     private fun startGameWithJava(versionId: String?, gameDir: File) {
         var javaHome: String? = null
 
-        val settingsRepo = com.verse.explorer.app.data.SettingsRepository
+        val settingsRepo = com.verse.explorer.core.data.SettingsRepository
         val javaVerSetting = settingsRepo.getJavaVersion()
         val requiredJavaVer = javaVerSetting.toIntOrNull() ?: 17
 

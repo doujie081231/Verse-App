@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.feedback
+package com.verse.explorer.core.data.feedback
 
 import java.security.MessageDigest
 import javax.crypto.Mac

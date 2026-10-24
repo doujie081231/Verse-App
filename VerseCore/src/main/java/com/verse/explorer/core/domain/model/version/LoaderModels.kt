@@ -1,4 +1,4 @@
-package com.verse.explorer.app.domain.model.version
+package com.verse.explorer.core.domain.model.version
 
 data class DetailLoaderOption(
     val id: String,

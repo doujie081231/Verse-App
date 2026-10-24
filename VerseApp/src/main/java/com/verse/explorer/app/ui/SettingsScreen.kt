@@ -39,7 +39,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.R
 import com.verse.explorer.app.BuildConfig
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.data.MousePointerSetting
 import com.verse.explorer.app.data.UpdateChecker
 import com.verse.explorer.app.data.VersePersonalization

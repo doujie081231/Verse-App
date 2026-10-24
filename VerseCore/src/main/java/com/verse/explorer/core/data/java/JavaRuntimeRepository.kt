@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.java
+package com.verse.explorer.core.data.java
 
 import android.content.Context
 import com.verse.explorer.core.java.JavaRuntime

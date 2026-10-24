@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.account
+package com.verse.explorer.core.data.account
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -57,7 +57,7 @@ object AvatarRepository {
         // 只靠头像接口会一直显示默认皮肤。
         if (account.type == AccountType.AUTHLIB && account.serverUrl?.isNotBlank() == true) {
             val textureUrl = runCatching {
-                com.verse.explorer.app.VerseApplication.authlibAuthenticator
+                com.verse.explorer.core.account.AuthlibServices.authlibAuthenticator
                     .fetchSkinTextureUrl(account.serverUrl!!, account.uuid)
             }.getOrNull()
             if (!textureUrl.isNullOrBlank()) {

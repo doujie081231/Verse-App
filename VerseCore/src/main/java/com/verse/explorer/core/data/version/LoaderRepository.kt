@@ -1,11 +1,11 @@
-package com.verse.explorer.app.data.version
+package com.verse.explorer.core.data.version
 
 import com.google.gson.GsonBuilder
-import com.verse.explorer.app.domain.model.version.FabricLoaderMeta
-import com.verse.explorer.app.domain.model.version.ForgeRaw
-import com.verse.explorer.app.domain.model.version.LoaderVersion
-import com.verse.explorer.app.domain.model.version.NeoForgeEntry
-import com.verse.explorer.app.domain.model.version.OptiFineEntry
+import com.verse.explorer.core.domain.model.version.FabricLoaderMeta
+import com.verse.explorer.core.domain.model.version.ForgeRaw
+import com.verse.explorer.core.domain.model.version.LoaderVersion
+import com.verse.explorer.core.domain.model.version.NeoForgeEntry
+import com.verse.explorer.core.domain.model.version.OptiFineEntry
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit

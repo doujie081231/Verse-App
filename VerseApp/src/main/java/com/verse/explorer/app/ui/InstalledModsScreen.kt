@@ -76,7 +76,7 @@ fun InstalledModsScreen(
 
     val manager = remember(versionId) {
         val gameDir = GameConfig.getGameDir(context)
-        val settings = com.verse.explorer.app.data.VersionSettingsRepository(context)
+        val settings = com.verse.explorer.core.data.VersionSettingsRepository(context)
             .getVersionSettings(versionId)
         val isolated = settings.usesGlobal || settings.isolateGameDir
         val runDir = if (isolated) File(File(gameDir, "versions"), versionId) else gameDir

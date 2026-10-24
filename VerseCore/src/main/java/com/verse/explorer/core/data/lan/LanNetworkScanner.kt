@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.lan
+package com.verse.explorer.core.data.lan
 
 import java.net.Inet4Address
 import java.net.NetworkInterface

@@ -2,7 +2,7 @@ package com.verse.explorer.app.game
 
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import com.verse.explorer.app.data.version.VersionJsonResolver
+import com.verse.explorer.core.data.version.VersionJsonResolver
 import com.verse.explorer.app.ui.game.GameStatusOverlay
 import com.verse.explorer.core.java.JavaRuntime
 import com.verse.explorer.core.java.JavaRuntimeManager

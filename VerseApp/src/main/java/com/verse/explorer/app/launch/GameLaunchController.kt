@@ -5,8 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.verse.explorer.app.VerseApplication
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.VersionSettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.VersionSettingsRepository
 import com.verse.explorer.app.device.VulkanCheckManager
 import com.verse.explorer.app.device.VulkanEnsureResult
 import com.verse.explorer.app.device.normalizeMcVersion

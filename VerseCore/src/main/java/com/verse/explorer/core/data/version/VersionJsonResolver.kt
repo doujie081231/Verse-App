@@ -1,4 +1,4 @@
-package com.verse.explorer.app.data.version
+package com.verse.explorer.core.data.version
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject

@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.launch.GameLaunchController
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.ui.components.AccountAvatar

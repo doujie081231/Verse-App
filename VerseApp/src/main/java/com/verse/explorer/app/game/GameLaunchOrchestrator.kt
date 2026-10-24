@@ -4,12 +4,11 @@ import android.graphics.SurfaceTexture
 import android.view.Surface
 import androidx.activity.ComponentActivity
 import com.verse.explorer.app.VerseApplication
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameStatusOverlay
 import com.verse.explorer.app.ui.game.GameInputHandler
-import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.crash.CrashDetector
 import com.verse.explorer.launcher.crash.CrashResult
@@ -20,7 +19,6 @@ import com.verse.explorer.launcher.fcl.game.LaunchOptions
 import com.verse.explorer.launcher.fcl.game.VerseJavaVersion
 import com.verse.explorer.launcher.fcl.game.Version
 import com.verse.explorer.launcher.fcl.launch.DefaultLauncher
-import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.launcher.fcl.util.FCLPath
 import com.verse.explorer.jvmlauncher.JvmLauncherAPI
 import com.tungsten.fcl.game.sdl.SdlBridge
@@ -36,7 +34,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.time.Instant
 import java.util.UUID
 
 class GameLaunchOrchestrator(
@@ -74,6 +71,9 @@ class GameLaunchOrchestrator(
     private val crashAnalyzer = LaunchCrashAnalyzer(activity)
     private val errorDialog = LaunchErrorDialog(activity, statusOverlay, logManager)
     private val restarter = LaunchRestarter(activity)
+    // options.txt 注入与 JRE 解析为独立组件：本类只保留 9 步启动编排与生命周期管理
+    private val optionsInjector = OptionsInjector(activity)
+    private val jreResolver = JreResolver(activity, javaDetector)
 
     fun configure(params: GameLaunchParams) {
         this.launchParams = params
@@ -154,7 +154,7 @@ class GameLaunchOrchestrator(
                             statusOverlay.setTitle("游戏已退出")
                             statusOverlay.setMessage("退出码: $code")
                             // JVM 在同一进程内无法二次初始化：退出后结束进程，
-                            // 下次启动由全新进程承载新的 JVM（与 ZL2 的退出策略一致）
+                            // 下次启动由全新进程承载新的 JVM
                             activity.finishAffinity()
                             killProcessSoon()
                             return@withContext
@@ -314,7 +314,7 @@ class GameLaunchOrchestrator(
 
         // 4) Java 运行时检查
         updateProgress("检查 Java 运行时...", null)
-        val resolvedJavaHome = resolveJavaHome(params, gameDir)
+        val resolvedJavaHome = jreResolver.resolveJavaHome(params, gameDir)
         javaHome = resolvedJavaHome
         logManager.javaHomeProvider = { javaHome }
         VerseLogger.info("[4/9 Java运行时] 选用 JRE=$resolvedJavaHome, 耗时=${elapsed(t0)}ms", TAG)
@@ -327,19 +327,19 @@ class GameLaunchOrchestrator(
         updateProgress("构建启动选项...", null)
         val authInfo = createAuthInfo(params)
         val javaVersion = VerseJavaVersion(params.javaVersion, resolvedJavaHome)
-        val verSettings = com.verse.explorer.app.data.VersionSettingsRepository(activity)
+        val verSettings = com.verse.explorer.core.data.VersionSettingsRepository(activity)
             .getVersionSettings(params.versionId)
         val launchOptions = buildLaunchOptions(params, javaVersion, verSettings)
         val repository = DefaultGameRepository(gameDir)
         repository.setRunDirectoryIsolated(verSettings.usesGlobal || verSettings.isolateGameDir)
         repository.refreshVersions()
-        injectOnboardingSkip(repository, params.versionId)
-        injectGameLanguage(repository, fclVersion)
-        injectGraphicsBackend(
+        optionsInjector.injectOnboardingSkip(repository, params.versionId)
+        optionsInjector.injectGameLanguage(repository, fclVersion)
+        optionsInjector.injectGraphicsBackend(
             repository, fclVersion, params.renderer,
             if (!verSettings.usesGlobal) verSettings.graphicsBackend else null
         )
-        dumpRenderOptions(repository, fclVersion, params)
+        optionsInjector.dumpRenderOptions(repository, fclVersion, params)
         VerseLogger.info("[6/9 启动选项] renderer=${params.renderer}, options=${launchOptions.fullSummary()}, 耗时=${elapsed(t0)}ms", TAG)
 
         // 7) 等待 Surface（渲染窗口）
@@ -440,7 +440,7 @@ class GameLaunchOrchestrator(
                 VerseLogger.info("[8/9 JVM启动] VKSHIM_ENABLE=${if (shimEnabled) "1" else "0"}（needsVulkanShim=$shimEnabled）", TAG)
                 // VerseX 渲染器（设置页「VerseX 渲染器/Pipeline 缓存」）：M1 为 pipeline 对象级缓存，
                 // 经环境变量传给 vkshim（默认开，VERSERX_PIPELINE_CACHE=0 关闭）
-                val vsxPipelineCache = com.verse.explorer.app.data.SettingsRepository.getVersexPipelineCache()
+                val vsxPipelineCache = com.verse.explorer.core.data.SettingsRepository.getVersexPipelineCache()
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                     "VERSERX_PIPELINE_CACHE",
                     if (vsxPipelineCache) "1" else "0"
@@ -541,197 +541,6 @@ class GameLaunchOrchestrator(
         return repository.getVersion(params.versionId)
     }
 
-    /**
-     * 跳过 MC 首次启动欢迎引导（Welcome to Minecraft! 会阻止进入主菜单）：
-     * 在版本目录 options.txt 写 onboardAccessibility:false。
-     * 游戏退出时会重写 options.txt 丢弃该行，因此每次启动前都注入。
-     */
-    private fun injectOnboardingSkip(repository: DefaultGameRepository, versionId: String) {
-        runCatching {
-            val targets = listOf(
-                File(repository.getRunDirectory(versionId), "options.txt"),
-                File(File(File(repository.getBaseDirectory(), "versions"), versionId), "options.txt")
-            )
-            targets.distinct().forEach { optionsFile ->
-                if (optionsFile.parentFile != null) optionsFile.parentFile.mkdirs()
-                val content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
-                if (!content.contains("onboardAccessibility:")) {
-                    optionsFile.appendText("\nonboardAccessibility:false\n")
-                }
-            }
-        }.onFailure {
-            VerseLogger.warn("注入 onboardAccessibility 失败: ${it.message}", TAG)
-        }
-    }
-
-    /**
-     * 按版本发布日期选择 lang 值（1.1~1.10 用 zh_CN，其余支持语言版本用 zh_cn；
-     * 1.0 及以下无语言选项直接跳过），写入版本目录 options.txt。
-     * 用户要求强制中文：每次启动都会覆盖为 requiredLang（不保留存档中的旧语言选择）。
-     */
-    private fun injectGameLanguage(repository: DefaultGameRepository, version: Version) {
-        if (!SettingsRepository.isAutoSetChinese()) {
-            VerseLogger.info("自动设置中文已关闭，跳过语言设置", TAG)
-            return
-        }
-        runCatching {
-            val runDir = repository.getRunDirectory(version.id)
-            var optionsFile = File(runDir, "options.txt")
-            val yosbrFile = File(File(File(runDir, "config"), "yosbr"), "options.txt")
-            if (!optionsFile.exists() && yosbrFile.exists()) {
-                VerseLogger.info("使用 Yosbr Mod 中的 options.txt", TAG)
-                optionsFile = yosbrFile
-            }
-
-            val releaseTime = version.releaseTime ?: version.time
-            val mc1_1 = Instant.parse("2012-01-12T00:00:00Z")
-            val mc1_11 = Instant.parse("2016-06-08T00:00:00Z")
-            // 1.0 及以下版本无语言选项
-            if (releaseTime != null && !releaseTime.isAfter(mc1_1)) {
-                VerseLogger.info("1.0 及以下版本，无语言选项", TAG)
-                return@runCatching
-            }
-            val requiredLang = if (releaseTime != null && releaseTime.isAfter(mc1_1) && !releaseTime.isAfter(mc1_11)) {
-                "zh_CN"
-            } else {
-                "zh_cn"
-            }
-
-            var content = if (optionsFile.exists() && optionsFile.isFile) optionsFile.readText() else ""
-            val langRegex = Regex("^lang:(.+)$", RegexOption.MULTILINE)
-            val currentLang = langRegex.find(content)?.groupValues?.get(1)?.trim() ?: "none"
-
-            // 强制中文：无论是否已有存档/语言选择，每次启动都写入 requiredLang
-            if (currentLang != requiredLang) {
-                content = if (content.isNotEmpty() && currentLang != "none") {
-                    content.replace(langRegex, "lang:$requiredLang")
-                } else if (content.isNotEmpty()) {
-                    content + "\nlang:$requiredLang"
-                } else {
-                    "lang:$requiredLang\n"
-                }
-                VerseLogger.info("已将游戏语言设置为 $requiredLang（原 $currentLang）", TAG)
-            } else {
-                VerseLogger.info("当前语言已为 $requiredLang，无需修改", TAG)
-            }
-
-            optionsFile.parentFile?.mkdirs()
-            optionsFile.writeText(content)
-        }.onFailure {
-            VerseLogger.warn("自动设置中文失败: ${it.message}", TAG)
-        }
-    }
-
-    /**
-     * 每次启动写 preferredGraphicsBackend：GL 渲染器（MobileGlues 等）强制 "opengl"
-     * （MobileGlues 是 OpenGL 实现，Vulkan 后端下其窗口/EGL 初始化失败
-     * "Failed to query window size in pixels: Invalid window"）；
-     * 其余渲染器写 "default"（MC 26.2 据此自选后端）。
-     * 注意：不整写旧版 options 模板——MC 26.2 的选项解析器对无引号旧格式行
-     * （fov:0.0/clouds:true 等）报 "Skipping bad option"，可能引发启动期异常；
-     * options.txt 首次由 MC 自行生成，这里只追加/更新 backend 键。
-     */
-    private fun injectGraphicsBackend(
-        repository: DefaultGameRepository,
-        version: Version,
-        renderer: String,
-        backendOverride: String? = null
-    ) {
-        runCatching {
-            val runDir = repository.getRunDirectory(version.id)
-            runDir.mkdirs()
-            val optionsFile = File(runDir, "options.txt")
-            if (!optionsFile.exists()) {
-                optionsFile.writeText("")
-            }
-
-            var content = optionsFile.readText()
-
-            // preferredGraphicsBackend：GL 渲染器强制 opengl（Vulkan 后端下 MobileGlues 的
-            // 窗口/EGL 初始化失败 "Invalid window"）；其余走 default（MC 自选）。
-            // 26.3 起选项类被模块化拆分，后端键名可能非 preferredGraphicsBackend，
-            // 对 MobileGlues 额外写入一组候选键（MC 只读取它识别的那个）。
-            // 值一律小写（default/opengl/vulkan），大写变体 MC 不识别会回落默认后端。
-            val rendererConfig = RendererManager.getRendererById(activity, renderer)
-            val isMobileGlues = rendererConfig != null &&
-                (rendererConfig.glName.contains("mobileglues", ignoreCase = true) ||
-                    rendererConfig.displayName.contains("MobileGlues", ignoreCase = true))
-            if (isMobileGlues) {
-                content = setOption(content, "preferredGraphicsBackend", "\"opengl\"")
-                content = setOption(content, "graphicsApi", "\"opengl\"")
-                content = setOption(content, "graphicsBackend", "\"opengl\"")
-                content = setOption(content, "apiPreference", "\"opengl\"")
-                content = setOption(content, "renderBackend", "\"opengl\"")
-            } else {
-                // default 由 MC 自选（26.3 探测到 Vulkan 强制 Vulkan），opengl/vulkan 显式指定。
-                // 版本级独立设置优先；26.2+ 版本在全局仍是 default 时按实测适配为 vulkan
-                // （G925 实测：default 时 MC 探测回落 GL 后端 glGetError mismatch 失败，
-                // 显式 vulkan 才走 Krypton/系统驱动正常），用户显式选择的值不受影响
-                val backend = backendOverride ?: run {
-                    val global = SettingsRepository.getGraphicsBackend()
-                    if (global == "default" &&
-                        com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(version.id)
-                    ) "vulkan" else global
-                }
-                content = setOption(content, "preferredGraphicsBackend", "\"$backend\"")
-            }
-
-            // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
-            // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
-            optionsFile.writeText(content)
-            VerseLogger.info("已注入渲染后端: ${SettingsRepository.getGraphicsBackend()}", TAG)
-        }.onFailure {
-            VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
-        }
-    }
-
-    /**
-     * options.txt 精确替换/追加单个键。value 为原始 options 行等号后的字面量（字符串需自带引号）。
-     * 只改目标键，不整写模板，规避 MC 26.2 对旧格式行 "Skipping bad option" 的启动期异常。
-     */
-    private fun setOption(content: String, key: String, value: String): String {
-        val regex = Regex("^$key:.*$", RegexOption.MULTILINE)
-        val line = "${key}:$value"
-        return if (regex.containsMatchIn(content)) {
-            regex.replace(content, line)
-        } else {
-            (if (content.trimEnd().isEmpty()) content else content.trimEnd() + "\n") + line + "\n"
-        }
-    }
-
-    /**
-     * 输出 options.txt 中的渲染相关键，仅用于排查画面问题，不修改玩家的游戏内设置。
-     */
-    private fun dumpRenderOptions(repository: DefaultGameRepository, version: Version, params: GameLaunchParams) {
-        runCatching {
-            val runDir = repository.getRunDirectory(version.id)
-            val optionsFile = File(runDir, "options.txt")
-            if (!optionsFile.exists() || !optionsFile.isFile) {
-                VerseLogger.warn("[RENDER-DIAG] options.txt 不存在于 ${optionsFile.absolutePath}", TAG)
-                return@runCatching
-            }
-            val content = optionsFile.readText()
-            VerseLogger.info("[RENDER-DIAG] ==== options.txt (${optionsFile.absolutePath}) 完整内容 ====", TAG)
-            content.lineSequence().forEachIndexed { i, line ->
-                if (line.isNotBlank()) VerseLogger.info("[RENDER-DIAG] options[${i}] = $line", TAG)
-            }
-            VerseLogger.info("[RENDER-DIAG] ==== 与水体/渲染相关的键（缺失即默认） ====", TAG)
-            val keys = listOf(
-                "preferredGraphicsBackend", "mipmapLevels", "renderDistance", "simulationDistance",
-                "ao", "fancyGraphics", "graphicsPreset", "renderClouds", "particles", "gamma",
-                "entityShadows", "maxFps", "fullscreen"
-            )
-            keys.forEach { key ->
-                val m = Regex("(?m)^$key:(.*)$").find(content)
-                val v = m?.groupValues?.get(1)?.trim() ?: "<缺失/默认>"
-                VerseLogger.info("[RENDER-DIAG]   $key = $v", TAG)
-            }
-            VerseLogger.info("[RENDER-DIAG] 渲染: renderer=${params.renderer}, windowScale=${MenuSetting.windowScale}（窗口缩放实际尺寸见 [9/9 渲染接入] 行）", TAG)
-        }.onFailure {
-            VerseLogger.warn("[RENDER-DIAG] dump 渲染参数失败: ${it.message}", TAG)
-        }
-    }
-
     private suspend fun createAuthInfo(params: GameLaunchParams): AuthInfo {
         // 外置登录：把验证服务器返回的 textures 属性一并交给游戏（--userProperties），
         // 否则客户端拿不到角色皮肤，只能显示默认皮肤
@@ -770,7 +579,7 @@ class GameLaunchOrchestrator(
     private fun buildLaunchOptions(
         params: GameLaunchParams,
         javaVersion: JavaVersion,
-        verSettings: com.verse.explorer.app.data.VersionSettingsRepository.VersionSettings
+        verSettings: com.verse.explorer.core.data.VersionSettingsRepository.VersionSettings
     ): LaunchOptions {
         // 强制分辨率（版本级设置）：直接用设定宽高，不按百分比规则换算。
         // setWidth((int)(screenWidth * scaleFactor)) —— 缩放三同步的另外两处：
@@ -824,159 +633,6 @@ class GameLaunchOrchestrator(
         val internalNativesDir = nativesDeployer.copyNativesToInternalStorage(externalNativesDir, params.javaHome, librariesDir)
         nativesDeployer.extractDefaultNatives(internalNativesDir)
         return internalNativesDir
-    }
-
-    private suspend fun resolveJavaHome(params: GameLaunchParams, gameDir: File): String {
-        // 本次启动真正需要的 Java 大版本：参数未指定时按版本清单推断
-        val requiredVersion = if (params.javaVersion > 0) params.javaVersion
-            else javaDetector.getRequiredJavaVersion(params.versionId, gameDir)
-
-        // 安装器自己的目标目录：files/jre/jre-<大版本>-<架构>
-        val installTarget = File(
-            JavaRuntimeManager.getJreDir(activity),
-            "jre-$requiredVersion-${JavaRuntimeManager.getArchName()}"
-        )
-
-        val candidates = mutableListOf<String>()
-        if (!params.javaHome.isNullOrEmpty()) candidates.add(params.javaHome)
-        // 兜底运行时必须与游戏所需的大版本一致：findJavaHome() 返回的是「最高版本」，
-        // 拿 Java 25 启动 1.12 会因 -Xbootclasspath/p 不再支持而直接退出
-        findRuntimeForVersion(requiredVersion)?.let {
-            if (it != params.javaHome) candidates.add(it)
-        }
-        candidates.add(installTarget.absolutePath)
-
-        for (home in candidates) {
-            val reason = jreInvalidReason(home)
-            if (reason == null) return executableJre(home)
-            VerseLogger.warn("JRE $home 不可用（$reason）", TAG)
-        }
-
-        // 没有可用运行时：交给安装器解包内置运行时。
-        // 不删除候选目录：别的版本/别处安装的运行时可能仍在使用，安装器只清空自己的目标目录。
-        val javaKey = "java$requiredVersion"
-        try {
-            JavaRuntimeManager.installJre(activity, javaKey) { progress ->
-                VerseLogger.info("JRE 重装进度: ${progress.message}", TAG)
-            }
-        } catch (e: Exception) {
-            VerseLogger.warn("JRE 重装失败: ${e.message}", TAG)
-        }
-
-        val reasonAfter = jreInvalidReason(installTarget.absolutePath)
-        if (reasonAfter == null) {
-            VerseLogger.info("JRE 重装后验证通过: ${installTarget.absolutePath}", TAG)
-            return executableJre(installTarget.absolutePath)
-        }
-        // 安装器可能保留了旧目录或写到了其它位置，最后再按大版本扫一遍
-        findRuntimeForVersion(requiredVersion)?.let { newHome ->
-            if (jreInvalidReason(newHome) == null) {
-                VerseLogger.info("JRE 重装后验证通过: $newHome", TAG)
-                return executableJre(newHome)
-            }
-        }
-
-        throw RuntimeException("未找到完整的 Java $requiredVersion 运行时（需包含 bin/java、lib/libjli.so、lib/libjvm.so、lib/libawt.so），请在设置中配置 JRE 路径")
-    }
-
-    /**
-     * 校验 JRE 目录能否用于启动：返回 null 表示可用，否则返回缺失项。
-     * JRE8 的核心运行库是 lib/rt.jar（安装时由 rt.jar.pack 还原），JDK9+ 是 lib/modules；
-     * 与安装器的完整性判定保持一致，避免出现「安装器说已安装、启动又说找不到」的循环。
-     */
-    private fun jreInvalidReason(home: String): String? {
-        val dir = File(home)
-        if (!dir.exists()) return "目录不存在"
-        if (!File(dir, "bin/java").exists()) return "缺少 bin/java"
-        val libDir = File(dir, "lib")
-        if (!libDir.isDirectory) return "缺少 lib/"
-        if (!javaDetector.findFileInDir(libDir, "libjli.so")) return "缺少 libjli.so"
-        if (!javaDetector.findFileInDir(libDir, "libjvm.so")) return "缺少 libjvm.so"
-        if (!javaDetector.findFileInDir(libDir, "libawt.so")) return "缺少 libawt.so"
-        if (!javaDetector.findFileInDir(libDir, "libfontmanager.so")) return "缺少 libfontmanager.so"
-        val classesOk = javaDetector.findNonEmptyFileInDir(libDir, "modules") ||
-            (javaDetector.findNonEmptyFileInDir(libDir, "rt.jar") && isRtJarUsable(libDir))
-        if (!classesOk) return "核心运行库(modules/rt.jar)缺失或损坏"
-        return null
-    }
-
-    private fun executableJre(home: String): String {
-        ensureJreExecutable(File(home))
-        return File(home).absolutePath
-    }
-
-    /**
-     * 按所需 Java 大版本挑选已安装运行时。
-     * 优先取 `jre-<版本>-<架构>` 目录（安装器产出），其余同版本运行时作为备选。
-     */
-    private fun findRuntimeForVersion(requiredVersion: Int): String? = runCatching {
-        JavaRuntimeManager.getInstalledRuntimes(activity)
-            .filter { it.version == requiredVersion }
-            .sortedByDescending { it.path.name.startsWith("jre-$requiredVersion-") }
-            .firstOrNull { javaDetector.isValidJreDir(it.path) }
-            ?.path?.absolutePath
-    }.getOrNull()
-
-    /**
-     * JRE8 核心库可用性：lib 目录下的 rt.jar 能读出 java/lang/Object.class 才算完好。
-     * 局部损坏（中央目录正常、条目数据损坏）无法靠文件大小判断，用条目可读性兜底。
-     */
-    private fun isRtJarUsable(libDir: File): Boolean = runCatching {
-        val rtJar = findFileInTree(libDir, "rt.jar") ?: return@runCatching false
-        java.util.zip.ZipFile(rtJar).use { zip ->
-            zip.getEntry("java/lang/Object.class") != null &&
-                zip.getInputStream(zip.getEntry("java/lang/Object.class")).use { it.read() } >= 0
-        }
-    }.getOrDefault(false)
-
-    private fun findFileInTree(dir: File, name: String): File? {
-        if (!dir.exists()) return null
-        dir.listFiles()?.forEach { f ->
-            if (f.isFile && f.name == name) return f
-            if (f.isDirectory) findFileInTree(f, name)?.let { return it }
-        }
-        return null
-    }
-
-    private fun ensureJreExecutable(jreHome: File) {
-        try {
-            val binDir = File(jreHome, "bin")
-            if (binDir.isDirectory) {
-                binDir.listFiles()?.forEach { f ->
-                    if (f.isFile) {
-                        f.setExecutable(true, false)
-                        f.setReadable(true, false)
-                    }
-                }
-            }
-            val libDir = File(jreHome, "lib")
-            if (libDir.isDirectory) {
-                libDir.walkTopDown().forEach { f ->
-                    if (f.isFile && f.name.endsWith(".so")) {
-                        f.setExecutable(true, false)
-                        f.setReadable(true, false)
-                    }
-                }
-            }
-
-            // JRE 自带的 libawt_xawt.so 依赖 X11 无法在 Android 加载，必须替换为我们编译的桩库
-            // 即使文件已存在也要覆盖（可能是 JRE 自带版本或之前损坏的版本）
-            val libawtFile = File(libDir, "libawt_xawt.so")
-            libawtFile.delete()
-            JavaRuntimeManager.extractLibFromApk(activity, "libawt_xawt.so", libawtFile)
-
-            // 某些 JRE 将原生库存放在 lib/<arch>/ 子目录中，同步覆盖以覆盖所有加载路径
-            val archSubdir = JavaRuntimeManager.detectArchSubdir(libDir)
-            if (archSubdir != null) {
-                val archAwtFile = File(libDir, "$archSubdir/libawt_xawt.so")
-                archAwtFile.delete()
-                JavaRuntimeManager.extractLibFromApk(activity, "libawt_xawt.so", archAwtFile)
-            }
-
-            VerseLogger.info("JRE 权限已修复: ${jreHome.absolutePath}", TAG)
-        } catch (e: Exception) {
-            VerseLogger.warn("JRE 权限修复失败: ${e.message}", TAG)
-        }
     }
 
     private suspend fun awaitSurface(): Surface {

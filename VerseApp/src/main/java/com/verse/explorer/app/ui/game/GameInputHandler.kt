@@ -8,7 +8,7 @@ import android.util.Log
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
-import com.verse.explorer.app.data.GamepadBindingsRepository
+import com.verse.explorer.core.data.GamepadBindingsRepository
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode

@@ -39,7 +39,7 @@ fun VersionsScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val settingsRepo = com.verse.explorer.app.data.SettingsRepository
+    val settingsRepo = com.verse.explorer.core.data.SettingsRepository
     val downloadSource = remember { settingsRepo.getDownloadSource() }
     val sourceLabel = com.verse.explorer.app.download.DownloadSourceManager.Source.entries.find { it.id == downloadSource }?.label ?: "BMCLAPI 镜像"
 

@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.verse.explorer.app.data.ModTranslationMapper
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.resource.ModrinthSearchHit
 import com.verse.explorer.core.resource.ResourceRepository
 import com.verse.explorer.core.resource.ResourceSearchResult

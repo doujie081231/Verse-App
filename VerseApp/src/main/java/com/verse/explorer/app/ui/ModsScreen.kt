@@ -57,7 +57,7 @@ fun ModsScreen(
 
     var favOnly by remember { mutableStateOf(false) }
     val favHits = remember(favOnly) {
-        com.verse.explorer.app.data.FavoritesRepository.list(context).map { f ->
+        com.verse.explorer.core.data.FavoritesRepository.list(context).map { f ->
             ModrinthSearchHit(
                 projectId = f.id,
                 title = f.title,

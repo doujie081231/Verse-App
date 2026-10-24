@@ -20,8 +20,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.verse.explorer.app.domain.model.version.DetailLoaderOption
-import com.verse.explorer.app.domain.model.version.LoaderVersion
+import com.verse.explorer.core.domain.model.version.DetailLoaderOption
+import com.verse.explorer.core.domain.model.version.LoaderVersion
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.components.RoseLoader
 

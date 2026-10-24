@@ -11,10 +11,11 @@ import androidx.room.Room
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.GifDecoder
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.account.AccountManager
 import com.verse.explorer.core.account.AuthlibAuthenticator
+import com.verse.explorer.core.account.AuthlibServices
 import com.verse.explorer.core.account.MicrosoftAuthenticator
 import com.verse.explorer.core.database.AppDatabase
 import com.verse.explorer.core.java.JavaRuntimeManager
@@ -100,7 +101,9 @@ class VerseApplication : Application(), ImageLoaderFactory {
             .build()
         accountManager = AccountManager(database.accountDao())
         microsoftAuthenticator = MicrosoftAuthenticator()
-        authlibAuthenticator = AuthlibAuthenticator()
+        // 核心层（账号头像仓库等）经 AuthlibServices 共用同一实例，此处负责进程级初始化
+        AuthlibServices.authlibAuthenticator = AuthlibAuthenticator()
+        authlibAuthenticator = AuthlibServices.authlibAuthenticator
         writeBootLog("Application.onCreate completed, starting JRE init")
         initAllJreRuntimes()
         cleanupDownloadResidue()

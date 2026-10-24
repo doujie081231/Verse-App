@@ -18,8 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.java.JavaRuntimeRepository
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.java.JavaRuntimeRepository
 import com.verse.explorer.app.launch.JvmArgsBuilder
 import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.PcButton

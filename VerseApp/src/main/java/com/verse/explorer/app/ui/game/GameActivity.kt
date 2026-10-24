@@ -31,8 +31,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.toArgb
 import com.verse.explorer.app.R
-import com.verse.explorer.app.data.SettingsRepository
-import com.verse.explorer.app.data.version.VersionJsonResolver
+import com.verse.explorer.core.data.SettingsRepository
+import com.verse.explorer.core.data.version.VersionJsonResolver
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.game.GameLaunchOrchestrator
 import com.verse.explorer.app.game.GameLogManager
@@ -193,7 +193,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
             // TouchController 模组：在 Java 虚拟机启动前启动控制代理并写入套接字环境变量，
             // 模组启动后即可与启动器建立连接（坐标转发在内置触控布局挂载前完成配置）
-            val versionSettings = com.verse.explorer.app.data.VersionSettingsRepository(this)
+            val versionSettings = com.verse.explorer.core.data.VersionSettingsRepository(this)
                 .getVersionSettings(versionId)
             touchProxyEnabled = TouchControllerProxy.isModPresent(
                 gameDir = gameDirPath,
@@ -887,7 +887,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
 
             // 默认布局优先级：版本级指定 > 控制面板「设为默认」> 部署的官方 Default.json
-            val versionLayout = com.verse.explorer.app.data.VersionSettingsRepository(this)
+            val versionLayout = com.verse.explorer.core.data.VersionSettingsRepository(this)
                 .getVersionSettings(intent.getStringExtra("versionId") ?: "")
                 .takeIf { !it.usesGlobal && it.controller.isNotBlank() }
                 ?.let { java.io.File(Tools.CTRLMAP_PATH, it.controller + ".json") }

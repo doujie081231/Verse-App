@@ -18,8 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
-import com.verse.explorer.app.data.version.LoaderRepository
-import com.verse.explorer.app.domain.model.version.*
+import com.verse.explorer.core.data.version.LoaderRepository
+import com.verse.explorer.core.domain.model.version.*
 import com.verse.explorer.app.ui.components.InstallFlowCard
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.VersionNamingDialog

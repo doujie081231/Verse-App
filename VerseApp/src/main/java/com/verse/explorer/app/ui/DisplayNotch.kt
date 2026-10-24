@@ -6,7 +6,7 @@ import android.view.WindowInsets
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.verse.explorer.app.data.SettingsRepository
+import com.verse.explorer.core.data.SettingsRepository
 
 /**
  * 刘海屏区域处理：开启「忽略刘海（全屏）」时画面铺满（含刘海区域），
