@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 标准鼠标箭头指针：热点（尖端）固定在视图 (0,0)，GameActivity 光标按此对齐逻辑光标位置 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M0,0 L0,17.4 L4.6,13.4 L7.4,19.4 L10.1,18.2 L7.3,12.2 L12.7,12.2 Z"
+        android:strokeColor="#202020"
+        android:strokeWidth="1.2"
+        android:strokeLineJoin="round"
+        android:fillColor="#F5F5F5" />
+</vector>

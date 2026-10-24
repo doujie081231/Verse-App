@@ -1,0 +1,57 @@
+<resources>
+    <string name="app_name">Verse</string>
+    <string name="control_debug">调试</string>
+    <string name="control_chat">聊天</string>
+    <string name="control_listplayers">玩家</string>
+    <string name="control_thirdperson">视角</string>
+    <string name="control_up">▲</string>
+    <string name="control_left">◀</string>
+    <string name="control_down">▼</string>
+    <string name="control_right">▶</string>
+    <string name="control_inventory">物品</string>
+    <string name="control_shift">◇</string>
+    <string name="control_jump">⬛</string>
+    <string name="customctrl_selectdefault">选择默认控制布局</string>
+    <string name="customctrl_editor_exit_title">您确定要离开？</string>
+    <string name="customctrl_editor_exit_msg">您确定要退出？</string>
+    <string name="global_save">保存</string>
+    <string name="global_load">加载</string>
+    <string name="global_save_and_exit">保存并退出</string>
+    <string name="global_confirm">确定</string>
+    <string name="global_cancel">取消</string>
+    <string name="global_yes">是</string>
+    <string name="global_no">否</string>
+    <string name="global_error_field_empty">此字段不能为空</string>
+    <string name="global_clone">克隆</string>
+    <string name="global_delete">删除</string>
+    <string name="customctrl_addsubbutton">添加子按键</string>
+    <string name="millisecond_format">%d ms</string>
+    <string name="percent_format">%d%%</string>
+    <string name="quick_setting_title">快捷设置</string>
+    <string name="controller_button_a">A</string>
+    <string name="controller_button_b">B</string>
+    <string name="controller_button_x">X</string>
+    <string name="controller_button_y">Y</string>
+    <string name="controller_button_start">开始</string>
+    <string name="controller_button_select">选择</string>
+    <string name="controller_button_shoulder_left">左肩键</string>
+    <string name="controller_button_shoulder_right">右肩键</string>
+    <string name="controller_button_trigger_left">左扳机</string>
+    <string name="controller_button_trigger_right">右扳机</string>
+    <string name="controller_dpad_up">十字键上</string>
+    <string name="controller_dpad_down">十字键下</string>
+    <string name="controller_dpad_left">十字键左</string>
+    <string name="controller_dpad_right">十字键右</string>
+    <string name="controller_direction_forward">摇杆上</string>
+    <string name="controller_direction_backward">摇杆下</string>
+    <string name="controller_direction_left">摇杆左</string>
+    <string name="controller_direction_right">摇杆右</string>
+    <string name="controller_stick_press_l">左摇杆（按下）</string>
+    <string name="controller_stick_press_r">右摇杆（按下）</string>
+    <string name="preference_back_title">返回上一页</string>
+    <string name="color_picker_title">自定义强调色</string>
+    <string name="color_picker_cancel">取消</string>
+    <string name="color_picker_confirm">确定</string>
+
+
+</resources>

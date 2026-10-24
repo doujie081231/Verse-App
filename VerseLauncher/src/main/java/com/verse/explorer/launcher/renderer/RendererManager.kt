@@ -1,0 +1,347 @@
+package com.verse.explorer.launcher.renderer
+
+import android.content.Context
+import android.util.Log
+import java.io.File
+
+// 旧版兼容类型：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
+@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
+enum class RendererType(val displayName: String, val glLibName: String) {
+    ZINK("Zink (Vulkan)", "libOSMesa_8.so"),
+    VIRGL("VirGL (OpenGL)", "libOSMesa.so"),
+    GL4ES("GL4ES (OpenGL 2)", "libgl4es_12.so"),
+    NGGL4ES("ng-GL4ES", "libgl4es_12.so"),
+    VGPU("VGPU (OpenGL)", "libvgpu.so"),
+    FREEDRENO("Freedreno (Turnip)", "libOSMesa_8.so")
+}
+
+// 旧版兼容数据类：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
+@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
+data class RendererConfig(
+    val type: RendererType,
+    val width: Int = 1280,
+    val height: Int = 720
+)
+
+object RendererManager {
+
+    private const val TAG = "RendererManager"
+
+    const val ID_GL4ES = "gl4es"
+    const val ID_NGGL4ES = "nggl4es"
+    const val ID_ZINK = "zink"
+    const val ID_FREEDRENO = "freedreno"
+    const val ID_VIRGL = "virgl"
+    const val ID_VGPU = "vgpu"
+
+    data class RendererConfig(
+        val displayName: String,
+        val id: String,
+        val glName: String,
+        val eglName: String,
+        val pojavRenderer: String,
+        val envVars: Map<String, String?>,
+        val requiredLibs: List<String>,
+        val minMcVersion: String = "",
+        val maxMcVersion: String = "",
+        /** 插件渲染器的 native 库目录；内置渲染器为空 */
+        val nativeLibDir: String = "",
+        /** 插件包名；非空表示来自渲染器插件 */
+        val pluginPackage: String = "",
+        /** 插件应用显示名（用于界面标注来源） */
+        val pluginAppName: String = "",
+        /** 需要预先 dlopen 的插件内库文件名 */
+        val dlopenLibs: List<String> = emptyList()
+    )
+
+    val GL4ES = RendererConfig(
+        displayName = "Holy-GL4ES",
+        id = ID_GL4ES,
+        glName = "libgl4es_114.so",
+        eglName = "libEGL.so",
+        pojavRenderer = "opengles2",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles2",
+            "LIBGL_ES" to "2",
+            "LIBGL_MIPMAP" to "3",
+            "LIBGL_NORMALIZE" to "1",
+            "LIBGL_NOINTOVLHACK" to "1",
+            "LIBGL_NOERROR" to "1",
+            "LIBGL_NAME" to "libgl4es_114.so",
+            "LIBEGL_NAME" to "libEGL.so"
+        ),
+        requiredLibs = listOf("libgl4es_114.so"),
+        minMcVersion = "",
+        maxMcVersion = "1.21.4"
+    )
+
+    // NGGL4ES：eglName="libEGL.so"（系统 Mali EGL），glName="libng_gl4es.so"。
+    // 环境变量：LIBGL_USE_MC_COLOR=1, LIBGL_GL=31, LIBGL_ES=3, LIBGL_NORMALIZE=1, LIBGL_NOERROR=1,
+    //           LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so,
+    //           POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so。
+    // 之前误用 ANGLE（libEGL_angle.so + libGLESv2_angle.so）作为 EGL/GLES，与系统 Mali 驱动不同；
+    // libng_gl4es.so 必须使用较新构建，旧构建存在水面贴图错乱与滑动卡顿问题。
+    val NGGL4ES = RendererConfig(
+        displayName = "NGGL4ES/Krypton Wrapper",
+        id = ID_NGGL4ES,
+        glName = "libng_gl4es.so",
+        eglName = "libEGL.so",
+        pojavRenderer = "opengles3",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles3",
+            "LIBGL_USE_MC_COLOR" to "1",
+            "DLOPEN" to "libspirv-cross-c-shared.so",
+            "LIBGL_GL" to "31",
+            "LIBGL_ES" to "3",
+            "LIBGL_NORMALIZE" to "1",
+            "LIBGL_NOINTOVLHACK" to "1",
+            "LIBGL_NOERROR" to "1",
+            "POJAVEXEC_EGL" to "libEGL.so",
+            "LIBGL_NAME" to "libng_gl4es.so",
+            "LIBEGL_NAME" to "libEGL.so"
+        ),
+        requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so"),
+        minMcVersion = "",
+        maxMcVersion = ""
+    )
+
+    val ZINK = RendererConfig(
+        displayName = "Zink",
+        id = ID_ZINK,
+        glName = "libglxshim.so",
+        eglName = "libEGL_mesa.so",
+        pojavRenderer = "opengles3_desktopgl_zink_kopper",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles3_desktopgl_zink_kopper",
+            "LIBGL_ES" to "3",
+            "POJAVEXEC_EGL" to "libEGL_mesa.so",
+            "MESA_GLSL_CACHE_DIR" to "",
+            "MESA_GL_VERSION_OVERRIDE" to "4.6",
+            "MESA_GLSL_VERSION_OVERRIDE" to "460",
+            "force_glsl_extensions_warn" to "true",
+            "allow_higher_compat_version" to "true",
+            "allow_glsl_extension_directive_midshader" to "true",
+            "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
+            "VTEST_SOCKET_NAME" to "",
+            "LIBGL_NAME" to "libglxshim.so",
+            "LIBEGL_NAME" to "libEGL_mesa.so"
+        ),
+        requiredLibs = listOf("libglxshim.so", "libEGL_mesa.so", "libcutils.so", "libglapi.so", "libzink_dri.so"),
+        minMcVersion = "",
+        maxMcVersion = ""
+    )
+
+    val FREEDRENO = RendererConfig(
+        displayName = "Freedreno",
+        id = ID_FREEDRENO,
+        glName = "libOSMesa_8.so",
+        eglName = "libEGL.so",
+        pojavRenderer = "gallium_freedreno",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "gallium_freedreno",
+            "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
+            "MESA_GLSL_CACHE_DIR" to "",
+            "MESA_GL_VERSION_OVERRIDE" to "4.6",
+            "MESA_GLSL_VERSION_OVERRIDE" to "460",
+            "force_glsl_extensions_warn" to "true",
+            "allow_higher_compat_version" to "true",
+            "allow_glsl_extension_directive_midshader" to "true",
+            "VTEST_SOCKET_NAME" to "",
+            "LIBGL_NAME" to "libOSMesa_8.so",
+            "LIBEGL_NAME" to "libEGL.so"
+        ),
+        requiredLibs = listOf("libOSMesa_8.so", "libvulkan_freedreno.so"),
+        minMcVersion = "",
+        maxMcVersion = ""
+    )
+
+    val VIRGL = RendererConfig(
+        displayName = "VirGL",
+        id = ID_VIRGL,
+        glName = "libOSMesa_81.so",
+        eglName = "libEGL.so",
+        pojavRenderer = "gallium_virgl",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "gallium_virgl",
+            "OSMESA_NO_FLUSH_FRONTBUFFER" to "1",
+            "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
+            "MESA_GLSL_CACHE_DIR" to "",
+            "MESA_GL_VERSION_OVERRIDE" to "4.3",
+            "MESA_GLSL_VERSION_OVERRIDE" to "430",
+            "force_glsl_extensions_warn" to "true",
+            "allow_higher_compat_version" to "true",
+            "allow_glsl_extension_directive_midshader" to "true",
+            "VTEST_SOCKET_NAME" to "",
+            "LIBGL_NAME" to "libOSMesa_81.so",
+            "LIBEGL_NAME" to "libEGL.so"
+        ),
+        requiredLibs = listOf("libOSMesa_81.so"),
+        minMcVersion = "",
+        maxMcVersion = ""
+    )
+
+    val VGPU = RendererConfig(
+        displayName = "VGPU",
+        id = ID_VGPU,
+        glName = "libvgpu.so",
+        eglName = "libEGL.so",
+        pojavRenderer = "opengles2_vgpu",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles2_vgpu",
+            "LIBGL_ES" to "2",
+            "LIBGL_MIPMAP" to "3",
+            "LIBGL_NORMALIZE" to "1",
+            "LIBGL_NOINTOVLHACK" to "1",
+            "LIBGL_NOERROR" to "1",
+            "LIBGL_NAME" to "libvgpu.so",
+            "LIBEGL_NAME" to "libEGL.so"
+        ),
+        requiredLibs = listOf("libvgpu.so"),
+        minMcVersion = "",
+        maxMcVersion = "1.16.5"
+    )
+
+    // MobileGlues 等第三方渲染器不再内置，统一通过已安装的渲染器插件识别（元数据见 RendererPluginManager）。
+
+    private val allRenderers: List<RendererConfig> = listOf(
+        GL4ES,
+        NGGL4ES,
+        ZINK,
+        FREEDRENO,
+        VIRGL,
+        VGPU
+    )
+
+    fun allRenderers(): List<RendererConfig> = allRenderers
+
+    fun availableRenderers(context: Context): List<RendererConfig> {
+        val nativeLibDir = context.applicationInfo.nativeLibraryDir
+        val builtins = allRenderers.filter { areRequiredLibsPresent(nativeLibDir, it) }
+        return builtins + RendererPluginManager.ensureLoaded(context)
+    }
+
+    fun getRendererById(id: String): RendererConfig? {
+        return allRenderers.find { it.id.equals(id, ignoreCase = true) }
+            ?: RendererPluginManager.find(id)
+    }
+
+    /** 先确保插件已扫描，再按标识查找（启动前与设置页使用） */
+    fun getRendererById(context: Context, id: String): RendererConfig? {
+        RendererPluginManager.ensureLoaded(context)
+        return getRendererById(id)
+    }
+
+    fun getDefaultRenderer(): RendererConfig = GL4ES
+
+    fun areRequiredLibsPresent(nativeLibDir: String, renderer: RendererConfig): Boolean {
+        if (renderer.pluginPackage.isNotEmpty()) {
+            val pluginDir = renderer.nativeLibDir.ifEmpty { nativeLibDir }
+            return File(pluginDir, renderer.glName).isFile
+        }
+        if (renderer.requiredLibs.isEmpty()) return true
+        val dir = File(nativeLibDir)
+        return renderer.requiredLibs.all { libName ->
+            File(dir, libName).exists().also { exists ->
+                Log.d(TAG, "Renderer ${renderer.id} lib check: $libName -> $exists")
+            }
+        }
+    }
+
+    fun areRequiredLibsPresent(context: Context, renderer: RendererConfig): Boolean {
+        return areRequiredLibsPresent(context.applicationInfo.nativeLibraryDir, renderer)
+    }
+
+    fun resolveRendererWithFallback(context: Context, selectedId: String): RendererConfig {
+        val selected = getRendererById(context, selectedId) ?: GL4ES
+        return if (areRequiredLibsPresent(context, selected)) {
+            selected
+        } else {
+            Log.w(TAG, "Renderer ${selected.displayName} library missing, fallback to GL4ES")
+            GL4ES
+        }
+    }
+
+    /** 插件渲染器构造 FCL Renderer 时的 pojavEnv 列表（DLOPEN 库名由 FCL 侧拼接插件目录） */
+    fun toPojavEnvList(renderer: RendererConfig): List<String> {
+        val result = mutableListOf<String>()
+        val hasRendererKey = renderer.envVars.keys.any { it.equals("POJAV_RENDERER", ignoreCase = true) }
+        if (!hasRendererKey && renderer.pojavRenderer.isNotEmpty()) {
+            result.add("POJAV_RENDERER=${renderer.pojavRenderer}")
+        }
+        renderer.envVars.forEach { (key, value) ->
+            if (!value.isNullOrEmpty()) result.add("$key=$value")
+        }
+        if (renderer.envVars.keys.none { it.equals("DLOPEN", ignoreCase = true) } &&
+            renderer.dlopenLibs.isNotEmpty()
+        ) {
+            result.add("DLOPEN=${renderer.dlopenLibs.joinToString(",")}")
+        }
+        return result
+    }
+
+    fun applyRendererEnvironment(
+        baseEnv: MutableMap<String, String?>,
+        renderer: RendererConfig,
+        mesaGlslCacheDir: String? = null,
+        vtestSocketName: String? = null
+    ) {
+        baseEnv["POJAV_RENDERER"] = renderer.pojavRenderer
+        renderer.envVars.forEach { (key, value) ->
+            when {
+                key == "MESA_GLSL_CACHE_DIR" && value.isNullOrEmpty() && !mesaGlslCacheDir.isNullOrEmpty() -> {
+                    baseEnv[key] = mesaGlslCacheDir
+                }
+                key == "VTEST_SOCKET_NAME" && value.isNullOrEmpty() && !vtestSocketName.isNullOrEmpty() -> {
+                    baseEnv[key] = vtestSocketName
+                }
+                !value.isNullOrEmpty() -> {
+                    baseEnv[key] = value
+                }
+            }
+        }
+    }
+
+    // 旧版兼容方法：GameWindow 仍调用，保留至迁移完成
+    @Deprecated("Renderer initialization is now handled by environment variables")
+    fun initializeRenderer(surface: android.view.Surface, config: com.verse.explorer.launcher.renderer.RendererConfig) {
+        Log.d(TAG, "Renderer ${config.type.displayName} initialized via environment variables")
+    }
+
+    @Deprecated("No-op for compatibility")
+    fun cleanup() {
+        Log.d(TAG, "Renderer cleanup complete")
+    }
+
+    @Deprecated("No-op for compatibility")
+    fun isRendererAvailable(type: RendererType): Boolean {
+        return true
+    }
+
+    @Deprecated("Use renderer.glName")
+    fun getGlLibName(type: RendererType): String {
+        return type.glLibName
+    }
+}
+
+// 旧版兼容方法：MinecraftLauncher 当前代码仍调用，保留至迁移完成
+@Deprecated("Use RendererManager.getRendererById / applyRendererEnvironment")
+fun resolveRendererType(renderer: String): RendererType {
+    return when (renderer.lowercase()) {
+        "gl4es" -> RendererType.GL4ES
+        "nggl4es" -> RendererType.NGGL4ES
+        "zink" -> RendererType.ZINK
+        "freedreno" -> RendererType.FREEDRENO
+        "virgl" -> RendererType.VIRGL
+        "vgpu" -> RendererType.VGPU
+        else -> RendererType.GL4ES
+    }
+}
+
+@Deprecated("Environment setup is now handled inside MinecraftLauncher.setupRendererEnvironment")
+fun setupRendererEnvironment(
+    config: com.verse.explorer.launcher.launch.LaunchConfiguration,
+    rendererConfig: RendererConfig
+): RendererConfig {
+    // 实际渲染器环境变量设置已在 MinecraftLauncher 内部完成，此处仅保持兼容签名
+    return rendererConfig
+}

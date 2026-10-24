@@ -1,0 +1,87 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+temp_homescreen.ps1
+
+# Module build directories
+**/build/
+VersePC/
+
+# --- root-level diagnosis / test junk (keep repo clean) ---
+/*.png
+/*.xml
+/*.json
+/*.bin
+/*.db
+/*.log
+/*.txt
+/*.tar.xz
+/mc_files/
+/test_screenshots/
+/tmp_extract/
+/tmp_jna_aar/
+/org/
+/META-INF/
+/push_libs.ps1
+/parse_ui.ps1
+
+# --- temporary debug / migration artifacts (keep repo clean) ---
+/.fcl-temp/
+/.pojav-src/
+/.kotlin/
+/.trae/
+/.codex/
+/.workbuddy/
+/.temp-debug/
+/.tmp-*/
+/.tmp_lwjgl/
+/.tmp*.jar
+/.tmp*.py
+/.tmp*.so
+/*.jar
+/*.zip
+/*.so
+/*.sh
+/*.ps1
+/*.py
+/*.sql
+/com/
+/javassist/
+/libs/
+/mc_filesassets*
+
+# --- local reference & artifacts (keep repo clean) ---
+/.fcl-repo/
+/.sdl-tmp/
+/crashlogs/
+/net/
+/*.idsig
+/HANDOFF-*.md
+
+# --- local media / diagnosis projects (not app source) ---
+/.verify/
+/promo-video/
+/video/
+/soup/
+
+# --- 内部文档/工具（不入公开仓库）---
+AI交接文档.md
+.zcodeignore
+.codex/
+
+# --- 构建辅助脚本/CI/内部文档（不入仓库）---
+/tools/
+/.github/
+FclCore/VERSE-CHANGES.md
+VerseApp/DESIGN.md

@@ -1,0 +1,24 @@
+<resources>
+    <style name="Theme.VerseExplorer" parent="android:Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/primary</item>
+        <item name="android:colorPrimaryDark">@color/primary_dark</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <!-- AppCompat 属性：触控编辑对话框（dialog_control_button_setting 等）与
+             appcompat AlertDialog（openSaveDialog/openSetDefaultDialog/openLoadDialog）必需，
+             原生 Theme.Material 不提供这些非 android: 前缀属性，缺则 InflateException/主题崩溃 -->
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="colorControlNormal">?android:attr/colorControlNormal</item>
+        <item name="colorControlHighlight">?android:attr/colorControlHighlight</item>
+        <item name="selectableItemBackground">?android:attr/selectableItemBackground</item>
+        <item name="selectableItemBackgroundBorderless">?android:attr/selectableItemBackgroundBorderless</item>
+        <item name="alertDialogTheme">@style/Theme.VerseExplorer.AlertDialog</item>
+    </style>
+
+    <style name="Theme.VerseExplorer.AlertDialog" parent="Theme.AppCompat.Dialog.Alert" />
+</resources>

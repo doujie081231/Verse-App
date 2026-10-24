@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path
+        name="logshare"
+        path="logshare/" />
+    <!-- 渲染器插件 APK 导入：缓存文件交给系统安装器 -->
+    <cache-path
+        name="plugin_import"
+        path="plugin_import/" />
+    <!-- 应用内更新的更新包：下载完成后交给系统安装器 -->
+    <cache-path
+        name="updates"
+        path="updates/" />
+</paths>

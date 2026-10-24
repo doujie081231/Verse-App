@@ -1,0 +1,7 @@
+<resources>
+    <declare-styleable name="CustomSeekbar">
+        <attr name="seekBarIncrement" />
+        <!-- Redefine to be able to fetch the value -->
+        <attr name="android:min" />
+    </declare-styleable>
+</resources>
