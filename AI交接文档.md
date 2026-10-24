@@ -10,13 +10,19 @@
 ## 0. 当前状态速览
 
 - 项目：Android Minecraft 启动器 **Verse Explorer X**，包名 `com.verse.explorer`，命名空间 `com.verse.explorer.app`。工作目录 `d:\Verse Explorer X\Verse Android`。
-- 当前版本：**0.0.9（versionCode 38）**，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L27-L32>)。
+- 当前版本：**0.1.6（versionCode 45）**，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L27-L32>)。
+  （0.0.9/38 重构前基线；0.1.0 完成 P1～P6 重构；0.1.1 存档管理；0.1.2 ZL2 布局导入；
+  0.1.3 加载器安装；0.1.4 模组更新与冲突检测；0.1.5 补上 Quilt 安装；
+  0.1.6 修「半截库文件被永久跳过」导致的启动崩溃。版本号改动尚未提交。）
 - release 构建已设 `isDebuggable = false`，用于消除 Android 16/17 的「可调试应用 / 16 KB ELF 对齐」兼容性弹窗，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L56-L67>)。
 - git：工作区**干净**。0.0.5～0.0.9 的全部改动均已本地提交（未 push、未 tag），关键提交：
   - `f7bb666` 0.0.5～0.0.8 基线；`4ac29c0` 0.0.9 重构前基线
   - `1e91828` 测试基础设施；`f574f22` 注释中性化；`7e5f431` 入口拆分；
     `cefe294` 五个巨型 UI 拆分；`f33258f` 游戏内 UI 拆分；`a869dd0` VerseCore 拆分
-- 最新构建产物：`d:\Verse Explorer X\远程传输\Verse-0.0.9-refactor-arm64-v8a.apk`（189,647,107 字节，已签名，证书与 0.0.8 一致可覆盖安装）。
+- 最新构建产物：`d:\Verse Explorer X\远程传输\Verse-0.1.6-libfix-arm64-v8a.apk`
+  （已 zipalign + v1/v2/v3 签名并 verify，证书与前版一致可覆盖安装）。
+  含 P1～P6 重构 + 存档管理 + ZL2 布局导入 + 加载器安装（含 Quilt）+ 模组更新/冲突检测 + 93 个单测。
+  **全部新功能均未真机验证**（adb 反复掉线，构建后无法安装）。
 - 真机：序列号 `3B1F5PE9ZUZ69NZH`（Android 16+，页面大小 4096）。adb 会中途掉线，重连后先 `adb devices` 确认再装。
 - 当前进度：代码质量改善计划 P0～P6 已完成（重构 + 测试网 + 注释清理 + 大文件拆分），
   **真机回归尚未做**，见第 7 节。
@@ -63,6 +69,7 @@
 | `VerseCore/.../account/MicrosoftAuthenticator.kt` | → `AuthExceptions.kt`、`AuthlibAuthenticator.kt` |
 | `VerseCore/.../install/GameInstaller.kt` | → `LibraryFilter.kt`、`InstallFileUtils.kt` |
 | `VerseCore/.../launch/DependencyDownloader.kt` | → `DependencyUtils.kt` |
+| `ui/VersionSettingsScreen.kt` 的存档子页 | → `ui/WorldsTab.kt`（存档 + 备份记录，材质包/光影仍走通用 `VersionFolderTab`） |
 | `app/game/GameLaunchOrchestrator.kt` | → `app/game/OptionsInjector.kt`、`app/game/JreResolver.kt`（另有纯函数对象 `OptionsText.kt`、`JreValidator.kt`） |
 | 数据层（原 `app.data`） | → 18 个仓库下沉 `VerseCore/.../core.data`（含 `account/feedback/java/lan/version` 子包）；`app.data` 只剩 6 个 UI 耦合文件 |
 
@@ -137,9 +144,12 @@ $env:JAVA_HOME="D:\verse-android-sdk\jdk17\jdk-17.0.2"
 - 测试跑本地 JVM，不需真机；`VerseApp`/`VerseCore` 已配 `unitTests.returnDefaultValues`（android.jar 桩返回默认值）。
 - 测试数据统一放各模块 `src/test/resources/`（如 `VerseCore/src/test/resources/modrinth/in_versions.json`），禁止写机器绝对路径。
 - CI（`.github/workflows/build-android.yml`）在 Build 前跑同一测试命令，失败即红。
-- 当前 9 个测试类、60 个用例，集中在启动链与安装链的纯逻辑：
+- 当前 13 个测试类、93 个用例，集中在启动链与安装链的纯逻辑：
   `OptionsFileWriter`（options 写入结果）、`JreCandidates`（JRE 候选顺序）、
-  `LibraryFilter`（库规则与 maven 坐标）、`OptionsText`、`JreValidator`、
+  `LibraryFilter`（库规则与 maven 坐标）、`WorldManager`（存档备份/恢复/导入保护）、
+  `ZlLayoutConversionTest`（ZL2 ↔ FCL 布局互转）、`LoaderTypeResolver`（基础版本与加载器识别）、
+  `ModConflictScanner`（模组元数据/重复 modid/缺前置）、
+  `OptionsText`、`JreValidator`、
   `VulkanCheckManager`、`MenuSetting.resolveRenderSize`、`LanNetworkScanner`、
   `ModrinthParseTest`（资源解析）。
 
@@ -367,6 +377,10 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 | 触控坐标映射 | [GameActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameActivity.kt#L915-L945>)（`inputHandler.pointerMapper`） |
 | 游戏内对话框/控制面板挂载 | `ui/game/GameDialogs.kt`、`ui/game/GameOverlaySetup.kt`（均为 `GameActivity` 扩展函数） |
 | 启动 options 注入 / JRE 校验 | `app/game/OptionsInjector.kt`、`app/game/JreResolver.kt`（纯函数在 `OptionsText.kt`、`JreValidator.kt`） |
+| 存档管理（备份/恢复/导入导出） | `ui/WorldsTab.kt` + `VerseCore/.../core/world/WorldManager.kt`（备份名解析在 `WorldNames`） |
+| 控制布局格式互转 | `com/mio/controlconverter/CcConverter.kt`（双向入口）、`CcZlToFcl.kt` / `CcFclToZl.kt`（转换实现）；导入接线在 `ui/ControlLayoutsScreen.kt`；加载兜底在 `net/kdt/pojavlaunch/customcontrols/LayoutConverter.java` |
+| 给已装实例装/换加载器 | `ui/LoaderInstallTab.kt`（版本设置 → 安装加载器）+ `app/game/LoaderTypeResolver.kt`（基础版本/加载器识别）+ `VerseCore/.../install/loader/FclLoaderInstaller.kt`（安装器，支持 forge/neoforge/fabric/quilt/optifine；Cleanroom 未实现） |
+| 模组冲突检测 / 更新检查 | `VerseCore/.../core/mod/ModConflictScanner.kt`（读 fabric.mod.json 与 mods.toml，查重复 modid 与缺前置）+ `ModUpdateChecker.kt`（Modrinth sha1 反查 + 版本比对）；UI 在 `ui/InstalledModsScreen.kt` 第二行工具区 |
 | 主页顶部留白 | [HomeScreen.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/HomeScreen.kt#L190-L212>) |
 | 刘海策略/根容器 | [MainActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/MainActivity.kt#L114-L121>)、[L228-L272](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/MainActivity.kt#L228-L272>) |
 | 渲染器插件扫描 | [RendererPluginManager.kt](<file:///d:/Verse Explorer X/Verse Android/VerseLauncher/src/main/java/com/verse/explorer/launcher/renderer/RendererPluginManager.kt#L22-L68>) |
@@ -431,8 +445,11 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 6. **触控映射边界**：`coerceAtLeast(0)` 只防负数，未 clamp 到渲染宽高上限；若真机出现边缘越界，再补上限约束。
 7. **adb 掉线/进程僵死**：模拟器进程易僵死（`adb devices` 为空）；真机长时间操作后掉线。产物先放远程传输，不要反复重构建。
 8. **git 纪律**：工作区已清零（0.0.5～0.0.9 全部提交）。`.verify/`、`promo-video/`、`soup/` 仍是未跟踪的临时产物，提交前与用户确认，不要 `git add -A`。
-9. **测试网仍然很薄**：只有 34 个纯逻辑单测（Vulkan 门槛、渲染尺寸、options 注入、JRE 校验、局域网 IP、Modrinth 解析）。启动链、输入分发、桥回调仍无自动化守护，改这些地方必须真机验证。
+9. **测试网仍然很薄**：现有 93 个纯逻辑单测（启动链 options/JRE 候选、安装链库规则/加载器识别、存档管理、布局互转、模组冲突、Vulkan 门槛、渲染尺寸、局域网 IP、Modrinth 解析）。启动链、输入分发、桥回调仍无自动化守护，改这些地方必须真机验证。
 10. **FclCore 分叉不可逆**：见 [FclCore/VERSE-CHANGES.md](<file:///d:/Verse Explorer X/Verse Android/FclCore/VERSE-CHANGES.md>)。任何"顺手整理一下 FclCore"的改动都会永久抬高成本。
+11. **加载器安装的支持面必须与 UI 选项一致**：`FclLoaderInstaller.installFcl` 的 `when (loaderType)` 决定真正能装什么。曾经出现过「版本下载页列了 Quilt、下层却抛不支持的加载器」——用户要下完整个原版才在最后一步失败。新增/删除加载器选项时，两处（`VersionDetailScreen.detailLoaderOptions` 与 `LoaderInstallTab` 芯片）必须同时改。Quilt 的远程版本类构造器是包内可见，只能经 `QuiltVersionList` 取，见 installFcl 的注释。
+12. **下载被取消会留下半截文件（已修，别再退回）**：`SmartDownloadClient` 直接写目标路径，取消/中断后残留的 jar 长度远超 1KB，若判重只看「存在 + >1KB」就会被永久跳过，直到启动时 loader 报 `zip END header not found` / `NoClassDefFoundError`（0.1.6 前的真实事故：netty-common 半截）。现在统一走 `InstallFileUtils.libraryNeedsDownload(file, sha1, size)`：长度不符 / sha1 不符 / zip 中央目录打不开都算需要重下；库与原生库下载失败会抛错让安装失败，不再「安装成功、启动才崩」。
+13. **启动链不会自动修库**：`DependencyDownloader.repairDependencies` 功能完整但**全库零调用**（死代码）。FCL 同样不在启动前校验库，靠安装期 checksum + 任务失败传播。若要加「启动前修复入口」，需要单独评估（动启动链红线区）。
 
 ---
 

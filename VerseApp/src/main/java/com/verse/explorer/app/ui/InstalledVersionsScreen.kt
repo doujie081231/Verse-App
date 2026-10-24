@@ -412,8 +412,15 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.deleteVersion(showDeleteConfirm!!)
-                        VersionMetaRepository.remove(context, showDeleteConfirm!!)
+                        val id = showDeleteConfirm!!
+                        val removed = viewModel.deleteVersion(id)
+                        if (removed) {
+                            VersionMetaRepository.remove(context, id)
+                            toast(context, "已删除 $id")
+                        } else {
+                            // 目录被占用时改名失败：不能假装删掉了，否则用户重下会撞「版本已存在」
+                            toast(context, "删除失败：版本目录被占用，请关闭游戏后重试")
+                        }
                         showDeleteConfirm = null
                     }
                 ) { Text("删除") }

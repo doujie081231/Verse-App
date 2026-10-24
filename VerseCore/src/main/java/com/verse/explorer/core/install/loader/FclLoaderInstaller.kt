@@ -75,6 +75,16 @@ object FclLoaderInstaller {
                     loaderVersion,
                     listOf("$FABRIC_META/$versionId/$loaderVersion")
                 )
+                "quilt" -> {
+                    // Quilt 的远程版本类构造器是包内可见，只能经版本列表取：
+                    // 列表会从 meta 拉全量组合（游戏版本 × 加载器版本）后按坐标精确命中。
+                    // 拿不到说明该 Quilt 版本不适用于当前 MC 版本，直接给可读错误，
+                    // 不要让用户误以为是网络问题。
+                    val list = com.tungsten.fclcore.download.quilt.QuiltVersionList(dm.downloadProvider)
+                    list.refreshAsync().join()
+                    list.getVersion(versionId, loaderVersion).orElse(null)
+                        ?: throw IOException("Quilt $loaderVersion 不适用于 MC $versionId")
+                }
                 "optifine" -> {
                     // 版本串 = type + "_" + patch（如 HD_U_I7 → type=HD_U, patch=I7），
                     // 拆分必须按最后一个下划线，否则拼成 /optifine/{mc}/HD/U_I7 404。

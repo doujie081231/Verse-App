@@ -68,3 +68,9 @@ VersePC/
 /net/
 /*.idsig
 /HANDOFF-*.md
+
+# --- local media / diagnosis projects (not app source) ---
+/.verify/
+/promo-video/
+/video/
+/soup/

@@ -239,11 +239,12 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /**
+     * 安装失败/取消后的清理：走与「删除版本」相同的磁盘移除逻辑，
+     * 保证半截目录不会残留并把版本名永久占住（下次重装会误报「版本已存在」）。
+     */
     private fun cleanupVersion(versionId: String) {
-        val versionDir = File(GameConfig.getVersionsDir(gameDir), versionId)
-        if (versionDir.exists()) {
-            versionDir.deleteRecursively()
-        }
+        versionManager.removeVersionFromDisk(versionId)
     }
 
     fun downloadVersion(version: MinecraftVersion, onComplete: (Boolean) -> Unit) {
@@ -262,67 +263,20 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun deleteVersion(versionId: String) {
-        cleanupVersionChain(versionId)
-        loadLocalVersions()
-    }
-
     /**
-     * PC端逻辑: 追踪 inheritsFrom 链，只删除没有其他子版本的父版本
+     * 删除一个版本，返回是否成功。
+     *
+     * 只删用户选中的那一个版本，**不再连带删除它继承的基础版本**：
+     * base（如 26.3）本身是可独立游玩的版本，而且连带删掉后再安装加载器版本时
+     * 会被重新创建并重新下载 40MB 客户端 jar —— 用户看到的现象就是
+     * 「删掉的版本又回来了」，还白等一次下载。
      */
-    private fun cleanupVersionChain(versionId: String) {
-        val toDelete = mutableListOf(versionId)
-        val versionsDir = GameConfig.getVersionsDir(gameDir)
-
-        // 读取要删除版本的JSON，追踪inheritsFrom链
-        val dvJsonPath = File(versionsDir, "$versionId/$versionId.json")
-        if (dvJsonPath.exists()) {
-            try {
-                val gson = com.google.gson.Gson()
-                val dvJson = gson.fromJson(dvJsonPath.readText(), com.google.gson.JsonObject::class.java)
-                var currentId: String? = dvJson.get("inheritsFrom")?.asString
-                while (currentId != null) {
-                    if (toDelete.contains(currentId)) break
-                    var hasOtherChildren = false
-                    // 检查除toDelete外还有没有其他版本继承自currentId
-                    try {
-                        val allDirs = versionsDir.listFiles { f -> f.isDirectory } ?: emptyArray()
-                        for (d in allDirs) {
-                            if (toDelete.contains(d.name)) continue
-                            val dJsonFile = File(d, "${d.name}.json")
-                            if (dJsonFile.exists()) {
-                                try {
-                                    val dJson = gson.fromJson(dJsonFile.readText(), com.google.gson.JsonObject::class.java)
-                                    if (dJson.get("inheritsFrom")?.asString == currentId) {
-                                        hasOtherChildren = true
-                                        break
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-                    } catch (_: Exception) {}
-                    if (hasOtherChildren) break
-                    toDelete.add(currentId!!)
-                    val pJsonPath = File(versionsDir, "$currentId/$currentId.json")
-                    if (pJsonPath.exists()) {
-                        try {
-                            val pJson = gson.fromJson(pJsonPath.readText(), com.google.gson.JsonObject::class.java)
-                            currentId = pJson.get("inheritsFrom")?.asString?.takeIf { it.isNotEmpty() }
-                        } catch (_: Exception) { currentId = null }
-                    } else { currentId = null }
-                }
-            } catch (_: Exception) {}
-        }
-
-        for (id in toDelete) {
-            try {
-                val dir = File(versionsDir, id)
-                if (dir.exists()) {
-                    dir.deleteRecursively()
-                }
-            } catch (_: Exception) {}
-        }
+    fun deleteVersion(versionId: String): Boolean {
+        val ok = versionManager.removeVersionFromDisk(versionId)
+        loadLocalVersions()
+        return ok
     }
+
 
     fun resetInstallState() {
         _installState.value = InstallState()

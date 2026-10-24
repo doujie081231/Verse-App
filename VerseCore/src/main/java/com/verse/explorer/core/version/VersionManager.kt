@@ -17,6 +17,11 @@ import java.util.concurrent.TimeUnit
 
 class VersionManager(private val gameDir: File) {
 
+    companion object {
+        /** 删除版本时目录的改名后缀：改名腾出版本名后再删，删不干净也不会占名/回列表 */
+        private const val REMOVED_SUFFIX = "_removed"
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -134,6 +139,11 @@ class VersionManager(private val gameDir: File) {
         Log.d("VersionManager", "Found ${dirs.size} version directories in ${versionsDir.absolutePath}")
 
         return dirs.mapNotNull { versionDir ->
+            // 删除流程的残留目录（`<id>_removed`）绝不能出现在版本列表里——
+            // 它是「删掉的版本又回来」的直接来源
+            if (versionDir.name.endsWith(REMOVED_SUFFIX)) {
+                return@mapNotNull null
+            }
             val jsonFile = File(versionDir, "${versionDir.name}.json")
             if (!jsonFile.exists()) {
                 Log.d("VersionManager", "No JSON file for ${versionDir.name}, skipping")
@@ -161,14 +171,60 @@ class VersionManager(private val gameDir: File) {
         }
     }
 
+    /**
+     * 判断版本名是否已被占用（用于安装前的重名检查）。
+     *
+     * 只有存在 `<id>.json` 的目录才算占用命名：
+     *  - 中断/失败的残留空目录不是版本，不应阻止同名重新安装（否则一次失败的下载会让该版本永远「重名」）；
+     *  - 删除流程留下的 `<id>_removed` 残留目录（及其自身名字）也不算占用，否则换名重下会撞车。
+     */
     fun versionIdConflicts(id: String): Boolean {
         val versionsDir = GameConfig.getVersionsDir(gameDir)
         if (!versionsDir.exists() || !versionsDir.isDirectory) return false
-        // 只有存在 <id>.json 的目录才算占用命名：中断/失败的残留空目录不是版本，
-        // 不应阻止同名重新安装（否则一次失败的下载会让该版本永远"重名"）
         return versionsDir.listFiles { f -> f.isDirectory }?.any {
-            it.name == id && File(it, "${it.name}.json").isFile
+            it.name == id && !it.name.endsWith(REMOVED_SUFFIX) &&
+                File(it, "${it.name}.json").isFile
         } == true
+    }
+
+    /**
+     * 从磁盘移除一个版本，返回是否成功。
+     *
+     * 顺序是刻意的，每一步都在防「删不掉但名字被永久占用」：
+     *  1. 先整体改名为 `<id>_removed` —— 即使后续删除失败（文件被游戏进程占用等），
+     *     原版本名已经腾出，可以立刻重新安装同名版本；
+     *  2. 再删目录内的 json —— 残留目录带着 json 会被识别为有效版本，
+     *     改名成功但删除失败时，先删 json 可确保它不会再出现在版本列表里；
+     *  3. 最后删整个目录，失败只记录日志（`_removed` 目录不会被当成版本）。
+     *
+     * 只有第一步改名失败才返回 false（说明目录被占用，调用方应提示用户重试）。
+     */
+    fun removeVersionFromDisk(id: String): Boolean {
+        val versionsDir = GameConfig.getVersionsDir(gameDir)
+        val dir = File(versionsDir, id)
+        if (!dir.exists()) return true
+
+        val removed = File(versionsDir, "${id}$REMOVED_SUFFIX")
+        // 上次删除残留的 _removed 目录先清掉，否则改名会失败
+        if (removed.exists()) removed.deleteRecursively()
+
+        if (!dir.renameTo(removed)) {
+            Log.w("VersionManager", "删除版本失败（目录被占用，无法改名）: $id")
+            return false
+        }
+
+        runCatching {
+            removed.listFiles { f -> f.isFile && f.name.endsWith(".json", ignoreCase = true) }
+                ?.forEach { json ->
+                    if (!json.delete()) Log.w("VersionManager", "无法删除版本描述文件: ${json.name}")
+                }
+            if (!removed.deleteRecursively()) {
+                Log.w("VersionManager", "版本目录未能完全删除，已重命名为 ${removed.name}: $id")
+            }
+        }.onFailure {
+            Log.w("VersionManager", "清理 ${removed.name} 时出错: ${it.message}")
+        }
+        return true
     }
 
     fun detectLoaderFromJson(jsonText: String): String? {

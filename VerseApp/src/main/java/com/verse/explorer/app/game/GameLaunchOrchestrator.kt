@@ -305,6 +305,15 @@ class GameLaunchOrchestrator(
         val fclVersion = resolveFclVersion(params, gameDir)
         VerseLogger.info("[1/9 版本解析] ${fclVersion.id}, mainClass=${fclVersion.getMainClass()}, 耗时=${elapsed(t0)}ms", TAG)
 
+        // 1.5) 模组兼容性预检：不兼容的模组（加载器不对 / MC 版本不符 / Java 不够）
+        // 以前只能在游戏里静默失败或崩溃，用户无从得知原因（后台反馈「模组玩不了」）。
+        // 这里提前到启动期给出条目式原因；版本设置里关掉「模组检查」可跳过。
+        val verSettings = com.verse.explorer.core.data.VersionSettingsRepository(activity)
+            .getVersionSettings(params.versionId)
+        if (!verSettings.notCheckMod) {
+            runModCompatibilityCheck(params, gameDir, verSettings)
+        }
+
         // 2) 原生库部署（静默执行，不在启动界面显示部署过程）
         val nativesDir = deployNatives(gameDir, params)
         VerseLogger.info("[2/9 原生库] 部署到 ${nativesDir.absolutePath}, 耗时=${elapsed(t0)}ms", TAG)
@@ -327,8 +336,6 @@ class GameLaunchOrchestrator(
         updateProgress("构建启动选项...", null)
         val authInfo = createAuthInfo(params)
         val javaVersion = VerseJavaVersion(params.javaVersion, resolvedJavaHome)
-        val verSettings = com.verse.explorer.core.data.VersionSettingsRepository(activity)
-            .getVersionSettings(params.versionId)
         val launchOptions = buildLaunchOptions(params, javaVersion, verSettings)
         val repository = DefaultGameRepository(gameDir)
         repository.setRunDirectoryIsolated(verSettings.usesGlobal || verSettings.isolateGameDir)
@@ -539,6 +546,64 @@ class GameLaunchOrchestrator(
         val repository = DefaultGameRepository(gameDir)
         repository.refreshVersions()
         return repository.getVersion(params.versionId)
+    }
+
+    /**
+     * 启动前模组兼容性预检。
+     *
+     * mods 目录语义必须与 buildLaunchOptions 的运行目录一致：
+     * `usesGlobal || isolateGameDir` → 版本隔离，mods 在 versions/<id>/mods。
+     * 发现不兼容条目直接抛错停止启动（错误信息走启动失败弹窗），
+     * 避免用户装了不生效/进游戏即崩还不知道原因。
+     */
+    private fun runModCompatibilityCheck(
+        params: GameLaunchParams,
+        gameDir: File,
+        verSettings: com.verse.explorer.core.data.VersionSettingsRepository.VersionSettings
+    ) {
+        runCatching {
+            val versionJsonFile = File(
+                com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir),
+                "${params.versionId}/${params.versionId}.json"
+            )
+            val versionJson = if (versionJsonFile.isFile) {
+                runCatching {
+                    com.google.gson.JsonParser.parseString(versionJsonFile.readText()).asJsonObject
+                }.getOrNull()
+            } else null
+            val info = LoaderTypeResolver.resolve(versionJson, params.versionId)
+
+            val isolated = verSettings.usesGlobal || verSettings.isolateGameDir
+            val modsDir = if (isolated) {
+                File(File(File(params.gameDirPath), "versions"), "${params.versionId}/mods")
+            } else {
+                File(params.gameDirPath, "mods")
+            }
+
+            val report = com.verse.explorer.core.mod.ModCompatibilityChecker.check(
+                modsDir, info.baseVersionId, info.loaderType, params.javaVersion
+            )
+            if (report.modCount > 0 && !report.hasIssues) {
+                VerseLogger.info("[1.5/9 模组预检] ${report.modCount} 个模组全部兼容", TAG)
+            }
+            if (!report.hasIssues) return
+
+            val shown = report.issues.take(3).joinToString("\n") {
+                "• ${it.file}：${it.reason}"
+            }
+            val more = report.issues.size - minOf(3, report.issues.size)
+            val detail = shown + if (more > 0) "\n• …等共 ${report.issues.size} 个问题" else ""
+            VerseLogger.error("模组兼容性预检未通过:\n$detail", TAG)
+            throw IllegalStateException(
+                "检测到与当前版本不兼容的模组，已停止启动：\n$detail\n\n" +
+                    "请到 版本设置 → 模组管理 中移除或禁用这些模组后重试；" +
+                    "确认无误也可在版本设置中关闭「模组检查」强制启动。"
+            )
+        }.onFailure { e ->
+            if (e is IllegalStateException) throw e
+            // 预检自身异常不阻断启动，只记日志
+            VerseLogger.warn("模组兼容性预检异常（已跳过）: ${e.message}", TAG)
+        }
     }
 
     private suspend fun createAuthInfo(params: GameLaunchParams): AuthInfo {

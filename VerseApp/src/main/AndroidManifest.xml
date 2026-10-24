@@ -58,7 +58,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.VerseExplorer"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
+            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation|uiMode|locale|layoutDirection"
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleTask">
             <intent-filter>
@@ -117,7 +117,7 @@
             android:name=".ui.game.GameActivity"
             android:exported="true"
             android:theme="@style/Theme.VerseExplorer"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
+            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"
             android:screenOrientation="sensorLandscape"
             android:launchMode="singleTop"
             android:hardwareAccelerated="true" />
@@ -126,7 +126,7 @@
             android:name=".ui.game.CrashReportActivity"
             android:exported="false"
             android:theme="@style/Theme.VerseExplorer"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
+            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"
             android:screenOrientation="sensorLandscape"
             android:process=":crash"
             android:hardwareAccelerated="true" />
@@ -136,7 +136,7 @@
             android:name=".ui.game.LayoutEditorActivity"
             android:exported="false"
             android:theme="@style/Theme.VerseExplorer"
-            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|layoutDirection|locale"
+            android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"
             android:screenOrientation="sensorLandscape"
             android:hardwareAccelerated="true" />
 

@@ -37,7 +37,11 @@ import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.google.gson.JsonParser
+import com.verse.explorer.app.game.LoaderTypeResolver
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.mod.ModConflictScanner
+import com.verse.explorer.core.mod.ModUpdateChecker
 import com.tungsten.fclcore.game.DefaultGameRepository
 import com.tungsten.fclcore.mod.LocalModFile
 import com.tungsten.fclcore.mod.ModLoaderType
@@ -109,6 +113,105 @@ fun InstalledModsScreen(
 
     fun showToast(message: String) {
         toast = message
+    }
+
+    // 模组目录：与 ModManager 的 runDir 语义保持一致（版本隔离 → versions/<id>/mods）
+    val gameDir = remember { GameConfig.getGameDir(context) }
+    val modsDir = remember(versionId) {
+        val settings = com.verse.explorer.core.data.VersionSettingsRepository(context)
+            .getVersionSettings(versionId)
+        val isolated = settings.usesGlobal || settings.isolateGameDir
+        val base = if (isolated) File(File(gameDir, "versions"), versionId) else gameDir
+        File(base, "mods")
+    }
+
+    var conflictResult by remember { mutableStateOf<ModConflictScanner.ScanResult?>(null) }
+    var updateResult by remember { mutableStateOf<ModUpdateChecker.CheckResult?>(null) }
+    var checking by remember { mutableStateOf(false) }
+    var applying by remember { mutableStateOf(false) }
+
+    fun runConflictScan() {
+        if (checking || applying) return
+        checking = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { ModConflictScanner.scan(modsDir) }
+            checking = false
+            conflictResult = result
+        }
+    }
+
+    fun runUpdateCheck() {
+        if (checking || applying) return
+        checking = true
+        scope.launch {
+            val scanned = withContext(Dispatchers.IO) { ModConflictScanner.scan(modsDir) }
+            val jsonFile = File(File(GameConfig.getVersionsDir(gameDir), versionId), "$versionId.json")
+            val json = runCatching { JsonParser.parseString(jsonFile.readText()).asJsonObject }.getOrNull()
+            val info = LoaderTypeResolver.resolve(json, versionId)
+            // 明确用「基础版本 + 实际加载器」筛选，避免拿加载器版本身的 id 去查导致空结果
+            val result = ModUpdateChecker.checkUpdates(
+                mods = scanned.mods,
+                mcVersion = info.baseVersionId,
+                loader = info.loaderType ?: "fabric"
+            )
+            checking = false
+            result.onSuccess { updateResult = it }
+                .onFailure { showToast("检查更新失败：${it.message ?: "网络错误"}") }
+        }
+    }
+
+    /** 逐个下载新版本并替换旧 jar：先下载成功再删旧文件，避免下载失败时丢模组 */
+    fun applyUpdates(updates: List<ModUpdateChecker.ModUpdate>) {
+        if (applying) return
+        applying = true
+        scope.launch {
+            var success = 0
+            val failed = mutableListOf<String>()
+            withContext(Dispatchers.IO) {
+                updates.forEach { update ->
+                    val temp = File(modsDir, "${update.fileName}.download")
+                    val ok = runCatching {
+                        val client = okhttp3.OkHttpClient.Builder()
+                            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                            .build()
+                        val request = okhttp3.Request.Builder()
+                            .url(update.downloadUrl)
+                            .header("User-Agent", "VerseExplorerX/0.1")
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (!response.isSuccessful) error("HTTP ${response.code}")
+                            response.body?.byteStream()?.use { input ->
+                                temp.outputStream().use { output -> input.copyTo(output) }
+                            } ?: error("空响应")
+                        }
+                        if (temp.length() <= 0) error("下载内容为空")
+                        // 下载成功后才动旧文件
+                        val target = File(modsDir, update.fileName)
+                        if (target.exists() && target.name != update.currentFile) target.delete()
+                        val old = File(modsDir, update.currentFile)
+                        if (old.exists() && old.name != target.name) old.delete()
+                        if (target.exists()) target.delete()
+                        if (!temp.renameTo(target)) error("无法写入目标文件")
+                        true
+                    }.getOrElse {
+                        temp.delete()
+                        failed += "${update.name}（${it.message ?: "失败"}）"
+                        false
+                    }
+                    if (ok) success++
+                }
+            }
+            applying = false
+            updateResult = null
+            reload()
+            showToast(
+                buildString {
+                    append("更新完成：成功 $success 个")
+                    if (failed.isNotEmpty()) append("，失败 ${failed.size} 个：${failed.joinToString("；")}")
+                }
+            )
+        }
     }
 
     toast?.let { message ->
@@ -192,6 +295,38 @@ fun InstalledModsScreen(
                 PcButton(
                     text = "导入模组",
                     onClick = { importPicker.launch("*/*") },
+                    variant = PcButtonVariant.OUTLINE
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 第二行：冲突检测 / 更新检查（单独一行，避免窄屏挤压）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = when {
+                        applying -> "正在替换文件…"
+                        checking -> "检查中…"
+                        else -> ""
+                    },
+                    fontSize = 11.sp,
+                    color = VerseColors.PcTextMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                PcButton(
+                    text = "检查冲突",
+                    onClick = { runConflictScan() },
+                    enabled = !checking && !applying,
+                    variant = PcButtonVariant.OUTLINE
+                )
+                PcButton(
+                    text = "检查更新",
+                    onClick = { runUpdateCheck() },
+                    enabled = !checking && !applying,
                     variant = PcButtonVariant.OUTLINE
                 )
             }
@@ -297,6 +432,107 @@ fun InstalledModsScreen(
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) {
                     Text("取消", color = VerseColors.PcTextSecondary)
+                }
+            }
+        )
+    }
+
+    // 冲突检测结果
+    conflictResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { conflictResult = null },
+            containerColor = VerseColors.PcBgCard,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
+            title = {
+                Text(
+                    if (result.hasConflict) "发现 ${result.conflicts.size} 个问题" else "未发现冲突",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (!result.hasConflict) {
+                        Text(
+                            "${result.mods.size} 个模组的 modid 唯一、必需前置齐全",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextSecondary
+                        )
+                    } else {
+                        result.conflicts.forEach { conflict ->
+                            Text(
+                                "· ${conflict.kind.displayName}：${conflict.detail}",
+                                fontSize = 12.sp,
+                                color = VerseColors.PcOrange
+                            )
+                            Text(
+                                "  ${conflict.files.joinToString(", ")}",
+                                fontSize = 10.sp,
+                                color = VerseColors.PcTextMuted
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { conflictResult = null }) { Text("知道了") }
+            }
+        )
+    }
+
+    // 更新检查结果
+    updateResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { updateResult = null },
+            containerColor = VerseColors.PcBgCard,
+            titleContentColor = VerseColors.PcTextPrimary,
+            textContentColor = VerseColors.PcTextSecondary,
+            title = {
+                Text(
+                    if (result.updates.isEmpty()) "已是最新" else "${result.updates.size} 个模组可更新",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    result.updates.forEach { update ->
+                        Text(
+                            "${update.name}：${update.currentVersion} → ${update.newVersion}",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcAccent
+                        )
+                    }
+                    if (result.updates.isEmpty()) {
+                        Text(
+                            "本地模组在当前游戏版本下均为最新",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcTextSecondary
+                        )
+                    }
+                    if (result.unknownCount > 0) {
+                        Text(
+                            "${result.unknownCount} 个模组在 Modrinth 上查不到（CurseForge 来源或手动放入），未参与检查",
+                            fontSize = 10.sp,
+                            color = VerseColors.PcTextMuted
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (result.updates.isEmpty()) {
+                    TextButton(onClick = { updateResult = null }) { Text("知道了") }
+                } else {
+                    TextButton(
+                        enabled = !applying,
+                        onClick = { applyUpdates(result.updates) }
+                    ) { Text(if (applying) "更新中…" else "全部更新") }
+                }
+            },
+            dismissButton = {
+                if (result.updates.isNotEmpty()) {
+                    TextButton(onClick = { updateResult = null }) { Text("稍后") }
                 }
             }
         )

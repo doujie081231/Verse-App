@@ -307,69 +307,7 @@ fun AccountDetailContent(
                 if (account.type == AccountType.OFFLINE) {
                     Text("皮肤", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
                     Spacer(Modifier.height(8.dp))
-                    Text("默认皮肤", fontSize = 12.sp, color = VerseColors.PcTextSecondary)
-                    Spacer(Modifier.height(8.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        DefaultSkinRepository.skins.forEach { skin ->
-                            val selected = account.skinFile == skin.file
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (selected) VerseColors.PcAccent.copy(alpha = 0.08f) else VerseColors.PcBgTertiary,
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (selected) VerseColors.PcAccent else VerseColors.PcBorder
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        scope.launch {
-                                            viewModel.updateAccountSkin(account.id, skin.file, skin.model)
-                                        }
-                                    }
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(8.dp).fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    SkinFigureThumb(
-                                        load = {
-                                            try {
-                                                if (skin.file.startsWith("custom_")) {
-                                                    BitmapFactory.decodeFile(
-                                                        File(context.filesDir, "skins/${skin.file}").absolutePath
-                                                    )
-                                                } else {
-                                                    context.assets.open("skins/${skin.file}").use {
-                                                        BitmapFactory.decodeStream(it)
-                                                    }
-                                                }
-                                            } catch (_: Exception) { null }
-                                        },
-                                        key = "default|${skin.file}|${account.skinFile}",
-                                        fallback = skin.name,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 96.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        skin.name,
-                                        fontSize = 12.sp,
-                                        color = if (selected) VerseColors.PcAccent else VerseColors.PcTextSecondary,
-                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
+                    // 内置默认皮肤选择卡片已移除：离线头像跟随所选皮肤，未上传时展示默认皮肤头像
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center

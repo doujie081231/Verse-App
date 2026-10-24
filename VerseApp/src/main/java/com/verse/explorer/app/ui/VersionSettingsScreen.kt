@@ -305,16 +305,12 @@ fun VersionSettingsScreen(
                         importLabel = "导入光影包"
                     )
 
-                    ManagePage.SAVES -> VersionFolderTab(
+                    ManagePage.SAVES -> WorldsTab(
                         versionId = versionId,
-                        subDir = "saves",
-                        isolateGameDir = settings.isolateGameDir,
-                        title = "存档",
-                        importLabel = "导入存档",
-                        importAsFolder = true
+                        isolateGameDir = settings.isolateGameDir
                     )
 
-                    ManagePage.LOADER -> Unit
+                    ManagePage.LOADER -> LoaderInstallTab(versionId = versionId)
                 }
             }
         }

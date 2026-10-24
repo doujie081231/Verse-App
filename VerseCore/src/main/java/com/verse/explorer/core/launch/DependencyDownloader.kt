@@ -421,16 +421,13 @@ class DependencyDownloader(private val context: Context) {
                 val path = artifact.get("path")?.asString ?: continue
                 val url = artifact.get("url")?.asString ?: continue
                 val sha1 = artifact.get("sha1")?.asString
+                val size = artifact.get("size")?.asLong ?: -1L
 
                 val libFile = File(librariesDir, path)
-                val needDownload = if (!libFile.exists()) {
-                    true
-                } else if (sha1 != null) {
-                    val actualSha1 = HashUtils.sha1File(libFile)
-                    actualSha1 != sha1.lowercase()
-                } else {
-                    false
-                }
+                // 与安装流程共用同一套判定：长度不符或 zip 结构损坏都会重下，
+                // 避免把中断下载留下的半截 jar 当成已就绪
+                val needDownload = com.verse.explorer.core.install.InstallFileUtils
+                    .libraryNeedsDownload(libFile, sha1, size)
 
                 if (needDownload) {
                     missingLibs.add(Triple(url, path, sha1 ?: ""))

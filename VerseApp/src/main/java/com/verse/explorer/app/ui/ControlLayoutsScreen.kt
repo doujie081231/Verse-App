@@ -27,8 +27,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
+import com.mio.controlconverter.CcConverter
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
@@ -151,12 +153,36 @@ fun ControlLayoutsContent() {
                     dest.outputStream().use { output -> input.copyTo(output) }
                 } ?: error("无法读取所选文件")
                 // 导入后校验是合法布局 json，避免坏文件进列表
-                repoGson.fromJson(dest.readText(), Map::class.java) ?: error("不是有效的布局文件")
-                dest
+                val raw = dest.readText()
+                repoGson.fromJson(raw, Map::class.java) ?: error("不是有效的布局文件")
+                // ZL2 布局（layers + editorVersion）：导入时就转成 FCL 仓库格式落盘，
+                // 而不是等游戏启动时惰性转换——列表里看到的就是可用格式，
+                // 转换失败则删掉文件，避免留下一个「点开就报错」的布局。
+                val converted = runCatching {
+                    if (!CcConverter.isZl2Layout(raw)) {
+                        false
+                    } else {
+                        val fcl = CcConverter.convertZlToFcl(
+                            JsonParser.parseString(raw).asJsonObject,
+                            stripMeta = true
+                        )
+                        dest.writeText(fcl.toString())
+                        true
+                    }
+                }.getOrElse { error ->
+                    dest.delete()
+                    throw IllegalStateException("ZL2 布局转换失败：${error.message ?: "格式不受支持"}")
+                }
+                dest to converted
             }
             withContext(Dispatchers.Main) {
-                result.onSuccess { ToastCompat.show(context, "已导入 ${it.nameWithoutExtension}") }
-                    .onFailure { ToastCompat.show(context, "导入失败：${it.message}") }
+                result.onSuccess { (file, converted) ->
+                    ToastCompat.show(
+                        context,
+                        if (converted) "已从 ZL2 格式转换并导入 ${file.nameWithoutExtension}"
+                        else "已导入 ${file.nameWithoutExtension}"
+                    )
+                }.onFailure { ToastCompat.show(context, "导入失败：${it.message}") }
                 refreshLocal()
             }
         }

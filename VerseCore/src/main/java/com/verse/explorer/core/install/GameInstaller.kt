@@ -273,8 +273,11 @@ class GameInstaller(private val context: Context) {
                     val libPath = artifact.get("path")?.asString ?: return@forEach
                     val libUrl = artifact.get("url")?.asString ?: return@forEach
                     val libSha1 = artifact.get("sha1")?.asString
+                    val libSize = artifact.get("size")?.asLong ?: -1L
                     val libFile = File(librariesDir, libPath)
-                    if (!libFile.exists() || libFile.length() < 1024) {
+                    // 已存在的文件必须与清单校验一致：被取消的下载会留下半截 jar，
+                    // 只判断存在性会让它永远跳过，直到启动时 zip END header not found
+                    if (InstallFileUtils.libraryNeedsDownload(libFile, libSha1, libSize)) {
                         missingLibs.add(Triple(libUrl, libPath, libSha1))
                     }
                 }
@@ -283,6 +286,9 @@ class GameInstaller(private val context: Context) {
 
                 var completedLibs = 0
                 val batchSize = 32
+                // 失败必须让安装失败：否则界面显示「安装完成」，玩家启动时才崩在
+                // 类加载阶段（如缺 netty-common 导致 NoClassDefFoundError）
+                val failedLibs = java.util.concurrent.ConcurrentLinkedQueue<String>()
                 missingLibs.chunked(batchSize).forEach { batch ->
                     coroutineScope {
                         batch.map { (url, path, sha1) ->
@@ -297,9 +303,11 @@ class GameInstaller(private val context: Context) {
                                     ) { p -> downloadAgg.report(path, p.downloaded) }
                                     if (result.isFailure) {
                                         Log.w("GameInstaller", "Lib failed: $path - ${result.exceptionOrNull()?.message}")
+                                        failedLibs.add(libFile.name)
                                     }
                                 } catch (e: Exception) {
                                     Log.w("GameInstaller", "Lib failed: $path - ${e.message}")
+                                    failedLibs.add(libFile.name)
                                 }
                             }
                         }.forEach { it.await() }
@@ -315,6 +323,13 @@ class GameInstaller(private val context: Context) {
                         speed = downloadAgg.speed,
                         downloaded = downloadAgg.downloaded
                     ))
+                }
+
+                checkCancelled()
+                if (failedLibs.isNotEmpty()) {
+                    val sample = failedLibs.take(3).joinToString("、")
+                    val more = if (failedLibs.size > 3) " 等" else ""
+                    throw java.io.IOException("${failedLibs.size} 个库文件下载失败：$sample$more，请重试安装")
                 }
 
                 progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "下载原生库文件...", 0.60f))
@@ -917,6 +932,7 @@ class GameInstaller(private val context: Context) {
         Log.d("GameInstaller", "Downloading ${missingNatives.size} native classifier JARs (32 threads, smart)")
 
         var successCount = AtomicInteger(0)
+        val failedNatives = java.util.concurrent.ConcurrentLinkedQueue<String>()
         val batchSize = 32
         var done = 0
         missingNatives.chunked(batchSize).forEach { batch ->
@@ -932,7 +948,10 @@ class GameInstaller(private val context: Context) {
                                 isCancelled = { cancelled }
                             ) { p -> downloadAgg.report(path, p.downloaded) }
                             if (result.isSuccess) successCount.incrementAndGet()
-                        } catch (_: Exception) {}
+                            else failedNatives.add(nativeFile.name)
+                        } catch (_: Exception) {
+                            failedNatives.add(nativeFile.name)
+                        }
                     }
                 }.forEach { it.await() }
             }
@@ -941,6 +960,10 @@ class GameInstaller(private val context: Context) {
         }
 
         Log.d("GameInstaller", "Native classifiers: ${successCount.get()}/${missingNatives.size} downloaded")
+        // 原生库缺失会在调用 System.loadLibrary 时崩，同样不能静默放过
+        if (failedNatives.isNotEmpty()) {
+            throw java.io.IOException("${failedNatives.size} 个原生库下载失败：${failedNatives.take(3).joinToString("、")}，请重试安装")
+        }
     }
 
     private fun extractNativeJarToDir(jarFile: File, targetDir: File) {
@@ -979,15 +1002,11 @@ class GameInstaller(private val context: Context) {
             val path = artifact.get("path")?.asString ?: continue
             val url = artifact.get("url")?.asString ?: continue
             val sha1 = artifact.get("sha1")?.asString
+            val size = artifact.get("size")?.asLong ?: -1L
 
             val targetFile = File(librariesDir, path)
-            if (targetFile.exists() && targetFile.length() > 1024) {
-                if (sha1 != null) {
-                    try {
-                        if (InstallFileUtils.calculateSHA1(targetFile).lowercase() == sha1.lowercase()) continue
-                    } catch (_: Exception) {}
-                } else continue
-            }
+            // 与安装流程用同一套校验：长度/sha1/zip 结构任一不符都视为需要重下
+            if (!InstallFileUtils.libraryNeedsDownload(targetFile, sha1, size)) continue
 
             missingLibs.add(url to artifact)
         }
