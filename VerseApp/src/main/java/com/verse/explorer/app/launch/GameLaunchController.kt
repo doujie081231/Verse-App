@@ -210,7 +210,7 @@ class GameLaunchController(private val context: Context) {
 
         val targetVersionId = versionId ?: settingsRepo.getCustomSetting("last_version")
 
-        // ========== 账户验证 ==========
+        // 账户验证
         steps.add(LaunchStep("账户验证", "进行中...", "person"))
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, "正在检查账户状态...")
         delay(200)
@@ -245,7 +245,7 @@ class GameLaunchController(private val context: Context) {
         cachedAccount = account
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== 版本解析 ==========
+        // 版本解析
         stepIdx++
         steps.add(LaunchStep("版本解析", "进行中...", "download"))
         emitState(LaunchPhase.VERSION_CHECK, steps, stepIdx, "正在解析版本信息...")
@@ -266,7 +266,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.VERSION_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== Java 检查 ==========
+        // Java 检查
         stepIdx++
         steps.add(LaunchStep("Java 检查", "进行中...", "code"))
         emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, "正在检查 Java 运行时...")
@@ -336,7 +336,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== 文件检查 (仅警告，不阻断) ==========
+        // 文件检查 (仅警告，不阻断)
         stepIdx++
         steps.add(LaunchStep("文件检查", "进行中...", "folder"))
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在验证游戏文件...")
@@ -375,7 +375,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）==========
+        // Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）
         // 启动前判定设备 Vulkan 能力是否满足该版本依赖，缺失项警告后允许继续；
         // 同时刷新 needsVulkanShim 门控（仅设备缺口可被 vkshim 补齐时才启用包装层）
         if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(cachedVersion.id)) {
@@ -439,7 +439,7 @@ class GameLaunchController(private val context: Context) {
             emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
         }
 
-        // ========== 检查汇总 ==========
+        // 检查汇总
         if (criticalErrors.isNotEmpty()) {
             _launchState.value = _launchState.value.copy(
                 phase = LaunchPhase.FAILED,
@@ -453,12 +453,12 @@ class GameLaunchController(private val context: Context) {
             return null
         }
 
-        // ========== 有警告但继续启动 ==========
+        // 有警告但继续启动
         if (warnings.isNotEmpty()) {
             VerseLogger.warn("启动时有文件警告: ${warnings.joinToString(", ")}", "LaunchController")
         }
 
-        // ========== 准备启动 ==========
+        // 准备启动
         stepIdx++
         steps.add(LaunchStep("构建参数", "进行中...", "settings"))
         emitState(LaunchPhase.BUILD_ARGS, steps, stepIdx, "正在生成启动参数...")

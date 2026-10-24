@@ -155,7 +155,7 @@ fun ModDetailScreen(
 
     var pickerMode by remember { mutableStateOf("main") }
 
-    // ===== 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流） =====
+    // 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流）
     val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
     var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
     var modpackJob by remember { mutableStateOf<Job?>(null) }
@@ -1178,7 +1178,7 @@ fun ModDetailScreen(
         )
     }
 
-    // ===== 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）=====
+    // 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）
     if (modpackState.visible) {
         val modpackRunning = modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE ||
             modpackState.phase == ModpackInstallPhase.INSTALLING

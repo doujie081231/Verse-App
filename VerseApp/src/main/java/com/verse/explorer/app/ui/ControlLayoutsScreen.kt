@@ -114,7 +114,7 @@ fun ControlLayoutsContent() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ===== 本地布局状态 =====
+    // 本地布局状态
     var localLayouts by remember { mutableStateOf<List<File>>(emptyList()) }
     var defaultCtrlPath by remember { mutableStateOf(LauncherPreferences.PREF_DEFAULTCTRL_PATH ?: "") }
     var deleteTarget by remember { mutableStateOf<File?>(null) }
@@ -188,7 +188,7 @@ fun ControlLayoutsContent() {
         }
     }
 
-    // ===== 布局仓库状态 =====
+    // 布局仓库状态
     // 默认走国内镜像（repo.miawa.cn，实测速度远快于 GitHub raw）；GitHub 源作为备选
     var sourceMirror by remember { mutableStateOf(true) }
     var indexes by remember { mutableStateOf<List<RepoIndexItem>>(emptyList()) }
@@ -306,7 +306,7 @@ fun ControlLayoutsContent() {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // ===== 本地布局 =====
+        // 本地布局
         PcCard(title = "本地布局") {
             if (localLayouts.isEmpty()) {
                 Text(
@@ -392,7 +392,7 @@ fun ControlLayoutsContent() {
             )
         }
 
-        // ===== 布局仓库（下载） =====
+        // 布局仓库（下载）
         PcCard(title = "布局仓库") {
             // 源切换（GitHub 直连 / 镜像加速）
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

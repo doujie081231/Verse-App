@@ -72,7 +72,7 @@ class MinecraftLauncher(private val context: Context, private val zlBridge: ZLBr
         try {
             val t0 = System.currentTimeMillis()
 
-            // V3.7: Set debug log path to app's private directory (no permissions needed)
+            // 将调试日志写入应用私有目录，避免依赖外部存储权限。
             // This allows viewing logs directly in-app without adb
             val logPath = File(context.filesDir, "verse_debug.log").absolutePath
             JvmLauncherAPI.nativeSetLogPath(logPath)
@@ -204,7 +204,7 @@ class MinecraftLauncher(private val context: Context, private val zlBridge: ZLBr
         return resultHolder.firstOrNull() ?: -1
     }
 
-    // ==================== 生命周期 ====================
+    // 生命周期
 
     fun stop() {
         zlBridge?.destroyJVM()

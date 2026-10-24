@@ -286,7 +286,6 @@ public class ControlLayout extends FrameLayout {
 
 	//CONTROL SUB-BUTTON
 	public void addSubButton(ControlDrawer drawer, ControlData controlButton){
-		//Yep there isn't much here
 		drawer.getDrawerData().buttonProperties.add(controlButton);
 		addSubView(drawer, drawer.getDrawerData().buttonProperties.get(drawer.getDrawerData().buttonProperties.size()-1 ));
 	}
@@ -334,8 +333,8 @@ public class ControlLayout extends FrameLayout {
 		}
 
 		System.gc();
-		//i wanna be sure that all the removed Views will be removed after a reload
-		//because if frames will slowly go down after many control changes it will be warm and bad
+		// 布局重载后请求回收已移除的控件，减少旧布局占用。
+		// 频繁切换布局时，旧视图滞留可能增加内存压力。
 	}
 
 	public void saveLayout(String path) throws Exception {
@@ -456,7 +455,6 @@ public class ControlLayout extends FrameLayout {
 		}
 		mHandleView.setControlButton(button);
 
-		//mHandleView.show();
 	}
 
 	/** Swap the panel if the button position requires it */

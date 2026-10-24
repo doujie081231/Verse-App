@@ -38,7 +38,7 @@ import com.tungsten.fclcore.task.FetchTask
 import kotlin.math.sin
 import kotlin.math.PI
 
-// ===== 状态模型（UI 层归并任务事件 → 固定阶段行） =====
+// 状态模型（UI 层归并任务事件 → 固定阶段行）
 
 enum class ModpackInstallPhase { DOWNLOAD_FILE, INSTALLING, DONE, FAILED, CANCELLED }
 
@@ -191,7 +191,7 @@ fun ModpackInstallUiState.applyTaskEvent(ev: ModpackTaskEvent): ModpackInstallUi
     return copy(rows = newRows)
 }
 
-// ===== 弹窗 UI（阶段行 + 固定权重总进度 + 实时速度） =====
+// 弹窗 UI（阶段行 + 固定权重总进度 + 实时速度）
 
 private val StageOrange = Color(0xFFF59E0B)
 private val StageGreen = Color(0xFF22C55E)

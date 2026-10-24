@@ -198,7 +198,7 @@ object CcEvents {
         return otherEvents
     }
 
-    // --- ZL -> FCL 方向 ---
+    // ZL -> FCL 方向
 
     /** 单个 ZL click event 应用到 FCL 事件对象（图层类事件由 layer 版本处理）。 */
     fun applyZlEventToFcl(

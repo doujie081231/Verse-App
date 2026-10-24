@@ -52,7 +52,7 @@ import java.security.MessageDigest
  * 安全使用:仅传输自己有权分享的内容,勿传播违规文件,建议在可信网络环境下使用。
  */
 
-// ===== 与 PC 端 transfer.rs 一致的协议常量 =====
+// 与 PC 端 transfer.rs 一致的协议常量
 private const val SIGNAL_BASE = "http://124.223.80.73:8746"
 private val MAGIC = byteArrayOf(
     'V'.code.toByte(), 'X'.code.toByte(), 'F'.code.toByte(), 'E'.code.toByte(),
@@ -65,7 +65,7 @@ fun TransferScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // ===== 发送状态 =====
+    // 发送状态
     var sending by remember { mutableStateOf(false) }
     var sendFileName by remember { mutableStateOf("") }
     var sendCode by remember { mutableStateOf("") }
@@ -74,7 +74,7 @@ fun TransferScreen() {
     var sendError by remember { mutableStateOf("") }
     var sendDone by remember { mutableStateOf(false) }
 
-    // ===== 接收状态 =====
+    // 接收状态
     var receiveCode by remember { mutableStateOf("") }
     var treeUri by remember { mutableStateOf<Uri?>(null) }
     var receiving by remember { mutableStateOf(false) }
@@ -124,7 +124,7 @@ fun TransferScreen() {
         }
         Spacer(Modifier.height(18.dp))
 
-        // ===== 免费使用 + 安全提示 =====
+        // 免费使用 + 安全提示
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -148,7 +148,7 @@ fun TransferScreen() {
         }
         Spacer(Modifier.height(14.dp))
 
-            // ----- 发送文件卡片 -----
+            // 发送文件卡片
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -240,7 +240,7 @@ fun TransferScreen() {
             }
             Spacer(Modifier.height(12.dp))
 
-            // ----- 接收文件卡片 -----
+            // 接收文件卡片
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -339,7 +339,7 @@ fun TransferScreen() {
     }
 }
 
-// ==================== 发送 ====================
+// 发送
 
 /**
  * 发送主流程:选中的文档 → SHA-256 → 监听端口 → 信令注册(设备标识) → 等待对端连接 → 直传 → 回执校验
@@ -432,7 +432,7 @@ private suspend fun runSend(
     }
 }
 
-// ==================== 接收 ====================
+// 接收
 
 /**
  * 接收主流程:识别码 → 信令换取发送方端点(接收方免费) → 连接 →
@@ -529,7 +529,7 @@ private suspend fun runReceive(
     }
 }
 
-// ==================== 信令与工具 ====================
+// 信令与工具
 
 /** 信令注册:返回 8 位识别码(免费使用,不再携带激活码);失败时抛异常 */
 private fun registerSignal(

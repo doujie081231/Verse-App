@@ -342,7 +342,7 @@ class MicrosoftAuthenticator {
                 val error = json?.get("error")?.asString
                 response.close()
                 Log.w(TAG, "刷新令牌失败: error=$error, HTTP=${response.code}, body=${responseBody?.take(200)}")
-                //刷新令牌已被撤销或失效，无法自动恢复
+                // 刷新令牌已被撤销或失效，无法自动恢复
                 if (error == "invalid_grant") throw CredentialsExpiredException()
                 throw AuthHttpException(
                     httpStatus = response.code,
@@ -395,7 +395,7 @@ class MicrosoftAuthenticator {
         client.newCall(request).execute().use { response ->
             if (response.code != 200) Log.w(TAG, "XBL HTTP ${response.code}（非 200）")
             val json = parseJsonOrThrow(response)
-            //提取uhs
+            // 提取uhs
             val uhs = json.getAsJsonObject("DisplayClaims")
                 ?.getAsJsonArray("xui")?.firstOrNull()?.asJsonObject
                 ?.get("uhs")?.asString
@@ -643,7 +643,7 @@ class MicrosoftAuthenticator {
             try {
                 return block()
             } catch (e: CancellationException) {
-                //协程被取消时不重试，直接抛出
+                // 协程被取消时不重试，直接抛出
                 throw e
             } catch (e: Exception) {
                 lastError = e
@@ -652,7 +652,7 @@ class MicrosoftAuthenticator {
                     currentDelay = (currentDelay * 2).coerceAtMost(maxDelay)
                     retryCount++
                 } else {
-                    throw e //不可重试
+                    throw e // 不可重试
                 }
             }
         }
@@ -661,9 +661,9 @@ class MicrosoftAuthenticator {
 
     private fun canRetry(e: Exception): Boolean {
         return when {
-            e is AuthHttpException && e.httpStatus in 500..599 -> true //5xx错误可重试
+            e is AuthHttpException && e.httpStatus in 500..599 -> true // 5xx错误可重试
             e is UnknownHostException -> true // DNS解析失败，可能是临时性故障
-            e is IOException -> true //网络错误
+            e is IOException -> true // 网络错误
             else -> false
         }
     }

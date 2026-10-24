@@ -91,7 +91,7 @@ class CrashReportActivity : Activity() {
             setPadding((10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt())
         }
 
-        // ===== 左侧：分析内容 =====
+        // 左侧：分析内容
         scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = true
         }
@@ -232,7 +232,7 @@ class CrashReportActivity : Activity() {
         }
         analysis = result
 
-        // ===== 崩溃原因列表 =====
+        // 崩溃原因列表
         if (result.crashReasons.isNotEmpty()) {
             contentColumn.addView(card(VerseColors.PcBgCard.toArgb(), 10f, 12f).apply {
                 addView(text("崩溃原因", 15f, VerseColors.PcTextPrimary.toArgb(), bold = true).apply {
@@ -253,7 +253,7 @@ class CrashReportActivity : Activity() {
             })
         }
 
-        // ===== 建议与说明 =====
+        // 建议与说明
         contentColumn.addView(card(VerseColors.PcBgCard.toArgb(), 10f, 12f).apply {
             addView(text("解决方案", 15f, VerseColors.PcTextPrimary.toArgb(), bold = true).apply {
                 setPadding(0, 0, 0, (6 * density).toInt())
@@ -265,7 +265,7 @@ class CrashReportActivity : Activity() {
             bottomMargin = (10 * density).toInt()
         })
 
-        // ===== 分析使用的文件 =====
+        // 分析使用的文件
         if (result.files.isNotEmpty()) {
             contentColumn.addView(card(VerseColors.PcBgCard.toArgb(), 10f, 12f).apply {
                 addView(text("分析使用的文件", 13f, VerseColors.PcTextPrimary.toArgb(), bold = true).apply {

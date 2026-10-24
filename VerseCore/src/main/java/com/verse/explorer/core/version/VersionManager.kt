@@ -139,8 +139,7 @@ class VersionManager(private val gameDir: File) {
         Log.d("VersionManager", "Found ${dirs.size} version directories in ${versionsDir.absolutePath}")
 
         return dirs.mapNotNull { versionDir ->
-            // 删除流程的残留目录（`<id>_removed`）绝不能出现在版本列表里——
-            // 它是「删掉的版本又回来」的直接来源
+            // 排除删除流程保留的 <id>_removed 目录，避免将待清理版本重新列出。
             if (versionDir.name.endsWith(REMOVED_SUFFIX)) {
                 return@mapNotNull null
             }
@@ -150,7 +149,7 @@ class VersionManager(private val gameDir: File) {
                 return@mapNotNull null
             }
 
-            // PC端风格: 检查JAR - 可能在当前目录或父版本目录中
+            // 检查当前版本或继承的父版本目录中是否存在游戏 JAR。
             val jarFile = File(versionDir, "${versionDir.name}.jar")
             val hasJar = jarFile.exists() || hasInheritedJar(versionDir.name, jsonFile, versionsDir)
 

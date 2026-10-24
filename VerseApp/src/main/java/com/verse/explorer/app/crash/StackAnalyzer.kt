@@ -1,8 +1,8 @@
 // crash_analyzer/stack.rs — 虚拟机堆栈分析与 Mod 名称匹配
 // 职责：
-//   1. 从堆栈中提取可能的 Mod 关键词（analyzeStackKeyword）
-//   2. 根据关键词匹配实际的 Mod 名称（analyzeModName）
-//   3. 查找不匹配时回退原关键词的辅助（tryAnalyzeModName）
+// 1. 从堆栈中提取可能的 Mod 关键词（analyzeStackKeyword）
+// 2. 根据关键词匹配实际的 Mod 名称（analyzeModName）
+// 3. 查找不匹配时回退原关键词的辅助（tryAnalyzeModName）
 
 package com.verse.explorer.app.crash
 

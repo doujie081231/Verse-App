@@ -54,7 +54,7 @@ class InGameControlOverlay(
     private val onPhysicalMouseChanged: (Boolean) -> Unit = {}
 ) {
 
-    // ===== Verse 暗色玻璃配色（对齐软件暗色主题：暗面板 + 亮文字 + 主题强调） =====
+    // Verse 暗色玻璃配色（对齐软件暗色主题：暗面板 + 亮文字 + 主题强调）
     private val fclBg = Color.argb(0xD9, 0x14, 0x14, 0x14)      // 面板底：#D9141414 近实暗玻璃
     private val verseRowBg = Color.argb(0x66, 0x2A, 0x2A, 0x2A) // 行卡片：半透明深灰
     private val fclText = Color.parseColor("#F0F0F0")           // 主文字（暗主题 primary）
@@ -87,7 +87,7 @@ class InGameControlOverlay(
 
     private var gamepadDisabled = false
 
-    // ===================== 演示遮罩 =====================
+    // 演示遮罩
 
     /** 创建演示遮罩视图（全屏半透明，覆盖在触控覆盖层之上） */
     fun createHintView(): View {
@@ -292,7 +292,7 @@ class InGameControlOverlay(
         return container
     }
 
-    // ===================== 左栏「控制」（menu_left.xml 全量） =====================
+    // 左栏「控制」（menu_left.xml 全量）
 
     private fun layoutFileList(): List<String> {
         val dir = File(Tools.CTRLMAP_PATH)
@@ -408,10 +408,10 @@ class InGameControlOverlay(
         layout.editControlButton(target)
     }
 
-    // ===================== 右栏「设置」（menu_right.xml 全量） =====================
+    // 右栏「设置」（menu_right.xml 全量）
 
     private fun buildRightContent(content: LinearLayout) {
-        // ===== 功能 =====
+        // 功能
         content.addView(rows.sectionHeader("功能"))
         content.addView(rows.switchRow("锁定菜单键", MenuSetting.isLockMenuView) { on ->
             MenuSetting.isLockMenuView = on
@@ -461,7 +461,7 @@ class InGameControlOverlay(
             refreshWindowsSize()
         })
 
-        // ===== 分辨率 =====
+        // 分辨率
         content.addView(rows.sectionHeader("分辨率"))
         content.addView(rows.seekbarRow(
             "分辨率比例", 25, 300,
@@ -472,7 +472,7 @@ class InGameControlOverlay(
             refreshWindowsSize()
         })
 
-        // ===== 手势 =====
+        // 手势
         content.addView(rows.sectionHeader("手势"))
         content.addView(rows.switchRow("禁用手势", MenuSetting.isDisableGesture) { on ->
             MenuSetting.isDisableGesture = on
@@ -495,7 +495,7 @@ class InGameControlOverlay(
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_LEFT_TOUCH)
         })
 
-        // ===== 鼠标 =====
+        // 鼠标
         content.addView(rows.sectionHeader("鼠标"))
         content.addView(rows.spinnerRow(
             "鼠标控制模式",
@@ -533,7 +533,7 @@ class InGameControlOverlay(
             onPhysicalMouseChanged(on)
         })
 
-        // ===== 手柄 =====
+        // 手柄
         content.addView(rows.sectionHeader("手柄"))
         content.addView(rows.switchRow("禁用手柄映射", gamepadDisabled) { on ->
             gamepadDisabled = on
@@ -549,7 +549,7 @@ class InGameControlOverlay(
             MenuSetting.notifyChange(MenuSetting.Key.GAMEPAD_DEADZONE)
         })
 
-        // ===== 陀螺仪 =====
+        // 陀螺仪
         content.addView(rows.sectionHeader("陀螺仪"))
         content.addView(rows.switchRow("陀螺仪", MenuSetting.isEnableGyroscope) { on ->
             MenuSetting.isEnableGyroscope = on
@@ -580,7 +580,7 @@ class InGameControlOverlay(
             }
         )
 
-        // ===== 调试 =====
+        // 调试
         content.addView(rows.sectionHeader("调试"))
         content.addView(rows.switchRow("显示内存", MenuSetting.isShowMemory) { on ->
             MenuSetting.isShowMemory = on
@@ -799,7 +799,7 @@ class InGameControlOverlay(
     fun isPanelVisible(): Boolean = panelVisible
     fun isOverlayVisible(): Boolean = hintVisible || panelVisible
 
-    // ===================== 双指下滑手势 =====================
+    // 双指下滑手势
 
     private val pointerStart = mutableMapOf<Int, Float>()
     private val pointerCurrent = mutableMapOf<Int, Float>()
@@ -1040,7 +1040,7 @@ class InGameControlOverlay(
         infoHandler = null
     }
 
-    // ===================== 视觉：双指下滑箭头动画 =====================
+    // 视觉：双指下滑箭头动画
 
     private class ChevronSwipeView(context: Context) : View(context) {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1099,7 +1099,7 @@ class InGameControlOverlay(
         }
     }
 
-    // ===================== 截图（复用现有 TextureView 位图） =====================
+    // 截图（复用现有 TextureView 位图）
 
     companion object {
         /** 保存游戏画面截图到应用外部 Pictures 目录（无需额外权限） */

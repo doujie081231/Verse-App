@@ -61,7 +61,7 @@ class CcContext {
     }
 }
 
-// --- 元数据（lossless 往返）辅助 ---
+// 元数据（lossless 往返）辅助
 
 fun getMeta(obj: JsonObject?): JsonObject? = obj.opt(CcConstants.META_KEY).asObjOrNull()
 

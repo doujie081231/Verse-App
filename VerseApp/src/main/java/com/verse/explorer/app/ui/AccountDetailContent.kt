@@ -307,7 +307,7 @@ fun AccountDetailContent(
                 if (account.type == AccountType.OFFLINE) {
                     Text("皮肤", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextMuted, letterSpacing = 0.6.sp)
                     Spacer(Modifier.height(8.dp))
-                    // 内置默认皮肤选择卡片已移除：离线头像跟随所选皮肤，未上传时展示默认皮肤头像
+                    // 离线头像跟随所选皮肤；未上传皮肤时显示默认头像。
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center
