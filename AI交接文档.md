@@ -1,7 +1,7 @@
 # Verse Explorer X 交接文档（给接手的 AI）
 
-> 更新时间：2026-10-23（Asia/Shanghai）。
-> 本文档由最近一次会话重写，合并了旧版交接文档（2026-10-16，2.4.70 时期）的核心信息与 2026-10-22～23 会话的全部记忆。旧文档的任务型内容已过期，其仍有效的环境/模拟器/历史结论保留在第 10 节。
+> 更新时间：2026-10-24（Asia/Shanghai）。
+> 本文档由最近一次会话重写，合并了旧版交接文档（2026-10-16，2.4.70 时期）的核心信息与 2026-10-22～24 会话的全部记忆。旧文档的任务型内容已过期，其仍有效的环境/模拟器/历史结论保留在第 10 节。
 >
 > **接手阅读顺序：第 0 节 → 第 3 节 → 第 4 节 → 第 7 节 → 第 12 节。**
 
@@ -10,16 +10,16 @@
 ## 0. 当前状态速览
 
 - 项目：Android Minecraft 启动器 **Verse Explorer X**，包名 `com.verse.explorer`，命名空间 `com.verse.explorer.app`。工作目录 `d:\Verse Explorer X\Verse Android`。
-- 当前版本：**0.0.8（versionCode 37）**，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L27-L32>)。
+- 当前版本：**0.0.9（versionCode 38）**，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L27-L32>)。
 - release 构建已设 `isDebuggable = false`，用于消除 Android 16/17 的「可调试应用 / 16 KB ELF 对齐」兼容性弹窗，见 [build.gradle.kts](<file:///d:/Verse Explorer X/Verse Android/VerseApp/build.gradle.kts#L56-L67>)。
-- git：最后一次提交是 `9b834ef`（内测版 0.0.4，versionCode 30）。**0.0.5～0.0.8 的改动全部未提交**（工作区约 60 个文件修改）。未跟踪的重要新文件：
-  - `VerseApp/src/main/java/com/verse/explorer/app/game/TouchControllerProxy.kt`
-  - `VerseLauncher/src/main/java/com/verse/explorer/launcher/renderer/RendererPluginManager.kt`
-  - `VerseApp/src/main/java/com/verse/explorer/app/documents/`
-  - `AI交接文档.md`、`.verify/`、`promo-video/`、`soup/`
-- 最新构建产物：`d:\Verse Explorer X\远程传输\Verse-0.0.8-relaunchfix-arm64-v8a.apk`（189,647,107 字节，2026-10-23 19:01），已签名。远程传输目录里目前只有这一个包。
+- git：工作区**干净**。0.0.5～0.0.9 的全部改动均已本地提交（未 push、未 tag），关键提交：
+  - `f7bb666` 0.0.5～0.0.8 基线；`4ac29c0` 0.0.9 重构前基线
+  - `1e91828` 测试基础设施；`f574f22` 注释中性化；`7e5f431` 入口拆分；
+    `cefe294` 五个巨型 UI 拆分；`f33258f` 游戏内 UI 拆分；`a869dd0` VerseCore 拆分
+- 最新构建产物：`d:\Verse Explorer X\远程传输\Verse-0.0.9-refactor-arm64-v8a.apk`（189,647,107 字节，已签名，证书与 0.0.8 一致可覆盖安装）。
 - 真机：序列号 `3B1F5PE9ZUZ69NZH`（Android 16+，页面大小 4096）。adb 会中途掉线，重连后先 `adb devices` 确认再装。
-- 当前进度：二次启动崩溃修复已完成并出包；**真机回归尚未做**，见第 7 节。
+- 当前进度：代码质量改善计划 P0～P6 已完成（重构 + 测试网 + 注释清理 + 大文件拆分），
+  **真机回归尚未做**，见第 7 节。
 
 ---
 
@@ -41,6 +41,32 @@
 - FCL 本地仓库：`.fcl-repo\FCL\...`（完整，可直接读，不必联网）。
 - ZL2 本地源码：`d:\Verse Explorer X\zl2-src`（Zalith Launcher 2）。
 - PCL：用户要求下载速度/部分交互以 PCL 为准，但代码注释不得写来源。
+
+**FclCore 改动前必读**：[FclCore/VERSE-CHANGES.md](<file:///d:/Verse Explorer X/Verse Android/FclCore/VERSE-CHANGES.md>)
+（双轨结构、已改文件记账、漂移基线、改动规矩、未来选项）。
+
+### 1.1 目录形态（2026-10-24 拆分后）
+
+大文件已按职责拆开，找代码时先看这张表，不要以为文件不见了：
+
+| 原文件 | 拆分后 |
+|---|---|
+| `MainActivity.kt`(702) | → `MainWindowMode.kt`（窗口/刘海）、`ShareIntentHandler.kt`、`MainPermissionHelper.kt`、`MainLaunchCoordinator.kt`、`MainActivityDialogs.kt` |
+| `ui/MainScreen.kt`(703) | → `ui/NavTransitions.kt`、`ui/FloatingNavOverlay.kt`（悬浮导航全家） |
+| `ui/SettingsScreen.kt` | → `ui/SettingsControlCards.kt`（控制设置卡）、`ui/SettingsMousePointer.kt`（指针与热点） |
+| `ui/InstalledVersionsScreen.kt` | → `ui/InstalledVersionsComponents.kt`、`ui/InstalledVersionsUtils.kt` |
+| `ui/VersionSettingsScreen.kt` | → `ui/VersionSettingsCards.kt`（管理配置卡）、`ui/FolderBrowser.kt`（文件夹浏览器） |
+| `ui/ModDetailScreen.kt` | → `ui/ModDetailComponents.kt` |
+| `ui/components/PcComponents.kt` | → 同包 6 文件：`PcLayout/PcButton/PcInput/PcRow/PcFilter/PcOverlay` |
+| `ui/game/GameActivity.kt` | → `ui/game/GameDialogs.kt`、`ui/game/GameOverlaySetup.kt`（均为扩展函数） |
+| `ui/game/InGameControlOverlay.kt` | → `ui/game/ControlRowBuilder.kt`（设置行构建器） |
+| `VerseCore/.../account/MicrosoftAuthenticator.kt` | → `AuthExceptions.kt`、`AuthlibAuthenticator.kt` |
+| `VerseCore/.../install/GameInstaller.kt` | → `LibraryFilter.kt`、`InstallFileUtils.kt` |
+| `VerseCore/.../launch/DependencyDownloader.kt` | → `DependencyUtils.kt` |
+| `app/game/GameLaunchOrchestrator.kt` | → `app/game/OptionsInjector.kt`、`app/game/JreResolver.kt`（另有纯函数对象 `OptionsText.kt`、`JreValidator.kt`） |
+| 数据层（原 `app.data`） | → 18 个仓库下沉 `VerseCore/.../core.data`（含 `account/feedback/java/lan/version` 子包）；`app.data` 只剩 6 个 UI 耦合文件 |
+
+拆分原则：**纯代码移动，行为零变化**；同包拆文件优先（import 零变更）；可见性只做 private→internal。
 
 ---
 
@@ -314,8 +340,10 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 | 游戏退出/重启/渲染尺寸接入 | [GameLaunchOrchestrator.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/game/GameLaunchOrchestrator.kt#L150-L165>)、[第 9 步](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/game/GameLaunchOrchestrator.kt#L472-L505>) |
 | 崩溃页重启/退出 | [CrashReportActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/CrashReportActivity.kt#L135-L143>)、[L204-L213](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/CrashReportActivity.kt#L204-L213>) |
 | 分辨率比例存储/解析 | [MenuSetting.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/tungsten/fcl/setting/MenuSetting.kt#L20-L29>)、`windowScale` 默认值 `L117` |
-| 控制面板分辨率滑条/刷新 | [InGameControlOverlay.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/InGameControlOverlay.kt#L466-L476>)、[L664-L690](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/InGameControlOverlay.kt#L664-L690>) |
-| 触控坐标映射 | [GameActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameActivity.kt#L996-L1025>)、[L1057](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameActivity.kt#L1057>) |
+| 控制面板分辨率滑条/刷新 | [InGameControlOverlay.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/InGameControlOverlay.kt#L468-L476>)（滑条，行构建器见 `ControlRowBuilder.kt`）、`refreshWindowsSize()`（L663 起） |
+| 触控坐标映射 | [GameActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameActivity.kt#L915-L945>)（`inputHandler.pointerMapper`） |
+| 游戏内对话框/控制面板挂载 | `ui/game/GameDialogs.kt`、`ui/game/GameOverlaySetup.kt`（均为 `GameActivity` 扩展函数） |
+| 启动 options 注入 / JRE 校验 | `app/game/OptionsInjector.kt`、`app/game/JreResolver.kt`（纯函数在 `OptionsText.kt`、`JreValidator.kt`） |
 | 主页顶部留白 | [HomeScreen.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/ui/HomeScreen.kt#L190-L212>) |
 | 刘海策略/根容器 | [MainActivity.kt](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/MainActivity.kt#L114-L121>)、[L228-L272](<file:///d:/Verse Explorer X/Verse Android/VerseApp/src/main/java/com/verse/explorer/app/MainActivity.kt#L228-L272>) |
 | 渲染器插件扫描 | [RendererPluginManager.kt](<file:///d:/Verse Explorer X/Verse Android/VerseLauncher/src/main/java/com/verse/explorer/launcher/renderer/RendererPluginManager.kt#L22-L68>) |
@@ -350,6 +378,9 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 - 真机安装 0.0.8 包成功，Android 16/17 兼容性弹窗消失。
 - 连续两次冷启动应用：PID 变化、无崩溃。
 - 二次启动修复包已放远程传输目录。
+- **2026-10-24 重构批次**：每一步都过双门禁——`compileReleaseKotlin` BUILD SUCCESSFUL
+  且 `:VerseCore:testDebugUnitTest :VerseApp:testDebugUnitTest` 34 用例全绿。
+  拆分均为纯代码移动，未做真机验证（见下）。
 
 ### 待用户/真机验证（接手优先）
 
@@ -358,7 +389,9 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 3. 真机：崩溃分析页点「重新启动应用」/「重启游戏」，确认系统冷启动拉起新进程。
 4. 真机：TouchController 模组存在时指针转发是否正常（本次会话未实测）。
 5. 真机：渲染器插件（用户安装的 MG）在版本设置下拉中出现并可启动（GL 路径）。
-6. 如继续整合包安装线：旧版本 2.4.70 的尾部 401MB OOM 是否已解决没有本次证据，需重新验证（见第 10 节）。
+6. **真机：0.0.9 重构包的整体回归**——启动链（OptionsInjector/JreResolver）、
+   账号与皮肤头像（AuthlibServices）、设置页各开关、版本列表、控制面板与游戏内对话框。
+7. 如继续整合包安装线：旧版本 2.4.70 的尾部 401MB OOM 是否已解决没有本次证据，需重新验证（见第 10 节）。
 
 ---
 
@@ -374,51 +407,36 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 5. **分辨率与强制分辨率并存**：版本设置里开了「强制分辨率」时，`windowScale` 滑条不生效（走 `FORCE_RESOLUTION_WIDTH/HEIGHT`）。这是预期行为，测试时注意区分。
 6. **触控映射边界**：`coerceAtLeast(0)` 只防负数，未 clamp 到渲染宽高上限；若真机出现边缘越界，再补上限约束。
 7. **adb 掉线/进程僵死**：模拟器进程易僵死（`adb devices` 为空）；真机长时间操作后掉线。产物先放远程传输，不要反复重构建。
-8. **git 工作区很脏**：0.0.5～0.0.8 未提交；`.verify/`、`promo-video/`、`soup/` 等未跟踪目录可能是临时产物，提交前和用户确认，不要 `git add -A`。
+8. **git 纪律**：工作区已清零（0.0.5～0.0.9 全部提交）。`.verify/`、`promo-video/`、`soup/` 仍是未跟踪的临时产物，提交前与用户确认，不要 `git add -A`。
+9. **测试网仍然很薄**：只有 34 个纯逻辑单测（Vulkan 门槛、渲染尺寸、options 注入、JRE 校验、局域网 IP、Modrinth 解析）。启动链、输入分发、桥回调仍无自动化守护，改这些地方必须真机验证。
+10. **FclCore 分叉不可逆**：见 [FclCore/VERSE-CHANGES.md](<file:///d:/Verse Explorer X/Verse Android/FclCore/VERSE-CHANGES.md>)。任何"顺手整理一下 FclCore"的改动都会永久抬高成本。
 
 ---
 
-## 9. 发布前注释清理清单
+## 9. 注释来源字样（已清零，维护用）
 
-用户规则：**发布内测版时必须清理所有有关参考启动器的注释，不得残留**。
+用户规则：**发布内测版时不得残留任何来源字样注释**。
 
-当前源码中仍命中的文件（`移植自/迁移自/原样移植/对位/照搬/复刻/1:1/与 ZL2/对齐 ZL2`，共 22 个文件、37 处）：
+**现状：2026-10-24 已全库清零**（VerseApp / VerseCore / VerseLauncher / FclCore 四大模块 0 命中）。
+原来的 22 文件 37 处清单已全部改写为中文功能性描述；AboutScreen 的用户可见致谢改为中性表述。
 
-| 文件 | 命中数 |
-|---|---|
-| `VerseApp/.../ui/InstalledVersionsScreen.kt` | 9 |
-| `VerseApp/.../ui/theme/Palette.kt` | 3 |
-| `VerseApp/.../ui/components/Layouts.kt` | 3 |
-| `VerseApp/.../ui/components/BackgroundCard.kt` | 3 |
-| `VerseApp/.../ui/components/_SimpleRail.kt` | 1 |
-| `VerseApp/.../ui/components/_Scroll.kt` | 1 |
-| `VerseApp/.../ui/components/Constants.kt` | 1 |
-| `VerseApp/.../ui/components/Buttons.kt` | 1 |
-| `VerseApp/.../ui/components/PcComponents.kt` | 1 |
-| `VerseApp/.../ui/components/ModpackImportFlow.kt` | 1 |
-| `VerseApp/.../ui/game/GameActivity.kt` | 1（第 1004 行「与 ZL2 的 mapToGame 一致」） |
-| `VerseApp/.../game/GameLaunchOrchestrator.kt` | 1（第 157 行「与 ZL2 的退出策略一致」） |
-| `VerseApp/.../com/tungsten/fcl/setting/MenuSetting.kt` | 1（第 10 行「原样移植自 .fcl-temp/FCL」） |
-| `VerseApp/.../com/tungsten/fcl/control/view/LogWindow.kt` | 1 |
-| `VerseApp/.../com/tungsten/fcl/control/GestureMode.java` | 1 |
-| `VerseApp/.../com/tungsten/fcl/control/MouseMoveMode.java` | 1 |
-| `VerseApp/.../net/kdt/pojavlaunch/Tools.java` | 1 |
-| `VerseApp/.../net/kdt/pojavlaunch/customcontrols/keyboard/TouchCharInput.java` | 1 |
-| `VerseApp/.../com/mio/controlconverter/CcJson.kt` | 1 |
-| `FclCore/.../com/tungsten/fcl/game/sdl/SdlBridge.kt` | 2 |
-| `VerseLauncher/.../launcher/fcl/launch/DefaultLauncher.java` | 1 |
-| `VerseCore/src/test/.../ModrinthParseTest.kt` | 1（仅测试，不打包，低优先） |
+复查命令（git bash 或任意 shell 均可）：
 
-复查命令（PowerShell / git bash 均可，需 rg）：
-
-```powershell
-rg -n "(移植自|迁移自|原样移植|对位|照搬|复刻|1:1|与 ?ZL2|对齐 ?ZL2)" -g "*.{kt,java}"
+```bash
+grep -rn "移植自\|迁移自\|原样移植\|照搬\|复刻\|1:1\|对位 ZL2\|对位 Zalith\|与 ZL2\|对齐 ZL2\|参考自\|借鉴\|Modified from\|Pojav 触控模块" \
+  --include="*.kt" --include="*.java" \
+  VerseApp/src VerseCore/src VerseLauncher/src FclCore/src
 ```
 
+期望输出：**空**。新增代码前先记住这条红线，别把来源字样写回去。
+
 注意：
-- 还有大量「Pojav 触控模块迁移」类注释在 `net/kdt/pojavlaunch/**`、`FclCore/.../CallbackBridge.java` 等文件里；用户规则同样要求清理来源字样，发布前逐条改写为功能性描述。
-- 不要误删功能性字符串：`getPojavEnv()`、`PojavBigCore`、`PCL2CE`（陶瓦房间类型常量）、`Pojav JRE`（资源名）等是代码/协议的一部分，不是注释。
-- 清理后重新全量编译，避免误删 import（历史上删注释时误删过 `android.view.MotionEvent`）。
+- **不要误删功能性字符串**：`getPojavEnv()`、`pojavBigCore/isPojavBigCore/toPojavEnvList`、
+  `extractPojavJreFromAssets/extractPojavJreZip`、`PCL2CE`（陶瓦房间类型常量）、
+  `libpojavexec`/`pojavRendererId`、"Pojav JRE"（资源名）、UI 映射里的 "pojav" 等——这些是代码/协议的一部分。
+- **版权头保留**：`SdlBridge.kt` 等 vendored 文件的 Apache-2.0 版权声明必须保留（法务合规），
+  只中性化其中的散文描述。
+- 清理后必须全量编译，避免误删 import（历史上删注释时误删过 `android.view.MotionEvent`）。
 
 ---
 
@@ -501,19 +519,22 @@ c:\Users\huang\.trae-cn\memory\projects\-d-Verse-Explorer-X-Verse-Android--p2-9a
 
 ## 13. 下一步建议（按序）
 
-1. **真机回归**第 7 节 1～3 项（二次启动、分辨率+触控、崩溃页冷启动）。用日志确认：
+1. **真机回归**第 7 节 1～7 项（二次启动、分辨率+触控、崩溃页冷启动、0.0.9 重构包整体回归）。用日志确认：
    - 新进程 PID 与旧进程不同；
    - `GameLaunchOrchestrator` 第 9 步窗口尺寸与 `windowScale` 一致；
    - 无 `JNI_CreateJavaVM` 二次调用失败。
 2. 发现问题先抓日志定位，不要猜；需要对照就读 `d:\Verse Explorer X\zl2-src` 或 `.fcl-repo`。
-3. 完成第 9 节注释清理（发布前必做）。
-4. 递增版本号（当前 0.0.8/37，下一版建议 0.0.9/38，具体以用户要求为准）。
-5. 构建 arm64 release → zipalign → apksigner → verify → 复制到 `d:\Verse Explorer X\远程传输\`（删旧包）。
-6. 向用户汇报验证结果与产物路径。**只有用户明确要求才 commit/push/tag/发布**。
-7. 若用户要求发布：清理旧构建、更新后台更新配置、按镜像上传流程发 Release。
+3. 继续补测试：优先级为 `GameLaunchOrchestrator` 之外的纯逻辑（下载镜像选择、版本 JSON 解析、
+   `LibraryFilter.evaluateRules`、`InstallFileUtils`），每加一块就跑一次双门禁。
+4. 如要出正式包：递增 versionCode（当前 0.0.9/38 → 0.1.0/39 或按用户要求），
+   build arm64 release → zipalign → apksigner → verify → 复制到 `d:\Verse Explorer X\远程传输\`（删旧包）。
+5. **只有用户明确要求才 commit/push/tag/发布**。
+6. 若用户要求发布：清理旧构建、更新后台更新配置、按镜像上传流程发 Release。
 
 ---
 
 ## 14. 一句话总结
 
-当前版本 0.0.8 已包含：刘海主页留白、渲染器插件体系、16 KB 兼容性弹窗规避、纯百分比游戏分辨率、触控缩放映射、二次启动杀进程冷启动修复。代码已构建并出包，**剩余工作是真机回归 + 注释清理 + 按用户指令发版**。
+当前版本 0.0.9 在 0.0.8 的功能基础上完成了一轮系统性代码治理：拆掉上帝类与五个巨型 UI 文件、
+数据层下沉 VerseCore、注释来源字样全库清零、建立 34 用例的单测网与 CI 测试门禁、
+FclCore 分叉有了改动账本。**剩余工作是真机回归（重构包未实测）+ 按用户指令发版**。
