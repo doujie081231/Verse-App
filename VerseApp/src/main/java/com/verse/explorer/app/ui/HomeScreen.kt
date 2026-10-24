@@ -165,8 +165,6 @@ fun HomeScreen(
     }
 }
 
-private fun settingsLastVersion(): String? = SettingsRepository.getCustomSetting("last_version")
-
 @Composable
 fun SectionTitle(title: String) {
     Text(title, color = VerseColors.PcTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)

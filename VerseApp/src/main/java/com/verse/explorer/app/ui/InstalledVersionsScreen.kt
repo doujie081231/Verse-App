@@ -1,20 +1,12 @@
 package com.verse.explorer.app.ui
 
-import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,35 +23,17 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.AddBox
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileOpen
-import androidx.compose.material.icons.outlined.FolderZip
-import androidx.compose.material.icons.outlined.MoreHoriz
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -67,58 +41,40 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.VersionMetaRepository
-import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.BackgroundCard
-import com.verse.explorer.app.ui.components.DisabledAlpha
 import com.verse.explorer.app.ui.components.EdgeDirection
 import com.verse.explorer.app.ui.components.IconTextButton
-import com.verse.explorer.app.ui.components.LittleTextLabel
 import com.verse.explorer.app.ui.components.MarqueeText
 import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.components.ScalingLabel
-import com.verse.explorer.app.ui.components.TextRailItem
 import com.verse.explorer.app.ui.components.fadeEdge
-import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.cardColor
-import com.verse.explorer.app.ui.theme.itemColor
 import com.verse.explorer.app.ui.theme.onCardColor
-import com.verse.explorer.app.ui.theme.onItemColor
 import com.verse.explorer.app.viewmodel.VersionsViewModel
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
-import com.verse.explorer.core.version.VersionType
 import java.io.File
-import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * 已安装版本管理页（1:1 复刻 ZL2 ui/screens/content/VersionsManageScreen.kt 的右侧版本列表栏）。
+ * 已安装版本管理页。
  *
- * 结构对位关系：
- *  - 顶部悬浮操作栏 = ZL2 VersionsLayout 顶部 Row（左侧 Surface 内「刷新 / 安装」，
- *    右侧 Surface 内横向滚动的版本分类 ALL / 原版 / 模组）
- *  - 列表条目 = ZL2 VersionItemLayout（Surface + RadioButton + 图标 + 名称/摘要/信息行 +
- *    置顶 / 设置 / 更多菜单）
- *  - 空列表 = ZL2 的居中 ScalingLabel
+ * 结构：
+ *  - 顶部悬浮操作栏 = 左侧「刷新 / 安装」，右侧横向滚动的版本分类 ALL / 原版 / 模组
+ *  - 列表条目 = 版本图标 + 名称/摘要/信息行 + 置顶 / 设置 / 更多菜单
+ *  - 空列表 = 居中 ScalingLabel
  *
  * 数据层沿用 Verse 现有实现（VersionsViewModel / VersionMetaRepository / VersionCardManager），
- * 未移植 ZL2 的多游戏路径菜单（Verse 手机端为单一游戏目录）。
+ * 手机端为单一游戏目录语义。
  */
 
-/** 版本分类（对位 ZL2 VersionCategory） */
+/** 版本分类 */
 enum class VersionCategory(val label: String) {
     /** 全部 */
     ALL("全部"),
@@ -550,510 +506,5 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                 TextButton(onClick = { cleanupPlan = null }) { Text("取消") }
             }
         )
-    }
-}
-
-/**
- * 版本条目（1:1 对位 ZL2 VersionItemLayout）。
- *
- * RadioButton（选中态） + 版本图标 + 名称/摘要/信息行 + 置顶 + 设置 + 更多菜单。
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun VersionItemLayout(
-    version: MinecraftVersion,
-    selected: Boolean,
-    meta: VersionMetaRepository.VersionMeta,
-    pinnedToHome: Boolean,
-    modifier: Modifier = Modifier,
-    influencedByBackground: Boolean = true,
-    color: Color = cardColor(influencedByBackground),
-    contentColor: Color = onCardColor(),
-    blur: Int = VersePersonalization.backgroundBlur,
-    onSelected: () -> Unit = {},
-    onSettingsClick: () -> Unit = {},
-    onToggleHome: (Boolean) -> Unit = {},
-    onRenameClick: () -> Unit = {},
-    onExportClick: () -> Unit = {},
-    onOpenFolder: (String) -> Unit = {},
-    onTogglePin: (Boolean) -> Unit = {},
-    onDeleteClick: () -> Unit = {}
-) {
-    // 列表行不做入场缩放：滚动时每行重新组合都会起一个缩放动画并额外建图层，
-    // 快速滑动时多行动画叠加会掉帧
-    Surface(
-        modifier = modifier,
-        color = color,
-        contentColor = contentColor,
-        shape = MaterialTheme.shapes.large,
-        onClick = {
-            if (selected) return@Surface
-            onSelected()
-        }
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape = MaterialTheme.shapes.large)
-                .backgroundGlass(blur, color, influencedByBackground)
-                .padding(all = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            RadioButton(
-                selected = selected,
-                onClick = {
-                    if (selected) return@RadioButton
-                    onSelected()
-                }
-            )
-
-            // 版本信息（对位 ZL2 CommonVersionInfoLayout）
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                VersionIcon(version = version, size = 34.dp)
-
-                Column(modifier = Modifier.weight(1f)) {
-                    MarqueeText(
-                        text = version.id,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                    if (meta.summary.isNotBlank()) {
-                        MarqueeText(
-                            text = meta.summary,
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                    FlowRow(
-                        modifier = Modifier.alpha(0.7f),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        val baseVersion = version.inheritsFrom
-                        if (!baseVersion.isNullOrBlank()) {
-                            Text(
-                                text = baseVersion,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        val hint = version.loaderHint
-                        if (!hint.isNullOrBlank()) {
-                            Text(
-                                text = hint,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                        if (baseVersion.isNullOrBlank() && hint.isNullOrBlank()) {
-                            LittleTextLabel(
-                                text = versionTypeLabel(version),
-                                textStyle = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 置顶（对位 ZL2：图钉图标旋转 45°）
-            IconButton(
-                onClick = { onTogglePin(!meta.pinned) }
-            ) {
-                Crossfade(targetState = meta.pinned) { pinned ->
-                    Icon(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .rotate(45.0f),
-                        imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = "置顶"
-                    )
-                }
-            }
-
-            // 版本设置
-            IconButton(onClick = onSettingsClick) {
-                Icon(
-                    modifier = Modifier.size(24.dp),
-                    imageVector = Icons.Outlined.Settings,
-                    contentDescription = "版本设置"
-                )
-            }
-
-            // 更多操作
-            Box {
-                var menuExpanded by remember { mutableStateOf(false) }
-
-                IconButton(onClick = { menuExpanded = !menuExpanded }) {
-                    Icon(
-                        modifier = Modifier.size(24.dp),
-                        imageVector = Icons.Outlined.MoreVert,
-                        contentDescription = "更多"
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    shape = MaterialTheme.shapes.large,
-                    shadowElevation = 3.dp,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("重命名") },
-                        leadingIcon = { Icon(Icons.Outlined.Edit, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            onRenameClick()
-                            menuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (pinnedToHome) "从主页移除" else "添加到主页卡片") },
-                        leadingIcon = {
-                            Icon(
-                                if (pinnedToHome) Icons.Filled.Home else Icons.Outlined.AddBox,
-                                null, Modifier.size(20.dp)
-                            )
-                        },
-                        onClick = {
-                            onToggleHome(!pinnedToHome)
-                            menuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("导出 (.zip)") },
-                        leadingIcon = { Icon(Icons.Outlined.FolderZip, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            onExportClick()
-                            menuExpanded = false
-                        }
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    DropdownMenuItem(
-                        text = { Text("打开版本目录") },
-                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            onOpenFolder("")
-                            menuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("打开 mods") },
-                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            onOpenFolder("mods")
-                            menuExpanded = false
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("打开 saves") },
-                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            onOpenFolder("saves")
-                            menuExpanded = false
-                        }
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    DropdownMenuItem(
-                        text = { Text("删除版本", color = VerseColors.PcRed) },
-                        leadingIcon = { Icon(Icons.Outlined.Delete, null, Modifier.size(20.dp), tint = VerseColors.PcRed) },
-                        onClick = {
-                            onDeleteClick()
-                            menuExpanded = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 版本分类条目（对位 ZL2 VersionCategoryItem） */
-@Composable
-private fun VersionCategoryItem(
-    modifier: Modifier = Modifier,
-    value: VersionCategory,
-    versionsCount: Int,
-    selected: Boolean,
-    shape: Shape = MaterialTheme.shapes.large,
-    selectedContentColor: Color = MaterialTheme.colorScheme.onSurface,
-    unselectedContentColor: Color = MaterialTheme.colorScheme.onSurface,
-    style: TextStyle = MaterialTheme.typography.labelMedium,
-    enabled: Boolean = true,
-    onClick: () -> Unit = {}
-) {
-    TextRailItem(
-        modifier = modifier,
-        text = {
-            Text(text = value.label, style = style)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(text = "($versionsCount)", style = style)
-        },
-        onClick = onClick,
-        selected = selected,
-        shape = shape,
-        selectedContentColor = selectedContentColor,
-        unselectedContentColor = unselectedContentColor,
-        enabled = enabled
-    )
-}
-
-internal fun versionTypeLabel(version: MinecraftVersion): String {
-    return when (version.type) {
-        VersionType.SNAPSHOT -> "快照"
-        VersionType.OLD_ALPHA -> "Old Alpha"
-        VersionType.OLD_BETA -> "Old Beta"
-        else -> "正式版"
-    }
-}
-
-private fun settingsLastVersion(): String? = SettingsRepository.getCustomSetting("last_version")
-
-/** 是否为模组版本：版本 json 识别出加载器，或 id 命中加载器/整合包关键词 */
-private fun isModdedVersion(version: MinecraftVersion): Boolean {
-    if (!version.loaderHint.isNullOrBlank()) return true
-    val lower = version.id.lowercase()
-    return lower.contains("fabric") || lower.contains("forge") || lower.contains("neoforge") ||
-        lower.contains("optifine") || lower.contains("liteloader") || lower.contains("modpack") || lower.contains("整合")
-}
-
-/**
- * 重命名版本目录：目录与 <id>.json 改名，版本 json 内的 id 字段同步更新，
- * 目标名已存在或目录缺失时抛错由调用方提示。
- */
-internal fun renameVersion(context: Context, oldId: String, newId: String) {
-    val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
-    val oldDir = File(versionsDir, oldId)
-    val newDir = File(versionsDir, newId)
-    require(oldDir.isDirectory) { "版本目录不存在" }
-    require(!newDir.exists()) { "目标名称已存在" }
-    val invalidChars = Regex("""[\\/:*?"<>|]""")
-    require(!invalidChars.containsMatchIn(newId)) { "名称含非法字符" }
-
-    val oldJson = File(oldDir, "$oldId.json")
-    if (oldJson.isFile) {
-        val text = oldJson.readText()
-        val updated = Regex("""("id"\s*:\s*")(${Regex.escape(oldId)})(")""")
-            .replace(text) { m -> "${m.groupValues[1]}$newId${m.groupValues[3]}" }
-        oldJson.writeText(updated)
-        if (!oldJson.renameTo(File(oldDir, "$newId.json"))) {
-            oldJson.writeText(text)
-            error("版本 json 改名失败")
-        }
-    }
-    if (!oldDir.renameTo(newDir)) {
-        error("版本目录改名失败")
-    }
-}
-
-/** 递归压缩目录（entry 名相对 rootDir） */
-internal fun zipDirectory(dir: File, rootDir: File, zip: ZipOutputStream) {
-    dir.listFiles()?.forEach { f ->
-        if (f.isDirectory) {
-            zipDirectory(f, rootDir, zip)
-        } else {
-            val entryName = f.relativeTo(rootDir).invariantSeparatorsPath
-            zip.putNextEntry(ZipEntry(entryName))
-            f.inputStream().use { it.copyTo(zip) }
-            zip.closeEntry()
-        }
-    }
-}
-
-/** 左栏游戏目录胶囊：显示当前激活目录，⋯ 菜单切换 / 移除 / 打开 */
-@Composable
-private fun GameDirPill(
-    activePath: String?,
-    defaultPath: String,
-    addedDirs: List<String>,
-    onSwitch: (String?) -> Unit,
-    onRemove: (String) -> Unit,
-    onOpen: () -> Unit
-) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    val currentPath = activePath ?: defaultPath
-    val title = if (activePath == null) "默认游戏目录" else File(currentPath).name.ifBlank { currentPath }
-    val color = itemColor()
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = color,
-        contentColor = onItemColor(),
-        shape = MaterialTheme.shapes.large
-    ) {
-        Row(
-            modifier = Modifier
-                .backgroundGlass(VersePersonalization.backgroundBlur, color)
-                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                MarqueeText(text = title, style = MaterialTheme.typography.labelLarge)
-                Text(
-                    modifier = Modifier.alpha(0.7f),
-                    text = currentPath,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Box {
-                IconButton(onClick = { menuExpanded = true }) {
-                    Icon(
-                        modifier = Modifier.size(20.dp),
-                        imageVector = Icons.Outlined.MoreHoriz,
-                        contentDescription = "游戏目录管理"
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = menuExpanded,
-                    shape = MaterialTheme.shapes.large,
-                    shadowElevation = 3.dp,
-                    onDismissRequest = { menuExpanded = false }
-                ) {
-                    GameDirMenuItem(
-                        title = "默认游戏目录",
-                        path = defaultPath,
-                        selected = activePath == null,
-                        onClick = {
-                            menuExpanded = false
-                            onSwitch(null)
-                        }
-                    )
-                    addedDirs.forEach { path ->
-                        GameDirMenuItem(
-                            title = File(path).name.ifBlank { path },
-                            path = path,
-                            selected = activePath == path,
-                            onClick = {
-                                menuExpanded = false
-                                onSwitch(path)
-                            },
-                            onRemove = {
-                                menuExpanded = false
-                                onRemove(path)
-                            }
-                        )
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    DropdownMenuItem(
-                        text = { Text("打开游戏目录") },
-                        leadingIcon = { Icon(Icons.Outlined.FileOpen, null, Modifier.size(20.dp)) },
-                        onClick = {
-                            menuExpanded = false
-                            onOpen()
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 游戏目录菜单条目：名称 + 路径，附加目录可单独移除 */
-@Composable
-private fun GameDirMenuItem(
-    title: String,
-    path: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    onRemove: (() -> Unit)? = null
-) {
-    DropdownMenuItem(
-        text = {
-            Column {
-                Text(text = title, style = MaterialTheme.typography.labelLarge)
-                Text(
-                    modifier = Modifier.alpha(0.6f),
-                    text = path,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        },
-        leadingIcon = if (selected) {
-            { Icon(Icons.Filled.Check, null, Modifier.size(20.dp)) }
-        } else null,
-        trailingIcon = if (onRemove == null) null else {
-            {
-                IconButton(onClick = onRemove) {
-                    Icon(
-                        modifier = Modifier.size(18.dp),
-                        imageVector = Icons.Outlined.Delete,
-                        contentDescription = "移除该目录"
-                    )
-                }
-            }
-        },
-        onClick = onClick
-    )
-}
-
-/** 左栏药丸按钮 */
-@Composable
-private fun RailPillButton(text: String, onClick: () -> Unit) {
-    val shape = MaterialTheme.shapes.large
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        shape = shape
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .clickable(onClick = onClick)
-                .padding(vertical = 12.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = text, style = MaterialTheme.typography.labelLarge)
-        }
-    }
-}
-
-internal fun toast(context: Context, text: String) {
-    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
-}
-
-/** SAF 目录 URI → 共享存储绝对路径；非共享存储目录返回 null */
-private fun treeUriToPath(uri: Uri): String? {
-    if (uri.authority != "com.android.externalstorage.documents") return null
-    val docId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
-    val parts = docId.split(":")
-    if (parts.size < 2) return null
-    val volume = parts[0]
-    val relative = parts[1]
-    val base = if (volume.equals("primary", ignoreCase = true)) "/storage/emulated/0" else "/storage/$volume"
-    return if (relative.isBlank()) base else "$base/$relative"
-}
-
-/** 清理计划：下载残留项 + 缺少版本 json 的孤立版本目录 */
-private data class CleanupPlan(
-    val residue: List<File>,
-    val orphanVersions: List<File>
-)
-
-private val RESIDUE_SUFFIXES = listOf(".part", ".tmp", ".download")
-
-private fun buildCleanupPlan(gameDir: File): CleanupPlan {
-    val residue = mutableListOf<File>()
-    listOf("modpacks", "mods", "resourcepacks", "shaderpacks", "versions")
-        .forEach { collectResidue(File(gameDir, it), residue) }
-    val versionsDir = GameConfig.getVersionsDir(gameDir)
-    val orphan = versionsDir.listFiles { f -> f.isDirectory }
-        ?.filterNot { File(it, "${it.name}.json").isFile }
-        ?: emptyList()
-    return CleanupPlan(residue, orphan)
-}
-
-/** 递归收集下载残留：分块缓存目录与 .part/.tmp/.download 半截文件（跳过 assets/libraries） */
-private fun collectResidue(dir: File, out: MutableList<File>) {
-    dir.listFiles()?.forEach { f ->
-        when {
-            f.isDirectory && f.name == ".download_chunks" -> out.add(f)
-            f.isDirectory && f.name != "assets" && f.name != "libraries" -> collectResidue(f, out)
-            f.isFile && RESIDUE_SUFFIXES.any { f.name.endsWith(it) } -> out.add(f)
-        }
     }
 }
