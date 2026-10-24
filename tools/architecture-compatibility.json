@@ -1,0 +1,1435 @@
+{
+  "schemaVersion": 1,
+  "policy": "只允许逐项审查后的兼容接口；禁止全量刷新绕过检查。",
+  "files": {
+    "VerseApp/proguard-rules.pro": {
+      "reason": "JNI 导出、反射及旧控件的保留规则；不允许把已删除启动链重新加入。",
+      "references": [
+        "com.tungsten.fcl.game.sdl",
+        "com.tungsten.fcl.game.sdl.SdlBridge",
+        "com.tungsten.fclauncher.bridge",
+        "com.tungsten.fclauncher.bridge.FCLBridge.openLink",
+        "com.tungsten.fclauncher.keycodes.EfficientAndroidLWJGLKeycode",
+        "com.tungsten.fclauncher.utils",
+        "com.tungsten.fclcore",
+        "org.libsdl.app",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/com/ipaulpro/afilechooser/FileListAdapter.java": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/com/kdt/SideDialogView.java": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.Tools.currentDisplayMetrics"
+      ]
+    },
+    "VerseApp/src/main/java/com/kdt/pickafile/FileListView.java": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcButtons.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcConstants.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter",
+        "com.mio.controlconverter.CcJson.bool",
+        "com.mio.controlconverter.CcJson.inum",
+        "com.mio.controlconverter.CcJson.obj",
+        "com.mio.controlconverter.CcJson.pyNum",
+        "com.mio.controlconverter.CcJson.str"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcContext.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcConverter.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcDirection.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcEvents.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcFclToZl.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcGeometry.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcJson.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcStyles.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcUtils.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/mio/controlconverter/CcZlToFcl.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter"
+      ]
+    },
+    "VerseApp/src/main/java/com/tungsten/fcl/control/GestureMode.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.tungsten.fcl.control"
+      ]
+    },
+    "VerseApp/src/main/java/com/tungsten/fcl/control/MouseMoveMode.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.tungsten.fcl.control"
+      ]
+    },
+    "VerseApp/src/main/java/com/tungsten/fcl/control/view/LogWindow.kt": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.tungsten.fcl.control.view"
+      ]
+    },
+    "VerseApp/src/main/java/com/tungsten/fcl/setting/MenuSetting.kt": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.tungsten.fcl.setting"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/device/VulkanCapabilities.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:System.load",
+        "JNI:declaration",
+        "JNI:nativeCheckVulkan",
+        "JNI:nativeSetLogCallback"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/device/VulkanCheckManager.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fclcore.util.versioning.GameVersionNumber.compare"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/device/VulkanDependency.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fclcore.util.versioning.GameVersionNumber"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/game/NativesDeployer.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util.FCLPath"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/game/OptionsInjector.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fcl.setting.MenuSetting",
+        "com.verse.explorer.launcher.fcl.game.DefaultGameRepository",
+        "com.verse.explorer.launcher.fcl.game.Version"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/game/compat/FclLaunchPreparation.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fcl.game.sdl.SdlBridge",
+        "com.tungsten.fcl.setting.MenuSetting",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.tungsten.fclauncher.bridge.FCLBridgeCallback",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI",
+        "com.verse.explorer.launcher.bridge.CallbackBridge",
+        "com.verse.explorer.launcher.fcl.auth.AuthInfo",
+        "com.verse.explorer.launcher.fcl.game.DefaultGameRepository",
+        "com.verse.explorer.launcher.fcl.game.JavaVersion",
+        "com.verse.explorer.launcher.fcl.game.LaunchOptions",
+        "com.verse.explorer.launcher.fcl.game.VerseJavaVersion",
+        "com.verse.explorer.launcher.fcl.game.Version",
+        "com.verse.explorer.launcher.fcl.launch.DefaultLauncher",
+        "com.verse.explorer.launcher.fcl.util.FCLPath"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/game/compat/FclRenderSettings.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fcl.setting.MenuSetting"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/install/FclCoreHost.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fcl.FCLApp.attach",
+        "com.tungsten.fclauncher.utils.FCLPath.CACHE_DIR",
+        "com.tungsten.fclauncher.utils.FCLPath.CONTEXT",
+        "com.tungsten.fclauncher.utils.FCLPath.JRE_ARCH",
+        "com.tungsten.fclauncher.utils.FCLPath.setPaths",
+        "com.tungsten.fclcore.download.DefaultCacheRepository",
+        "com.tungsten.fclcore.util.CacheRepository.setInstance"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/launch/GameLaunchController.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fclcore.util.versioning.GameVersionNumber.compare"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/settings/AndroidSettingsStore.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fcl.setting.MenuSetting"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/skin/SkinFigureRenderer.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:java.nio.ByteOrder.nativeOrder"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/skin/cube/CapeCube.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:ByteOrder.nativeOrder"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/skin/cube/LimbCube.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:ByteOrder.nativeOrder"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/skin/cube/MainCube.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:ByteOrder.nativeOrder"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/ControlLayoutsScreen.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.mio.controlconverter.CcConverter",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.Tools.init",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/InstalledModsScreen.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fclcore.game.DefaultGameRepository",
+        "com.tungsten.fclcore.mod.LocalModFile",
+        "com.tungsten.fclcore.mod.ModLoaderType",
+        "com.tungsten.fclcore.mod.ModManager"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/SettingsControlCards.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fcl.setting.MenuSetting",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector.ColorSelector",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/SettingsMousePointer.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fcl.setting.MenuSetting",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector.ColorSelector",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/SettingsScreen.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector.ColorSelector",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/VersionSettingsScreen.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools.CTRLMAP_PATH"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/components/ModpackInstallDialog.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.tungsten.fclcore.task.FetchTask"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameActivity.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:CallbackBridge.nativeSetInputReady",
+        "JNI:sdlSurface.nativeResize",
+        "com.tungsten.fcl.control.view.LogWindow",
+        "com.tungsten.fcl.game.sdl.SdlBridge",
+        "com.tungsten.fcl.setting.MenuSetting",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.verse.explorer.launcher.bridge.CallbackBridge",
+        "net.kdt.pojavlaunch.MainActivity.hostHandler",
+        "net.kdt.pojavlaunch.MinecraftGLSurface",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.CustomControls",
+        "net.kdt.pojavlaunch.customcontrols.keyboard.LwjglCharSender",
+        "net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput",
+        "net.kdt.pojavlaunch.customcontrols.mouse.GyroControl",
+        "net.kdt.pojavlaunch.customcontrols.mouse.Touchpad",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.libsdl.app.SDLActivity.getSDLSurface",
+        "org.lwjgl.glfw.CallbackBridge.addGrabListener",
+        "org.lwjgl.glfw.CallbackBridge.physicalHeight",
+        "org.lwjgl.glfw.CallbackBridge.physicalWidth",
+        "org.lwjgl.glfw.CallbackBridge.setCursorShapeListener"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/game/GameInputHandler.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "com.tungsten.fcl.control.GestureMode",
+        "com.tungsten.fcl.control.MouseMoveMode",
+        "com.tungsten.fcl.setting.MenuSetting",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.verse.explorer.launcher.bridge.CallbackBridge",
+        "org.lwjgl.glfw.CallbackBridge.sendCursorDelta"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/game/InGameControlOverlay.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:sdlSurface.nativeResize",
+        "com.tungsten.fcl.game.sdl.SdlBridge.sdlEnabled",
+        "com.tungsten.fcl.setting.MenuSetting",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.verse.explorer.launcher.bridge.CallbackBridge.getFps",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlJoystickData",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlJoystick",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.libsdl.app.SDLActivity.getSDLSurface"
+      ]
+    },
+    "VerseApp/src/main/java/com/verse/explorer/app/ui/game/LayoutEditorActivity.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlJoystickData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.CustomControls",
+        "net.kdt.pojavlaunch.customcontrols.EditorExitable",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlJoystick",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge.physicalHeight",
+        "org.lwjgl.glfw.CallbackBridge.physicalWidth"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/AWTInputBridge.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "JNI:declaration",
+        "JNI:nativeClipboardReceived",
+        "JNI:nativeMoveWindow",
+        "JNI:nativeSendData",
+        "net.kdt.pojavlaunch",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/AWTInputEvent.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/EfficientAndroidLWJGLKeycode.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch",
+        "org.lwjgl.glfw.CallbackBridge",
+        "org.lwjgl.glfw.CallbackBridge.sendKeyPress"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/GrabListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch",
+        "org.lwjgl.glfw.GrabListener"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/LwjglGlfwKeycode.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/MainActivity.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/MinecraftGLSurface.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/SingleTapConfirm.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/Tools.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/AlphaSelectionListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/AlphaView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/ColorSelectionListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/ColorSelector.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/ColorSideBySideView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/HueSelectionListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/HueView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/RectangleSelectionListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/colorselector/SVRectangleView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.colorselector"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/ControlButtonMenuListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/ControlData.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode.GLFW_KEY_UNKNOWN",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "net.kdt.pojavlaunch.utils.JSONUtils",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/ControlDrawerData.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData.Orientation.DOWN",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData.Orientation.FREE",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData.Orientation.LEFT",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData.Orientation.RIGHT",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData.Orientation.UP"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/ControlJoystickData.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/ControlLayout.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.MinecraftGLSurface",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.Tools.currentDisplayMetrics",
+        "net.kdt.pojavlaunch.customcontrols",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlButton",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlDrawer",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlJoystick",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlSubButton",
+        "net.kdt.pojavlaunch.customcontrols.handleview.ActionRow",
+        "net.kdt.pojavlaunch.customcontrols.handleview.ControlHandleView",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge.isGrabbing"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/CustomControls.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch",
+        "net.kdt.pojavlaunch.customcontrols"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/EditorExitable.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/LayoutConverter.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.mio.controlconverter.CcConverter.INSTANCE.convertZlToFcl",
+        "com.mio.controlconverter.CcConverter.INSTANCE.isZl2Layout",
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/LayoutSanitizer.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/RepoLayoutConverter.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/buttons/ControlButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode.GLFW_KEY_UNKNOWN",
+        "net.kdt.pojavlaunch.MainActivity",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.buttons",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge",
+        "org.lwjgl.glfw.CallbackBridge.sendKeyPress",
+        "org.lwjgl.glfw.CallbackBridge.sendMouseButton"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/buttons/ControlDrawer.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.buttons",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/buttons/ControlInterface.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.GrabListener",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.buttons",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_BUTTONSIZE",
+        "net.kdt.pojavlaunch.utils.MathUtils.dist",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/buttons/ControlJoystick.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlJoystickData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.buttons",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_EAST",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_NONE",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_NORTH",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_NORTH_EAST",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_NORTH_WEST",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_SOUTH",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_SOUTH_EAST",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_SOUTH_WEST",
+        "net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_WEST",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/buttons/ControlSubButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData",
+        "net.kdt.pojavlaunch.customcontrols.ControlLayout",
+        "net.kdt.pojavlaunch.customcontrols.buttons",
+        "net.kdt.pojavlaunch.customcontrols.handleview.EditControlSideDialog"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/gamepad/GamepadJoystick.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.gamepad",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_DEADZONE_SCALE",
+        "net.kdt.pojavlaunch.utils.MathUtils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/ActionButtonInterface.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/ActionRow.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools.currentDisplayMetrics",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/AddSubButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlDrawer",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/CloneButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/ControlHandleView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/DeleteButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/DrawerPullButton.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.handleview"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/handleview/EditControlSideDialog.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.EfficientAndroidLWJGLKeycode",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.Tools.currentDisplayMetrics",
+        "net.kdt.pojavlaunch.colorselector.ColorSelector",
+        "net.kdt.pojavlaunch.customcontrols.ControlData",
+        "net.kdt.pojavlaunch.customcontrols.ControlDrawerData",
+        "net.kdt.pojavlaunch.customcontrols.ControlJoystickData",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlDrawer",
+        "net.kdt.pojavlaunch.customcontrols.buttons.ControlInterface",
+        "net.kdt.pojavlaunch.customcontrols.handleview",
+        "net.kdt.pojavlaunch.utils.interfaces.SimpleItemSelectedListener",
+        "net.kdt.pojavlaunch.utils.interfaces.SimpleSeekBarListener",
+        "net.kdt.pojavlaunch.utils.interfaces.SimpleTextWatcher"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/keyboard/AwtCharSender.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.AWTInputBridge",
+        "net.kdt.pojavlaunch.AWTInputEvent",
+        "net.kdt.pojavlaunch.customcontrols.keyboard"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/keyboard/CharacterSenderStrategy.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.keyboard"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/keyboard/LwjglCharSender.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.customcontrols.keyboard",
+        "org.lwjgl.glfw.CallbackBridge",
+        "org.lwjgl.glfw.CallbackBridge.sendKeyPress"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/keyboard/TouchCharInput.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "com.tungsten.fcl.game.sdl.SdlBridge.getSdlEnabled",
+        "com.tungsten.fcl.game.sdl.SdlBridge.isSdlRenderActive",
+        "net.kdt.pojavlaunch.customcontrols.keyboard",
+        "org.libsdl.app.SDLActivity.disableSDLEditKeyboard",
+        "org.libsdl.app.SDLActivity.enableSDLEditKeyboard",
+        "org.libsdl.app.SDLActivity.isSDLEditKeyboardShown"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/AbstractTouchpad.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/AndroidPointerCapture.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.MinecraftGLSurface",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/DropGesture.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge.sendKeyPress"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/GyroControl.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.GrabListener",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/HotbarView.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.GrabListener",
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "net.kdt.pojavlaunch.utils.MCOptionUtils",
+        "net.kdt.pojavlaunch.utils.MathUtils",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/InGUIEventProcessor.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.SingleTapConfirm",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/InGameEventProcessor.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/LeftClickGesture.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "net.kdt.pojavlaunch.utils.MathUtils",
+        "org.lwjgl.glfw.CallbackBridge",
+        "org.lwjgl.glfw.CallbackBridge.sendMouseButton"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/PointerTracker.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/RightClickGesture.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.LwjglGlfwKeycode",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/Scroller.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/TapDetector.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.Tools",
+        "net.kdt.pojavlaunch.customcontrols.mouse"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/TouchEventProcessor.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/Touchpad.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.GrabListener",
+        "net.kdt.pojavlaunch.Tools.currentDisplayMetrics",
+        "net.kdt.pojavlaunch.customcontrols.mouse",
+        "net.kdt.pojavlaunch.prefs.LauncherPreferences",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/customcontrols/mouse/ValidatorGesture.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.customcontrols.mouse"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/prefs/LauncherPreferences.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.prefs"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/FileUtils.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/GsonJsonUtils.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/JSONUtils.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/MCOptionUtils.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/MathUtils.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/interfaces/SimpleItemSelectedListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils.interfaces"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/interfaces/SimpleSeekBarListener.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils.interfaces"
+      ]
+    },
+    "VerseApp/src/main/java/net/kdt/pojavlaunch/utils/interfaces/SimpleTextWatcher.java": {
+      "reason": "既有第三方兼容包；包名/签名由原生绑定或旧控件要求保留。",
+      "references": [
+        "net.kdt.pojavlaunch.utils.interfaces"
+      ]
+    },
+    "VerseApp/src/main/res/layout/dialog_color_selector.xml": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "net.kdt.pojavlaunch.colorselector.AlphaView",
+        "net.kdt.pojavlaunch.colorselector.ColorSideBySideView",
+        "net.kdt.pojavlaunch.colorselector.HueView",
+        "net.kdt.pojavlaunch.colorselector.SVRectangleView"
+      ]
+    },
+    "VerseLauncher/src/main/java/android/os/OpenJDKNativeRegister.java": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:System.load",
+        "JNI:declaration",
+        "JNI:nativeRegisterNatives"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/mio/JavaManager.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game.JavaVersion",
+        "com.verse.explorer.launcher.fcl.game.Version",
+        "com.verse.explorer.launcher.fcl.util.FCLPath"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/adapter/install/FclLoaderInstallBackend.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fclauncher.utils.FCLPath.CACHE_DIR",
+        "com.tungsten.fclcore.download.BMCLAPIDownloadProvider",
+        "com.tungsten.fclcore.download.DefaultCacheRepository",
+        "com.tungsten.fclcore.download.DefaultDependencyManager",
+        "com.tungsten.fclcore.download.RemoteVersion",
+        "com.tungsten.fclcore.download.fabric.FabricRemoteVersions",
+        "com.tungsten.fclcore.download.forge.ForgeRemoteVersion",
+        "com.tungsten.fclcore.download.neoforge.NeoForgeRemoteVersion",
+        "com.tungsten.fclcore.download.optifine.OptiFineRemoteVersion",
+        "com.tungsten.fclcore.download.quilt.QuiltVersionList",
+        "com.tungsten.fclcore.game.DefaultGameRepository",
+        "com.tungsten.fclcore.task.AsyncTaskExecutor",
+        "com.tungsten.fclcore.task.Task",
+        "com.tungsten.fclcore.task.TaskListener",
+        "com.tungsten.fclcore.util.gson.JsonUtils"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/adapter/install/FclModpackInstallOperation.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fclauncher.utils.FCLPath.CACHE_DIR",
+        "com.tungsten.fclcore.download.DefaultCacheRepository",
+        "com.tungsten.fclcore.download.DefaultDependencyManager",
+        "com.tungsten.fclcore.game.DefaultGameRepository",
+        "com.tungsten.fclcore.game.GameDirectoryType",
+        "com.tungsten.fclcore.mod.Modpack",
+        "com.tungsten.fclcore.mod.ModpackProvider",
+        "com.tungsten.fclcore.mod.curse.CurseModpackProvider.INSTANCE",
+        "com.tungsten.fclcore.mod.mcbbs.McbbsModpackProvider.INSTANCE",
+        "com.tungsten.fclcore.mod.modrinth.ModrinthModpackProvider",
+        "com.tungsten.fclcore.mod.multimc.MultiMCModpackProvider.INSTANCE",
+        "com.tungsten.fclcore.mod.server.ServerModpackProvider.INSTANCE",
+        "com.tungsten.fclcore.task.AsyncTaskExecutor",
+        "com.tungsten.fclcore.task.FetchTask",
+        "com.tungsten.fclcore.task.Schedulers",
+        "com.tungsten.fclcore.task.Task",
+        "com.tungsten.fclcore.task.TaskListener"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/adapter/install/VerseDownloadProvider.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fclcore.download.BMCLAPIDownloadProvider",
+        "com.tungsten.fclcore.download.DownloadProvider",
+        "com.tungsten.fclcore.download.MojangDownloadProvider",
+        "com.tungsten.fclcore.download.VersionList",
+        "com.tungsten.fclcore.download.game.GameVersionList",
+        "com.tungsten.fclcore.util.io.NetworkUtils"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/bootstrap/VerseBootstrap.java": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:System.load"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/bridge/CallbackBridge.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:GlfwCallbackBridge.nativeSetInputReady",
+        "JNI:GlfwCallbackBridge.nativeSetUseInputStackQueue",
+        "JNI:GlfwCallbackBridge.nativeSetWindowAttrib",
+        "JNI:nativeClipboard",
+        "JNI:nativeSetGrabbing",
+        "JNI:nativeSetInputReady",
+        "JNI:nativeSetWindowAttrib",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.tungsten.fclauncher.bridge.FCLBridge.CursorDisabled",
+        "com.tungsten.fclauncher.bridge.FCLBridge.CursorEnabled",
+        "org.lwjgl.glfw.CallbackBridge"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/bridge/InputBridge.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:declaration",
+        "JNI:nativeSendKeyEvent",
+        "JNI:nativeSendMouseDelta",
+        "JNI:nativeSendMouseEvent",
+        "JNI:nativeSendTouchEvent"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/bridge/LWJGLBridge.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:System.load",
+        "JNI:declaration",
+        "JNI:nativeGetWindowSize",
+        "JNI:nativeInitialize",
+        "JNI:nativePollEvents",
+        "JNI:nativeSetWindowTitle",
+        "JNI:nativeShutdown",
+        "JNI:nativeSwapBuffers"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/bridge/ZLBridge.kt": {
+      "reason": "既有游戏输入/窗口兼容接口；不允许新增 JVM 启动或资源所有权。",
+      "references": [
+        "JNI:JvmLauncherAPI.nativeChdir",
+        "JNI:JvmLauncherAPI.nativeDestroyJVM",
+        "JNI:JvmLauncherAPI.nativeGetExitCode",
+        "JNI:JvmLauncherAPI.nativeGetPid",
+        "JNI:JvmLauncherAPI.nativeIsJVMRunning",
+        "JNI:JvmLauncherAPI.nativeLaunchJVM",
+        "JNI:JvmLauncherAPI.nativeRedirectStdio",
+        "JNI:JvmLauncherAPI.nativeReleaseExitCallback",
+        "JNI:JvmLauncherAPI.nativeSetLdLibraryPath",
+        "JNI:JvmLauncherAPI.nativeSetenv",
+        "JNI:JvmLauncherAPI.nativeSetupBridgeWindow",
+        "JNI:JvmLauncherAPI.nativeSetupExitTrap",
+        "com.verse.explorer.jvmlauncher.JvmExitCallback",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/auth/AuthInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.auth",
+        "com.verse.explorer.launcher.fcl.game.Arguments",
+        "com.verse.explorer.launcher.fcl.game.LaunchOptions"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/Argument.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/Arguments.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/Artifact.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/AssetIndex.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/AssetIndexInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/AssetObject.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/CompatibilityRule.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/DefaultGameRepository.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game",
+        "com.verse.explorer.launcher.fcl.io.FileUtils"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/DownloadInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/DownloadType.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/ExtractRules.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/GameDirectoryType.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/GameJavaVersion.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/GameRepository.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/GameVersion.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/IdDownloadInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/InstantTypeAdapter.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/JavaVersion.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game",
+        "com.verse.explorer.launcher.fcl.util.FCLPath"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/LaunchOptions.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/LibrariesDownloadInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/Library.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/LibraryDownloadInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/LoggingInfo.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/LowerCaseEnumTypeAdapterFactory.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/OSRestriction.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/ReleaseType.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/RuledArgument.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/SimpleVersionProvider.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/StringArgument.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/VerseJavaVersion.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/Version.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/VersionJsonType.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/VersionNotFoundException.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/game/VersionProvider.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/io/FileUtils.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.io",
+        "com.verse.explorer.launcher.fcl.util.StringUtils"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/io/IOUtils.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.io"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/launch/DefaultLauncher.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.mio.JavaManager",
+        "com.mio.data.Renderer",
+        "com.tungsten.fclauncher.FCLConfig",
+        "com.tungsten.fclauncher.FCLauncher",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.tungsten.fclauncher.plugins.NativeLibPlugin",
+        "com.tungsten.fclauncher.utils.Architecture",
+        "com.verse.explorer.launcher.fcl.auth.AuthInfo",
+        "com.verse.explorer.launcher.fcl.game.Argument",
+        "com.verse.explorer.launcher.fcl.game.Arguments",
+        "com.verse.explorer.launcher.fcl.game.GameRepository",
+        "com.verse.explorer.launcher.fcl.game.JavaVersion",
+        "com.verse.explorer.launcher.fcl.game.LaunchOptions",
+        "com.verse.explorer.launcher.fcl.game.Library",
+        "com.verse.explorer.launcher.fcl.game.Version",
+        "com.verse.explorer.launcher.fcl.io.FileUtils",
+        "com.verse.explorer.launcher.fcl.io.IOUtils",
+        "com.verse.explorer.launcher.fcl.launch",
+        "com.verse.explorer.launcher.fcl.util.CommandBuilder",
+        "com.verse.explorer.launcher.fcl.util.FCLPath",
+        "com.verse.explorer.launcher.fcl.util.ServerAddress",
+        "com.verse.explorer.launcher.fcl.util.StringUtils",
+        "com.verse.explorer.launcher.fcl.util.versioning.GameVersionNumber"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/launch/InjectorMap.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.game.Version",
+        "com.verse.explorer.launcher.fcl.launch"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/launch/Launcher.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.verse.explorer.launcher.fcl.auth.AuthInfo",
+        "com.verse.explorer.launcher.fcl.game.GameRepository",
+        "com.verse.explorer.launcher.fcl.game.LaunchOptions",
+        "com.verse.explorer.launcher.fcl.game.Version",
+        "com.verse.explorer.launcher.fcl.launch"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/util/CommandBuilder.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/util/FCLPath.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/util/ServerAddress.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/util/StringUtils.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/fcl/util/versioning/GameVersionNumber.java": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "com.verse.explorer.launcher.fcl.util.versioning"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/launch/JVMLoader.kt": {
+      "reason": "迁移前已有兼容调用；记录当前具体符号，新增业务不得扩散该边界。",
+      "references": [
+        "JNI:System.load",
+        "JNI:declaration",
+        "JNI:nativeDestroyJVM",
+        "JNI:nativeGetExitCode",
+        "JNI:nativeGetPid",
+        "JNI:nativeIsJVMRunning",
+        "JNI:nativeLaunchJVM",
+        "JNI:nativeSetExitCallback"
+      ]
+    },
+    "VerseLauncher/src/main/java/com/verse/explorer/launcher/runtime/FclGameRuntimeBackend.kt": {
+      "reason": "显式实现适配层；负责把 Verse 端口转换为第三方调用。",
+      "references": [
+        "JNI:CallbackBridge.nativeSetInputReady",
+        "JNI:JvmLauncherAPI.nativeDestroyJVM",
+        "JNI:System.load",
+        "JNI:com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio",
+        "JNI:com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetLogPath",
+        "JNI:com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv",
+        "JNI:org.libsdl.app.SDL.nativeEnableVulkanShim",
+        "com.tungsten.fcl.game.sdl.SdlBridge",
+        "com.tungsten.fclauncher.bridge.FCLBridge",
+        "com.tungsten.fclauncher.bridge.FCLBridgeCallback",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetLogPath",
+        "com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv",
+        "com.verse.explorer.launcher.bridge.CallbackBridge",
+        "com.verse.explorer.launcher.fcl.launch.DefaultLauncher",
+        "org.libsdl.app.SDL.nativeEnableVulkanShim",
+        "org.lwjgl.glfw.CallbackBridge.windowHeight",
+        "org.lwjgl.glfw.CallbackBridge.windowWidth"
+      ]
+    }
+  }
+}
