@@ -701,9 +701,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
             else -> {}
         }
+        // 指针角色只在按下时锁定：滑动视角的手指经过按钮上方时不能被临时判成按钮指针，
+        // 否则该指针会被排除出游戏触控，表现为鼠标/视角滑到按钮上就卡住不动。
         val ids = mutableSetOf<Int>()
         ids.addAll(capturedButtonPointerIds)
-        for (i in hitIndexes) ids.add(ev.getPointerId(i))
         when (ev.actionMasked) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> capturedButtonPointerIds.clear()
             MotionEvent.ACTION_POINTER_UP ->

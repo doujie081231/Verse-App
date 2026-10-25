@@ -336,6 +336,15 @@ fun SettingsScreen(navController: NavHostController) {
                 0 -> {
                     item {
                         PcCard(title = "启动选项") {
+                            // 刘海屏开关放在本页最上方，避免用户需要滚动到卡片底部才能找到
+                            PcSwitchRow(
+                                "忽略刘海屏（全屏）",
+                                "忽略屏幕刘海区域全屏显示；关闭时游戏画面避让刘海缩小",
+                                ignoreNotch
+                            ) { on ->
+                                ignoreNotch = on
+                                DisplayNotch.updateIgnoreNotch(on)
+                            }
                             // VerseX 渲染器暂不可用：功能开发中，开关置灰禁用（保留设置存储）
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -419,15 +428,10 @@ fun SettingsScreen(navController: NavHostController) {
                             PcSwitchRow("显示 FPS", "运行时显示帧率信息", showFps) { showFps = it }
                             PcSwitchRow("自动设置为中文", "启动游戏时自动将游戏语言设置为简体中文", autoSetChinese) { autoSetChinese = it }
                             PcSwitchRow("全屏启动", "启动游戏时自动全屏", fullscreen) { fullscreen = it }
-                            PcSwitchRow("忽略刘海（全屏）", "忽略屏幕刘海区域全屏显示；关闭时游戏画面避让刘海缩小", ignoreNotch) { on ->
-                                ignoreNotch = on
-                                // 即时生效：内容容器让出/占回 displayCutout 区（MainActivity 响应式读取）
-                                DisplayNotch.updateIgnoreNotch(on)
-                            }
-                            // 启动器部分屏幕全屏：只控制系统栏沉浸，与「忽略刘海」互不影响
+                            // 启动器部分屏幕全屏：只控制系统栏沉浸，与「忽略刘海屏」互不影响
                             PcSwitchRow(
                                 "启动器全屏",
-                                "启动器沉浸式全屏（隐藏状态栏与导航栏）；刘海区域是否延伸由上方「忽略刘海」单独决定",
+                                "启动器沉浸式全屏（隐藏状态栏与导航栏）；刘海区域是否延伸由上方「忽略刘海屏」单独决定",
                                 VersePersonalization.launcherFullScreen
                             ) { VersePersonalization.applyLauncherFullScreen(it) }
                         }

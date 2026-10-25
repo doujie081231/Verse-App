@@ -161,6 +161,8 @@ internal fun FloatingNavOverlay(
                 modifier = Modifier
                     .width(56.dp)
                     .heightIn(max = 500.dp)
+                    // 展开/滚动过程中内容必须裁在胶囊形状内，否则按钮会从两端溢出来
+                    .clip(RoundedCornerShape(50))
                     .then(pillGlass)
                     .then(
                         if (glassEnabled) Modifier

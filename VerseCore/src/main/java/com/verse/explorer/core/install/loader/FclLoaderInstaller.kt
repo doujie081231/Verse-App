@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * download 模块任务：ForgeInstallTask(新/旧版分派) / NeoForgeInstallTask /
@@ -108,9 +109,42 @@ object FclLoaderInstaller {
 
             val installTask = remote.getInstallTask(dm, base)
             val executor = AsyncTaskExecutor(installTask)
+            // Forge/NeoForge 的安装图包含大量库下载与处理器任务；只报开始/结束会让进度
+            // 长时间停在 93%~97%。这里按任务完成数推进进度，并显示当前任务名。
+            val totalTasks = AtomicInteger(0)
+            val doneTasks = AtomicInteger(0)
+            var lastReport = 0L
             executor.addTaskListener(object : TaskListener() {
+                override fun onReady(task: com.tungsten.fclcore.task.Task<*>) {
+                    totalTasks.incrementAndGet()
+                }
+
                 override fun onRunning(task: com.tungsten.fclcore.task.Task<*>) {
                     task.name?.let { Log.i("FclLoaderInstaller", it) }
+                    progress(task.name ?: "安装中…", 0.93f)
+                }
+
+                override fun onFinished(task: com.tungsten.fclcore.task.Task<*>) {
+                    val total = totalTasks.get().coerceAtLeast(1)
+                    val done = doneTasks.incrementAndGet().coerceAtMost(total)
+                    progress(
+                        task.name ?: "安装中…",
+                        (0.93f + 0.04f * done.toFloat() / total).coerceAtMost(0.97f)
+                    )
+                }
+
+                override fun onPropertiesUpdate(task: com.tungsten.fclcore.task.Task<*>) {
+                    val p = task.progressProperty().get()
+                    if (p < 0.0 || p > 1.0) return
+                    val total = totalTasks.get().coerceAtLeast(1)
+                    val base = 0.93f + 0.04f * doneTasks.get().toFloat() / total
+                    val now = System.currentTimeMillis()
+                    if (now - lastReport < 250) return
+                    lastReport = now
+                    progress(
+                        task.name ?: "安装中…",
+                        (base + 0.04f * p.toFloat()).coerceAtMost(0.97f)
+                    )
                 }
             })
             // 关键：本 fork 的 AsyncTaskExecutor.test() 内部会无条件 start()（重跑整个任务图），
