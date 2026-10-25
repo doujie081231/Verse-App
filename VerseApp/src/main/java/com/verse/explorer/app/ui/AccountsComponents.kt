@@ -43,6 +43,7 @@ import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.pcTextFieldColors
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.account.Account
+import com.verse.explorer.core.account.AccountManager
 import com.verse.explorer.core.account.AccountType
 import com.verse.explorer.core.account.AsyncStatus
 import com.verse.explorer.core.account.AuthlibProfile
@@ -70,6 +71,7 @@ internal fun AddAccountSheet(
     var selectedType by remember { mutableStateOf(initialType) }
 
     var offlineUsername by remember { mutableStateOf("") }
+    var offlineError by remember { mutableStateOf<String?>(null) }
     var authlibServerUrl by remember { mutableStateOf("") }
     var authlibUsername by remember { mutableStateOf("") }
     var authlibPassword by remember { mutableStateOf("") }
@@ -349,10 +351,14 @@ internal fun AddAccountSheet(
                                 Spacer(Modifier.height(12.dp))
                                 OutlinedTextField(
                                     value = offlineUsername,
-                                    onValueChange = { offlineUsername = it },
+                                    onValueChange = {
+                                        offlineUsername = it
+                                        offlineError = null
+                                    },
                                     label = { Text("用户名", fontSize = 12.sp) },
                                     placeholder = { Text("输入游戏用户名", fontSize = 13.sp) },
                                     singleLine = true,
+                                    isError = offlineError != null,
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = pcTextFieldColors(
@@ -360,6 +366,20 @@ internal fun AddAccountSheet(
                                         unfocusedLabelColor = VerseColors.PcTextSecondary
                                     )
                                 )
+                                Text(
+                                    "只能使用字母、数字、下划线，长度 1-16；中文或其他符号会导致单人游戏无法连接。",
+                                    fontSize = 11.sp,
+                                    color = VerseColors.PcTextMuted,
+                                    modifier = Modifier.padding(top = 6.dp)
+                                )
+                                offlineError?.let { err ->
+                                    Text(
+                                        err,
+                                        fontSize = 11.sp,
+                                        color = VerseColors.PcRed,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
                             }
                         }
                         "authlib" -> {
@@ -656,9 +676,12 @@ internal fun AddAccountSheet(
                             PcButton(
                                 text = "添加",
                                 onClick = {
-                                    if (offlineUsername.isNotBlank()) {
+                                    val name = offlineUsername.trim()
+                                    if (!AccountManager.isValidOfflineUsername(name)) {
+                                        offlineError = "用户名只能包含字母、数字、下划线，长度 1-16"
+                                    } else {
                                         scope.launch {
-                                            viewModel.createOfflineAccount(offlineUsername.trim())
+                                            viewModel.createOfflineAccount(name)
                                         }
                                         onDismiss()
                                     }

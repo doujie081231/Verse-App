@@ -42,13 +42,13 @@ static void file_log(const char *fmt, ...) {
     fclose(f);
 }
 
-/* ---- 最小 bytehook 声明（libbytehook.so 为官方 1.0.10，与 FCL 同版本，工程内无头文件） ----
- * 注意 1.0.10 的 API：bytehook_init(bytehook_mode_t mode, bool debug)，mode 用
- * BYTEHOOK_MODE_AUTOMATIC(2)；FCL fcl_loader.c 同款调用：init(AUTOMATIC, false)。
+/* ---- 最小 bytehook 声明（libbytehook.so 为 1.0.10，工程内无头文件） ----
+ * 1.0.10 的 API：bytehook_init(bytehook_mode_t mode, bool debug)，mode 用
+ * BYTEHOOK_MODE_AUTOMATIC(2)，调用方式为 init(AUTOMATIC, false)。
  *
  * 不用 System.loadLibrary("bytehook") 加载：官方 libbytehook.so 的 JNI_OnLoad 在部分
  * 系统（Android 14/15 ART）上初始化失败返回 JNI_ERR，System.loadLibrary 直接抛
- * UnsatisfiedLinkError。FCL 是静态链接进 libfcl.so 的，从不触发该路径；这里改为
+ * UnsatisfiedLinkError。静态链接进主库时不会触发该路径；这里改为
  * JNI_OnLoad 内 dlopen + dlsym 运行时解析（dlopen 不调用 JNI_OnLoad，绕开失败）。 */
 typedef struct bytehook_stub *bytehook_stub_t;
 typedef int bytehook_mode_t;
@@ -77,8 +77,6 @@ static bytehook_init_fn_t fn_init;
 
 static void *sdl3_handle;
 static bool sdl_hooks_installed = false;
-/* 上一级 dlsym 钩子（pojavexec customDlsym），链式转发避免绕过 */
-static void *(*prev_dlsym_fn)(void *handle, const char *symbol) = NULL;
 
 /* ---- 真实 dlsym（在 hook 安装前缓存，代理内直接调用避免递归） ---- */
 typedef void *(*dlsym_t)(void *handle, const char *symbol);
@@ -87,7 +85,7 @@ static dlsym_t real_dlsym_fn;
 typedef void *(*sdlGLGetProcAddress_t)(const char *proc);
 static sdlGLGetProcAddress_t real_sdl_gl_get_proc_address;
 
-/* 渲染器 GL 库句柄：跟随 FCLauncher 注入的 SDL_OPENGL_LIBRARY（渲染器 GL 库绝对路径），
+/* 渲染器 GL 库句柄：跟随启动链注入的 SDL_OPENGL_LIBRARY（渲染器 GL 库绝对路径），
  * 与 LWJGL 侧 org.lwjgl.opengl.libname 保持同一实现，SDL 与 LWJGL 的 gl* 函数
  * 同源（RenderPearl 的 glGetError mismatch 校验才能通过）。
  * 不同渲染器（nggl4es/mobileglues 等）各带独立 GL 库，不能写死单一库名。 */
@@ -208,99 +206,6 @@ static void preset_egl_profile_es(void) {
     }
 }
 
-/* ---- 窗口创建前再次强制 ES profile（对齐 FCL forceEglProfileEs） ----
- * MC 26.x RenderPearl 每次初始化都按桌面惯例重设 profile=CORE，SDL 的 gl_config 随之
- * 带上 EGL_CONTEXT_MAJOR/MINOR_VERSION + OPENGL_PROFILE_MASK；MobileGlues 等 ES 实现
- * 收到这些属性直接返回 EGL_BAD_ATTRIBUTE（"Could not create EGL context"）。
- * 在 SDL 建立窗口（即加载 EGL、选 config、建上下文）之前用真实 SDL_GL_SetAttribute
- * 覆写回 ES，确保属性表里只有 ES 语义。 */
-typedef struct SDL_Window SDL_Window;
-
-static SDL_Window *(*real_sdl_create_window)(const char *, int, int, unsigned);
-static SDL_Window *(*real_sdl_create_window_props)(unsigned);
-static void *(*real_sdl_load_object)(const char *);
-
-static void *resolve_sdl_symbol(const char *name) {
-    /* 优先从 libSDL3.so 自身取真实实现：dlsym(RTLD_DEFAULT) 可能命中
-     * pojavexec/其它代理导出的同名符号，直接调用会破坏窗口创建流程。 */
-    void *fn = sdl3_handle != NULL ? real_dlsym_fn(sdl3_handle, name) : NULL;
-    if (fn == NULL) fn = real_dlsym_fn(RTLD_DEFAULT, name);
-    return fn;
-}
-
-static void force_egl_profile_es_before_window(void) {
-    if (real_sdl_gl_set_attribute == NULL) {
-        real_sdl_gl_set_attribute = (int (*)(int, int)) resolve_sdl_symbol("SDL_GL_SetAttribute");
-    }
-    if (real_sdl_gl_set_attribute != NULL) {
-        int r = real_sdl_gl_set_attribute(20, 4);
-        /* MC 请求 3.3：SDL 会传 EGL_CONTEXT_MAJOR/MINOR_VERSION_KHR(0x3098/0x30FB)，
-         * MobileGlues 只接受 0x3098(CLIENT_VERSION)，带 MINOR 即 EGL_BAD_ATTRIBUTE。
-         * 把 minor 压成 0 后 SDL 只发 CLIENT_VERSION=3（等价 FCL 的归一化剔除 MINOR）。 */
-        real_sdl_gl_set_attribute(18 /* SDL_GL_CONTEXT_MINOR_VERSION */, 0);
-        real_sdl_gl_set_attribute(17 /* SDL_GL_CONTEXT_MAJOR_VERSION */, 2);
-        file_log("force_egl_profile_es: PROFILE_MASK=ES, MINOR=0 before window creation (ret=%d)", r);
-        int (*get_attr)(int, int *) = (int (*)(int, int *)) resolve_sdl_symbol("SDL_GL_GetAttribute");
-        if (get_attr != NULL) {
-            int profile = -1, major = -1, minor = -1;
-            get_attr(20, &profile);
-            get_attr(17, &major);
-            get_attr(18, &minor);
-            file_log("gl_config state: profile=%d major=%d minor=%d", profile, major, minor);
-        }
-    } else {
-        file_log("force_egl_profile_es: SDL_GL_SetAttribute unavailable");
-    }
-}
-
-static void *custom_SDL_CreateWindow_Func(const char *title, int w, int h, unsigned flags) {
-    force_egl_profile_es_before_window();
-    if (real_sdl_create_window == NULL) {
-        real_sdl_create_window = (SDL_Window *(*)(const char *, int, int, unsigned))
-            resolve_sdl_symbol("SDL_CreateWindow");
-    }
-    file_log("SDL_CreateWindow: %dx%d flags=0x%x", w, h, flags);
-    if (real_sdl_create_window == NULL) return NULL;
-    return real_sdl_create_window(title, w, h, flags);
-}
-
-static void *custom_SDL_CreateWindowWithProperties_Func(unsigned props) {
-    force_egl_profile_es_before_window();
-    if (real_sdl_create_window_props == NULL) {
-        real_sdl_create_window_props = (SDL_Window *(*)(unsigned))
-            resolve_sdl_symbol("SDL_CreateWindowWithProperties");
-    }
-    file_log("SDL_CreateWindowWithProperties: props=%u", props);
-    if (real_sdl_create_window_props == NULL) return NULL;
-    return real_sdl_create_window_props(props);
-}
-
-/* SDL 加载动态库（EGL/GL/Vulkan）时记录实际路径，定位渲染库来源 */
-static void *custom_SDL_LoadObject_Func(const char *path) {
-    file_log("SDL_LoadObject: %s", path != NULL ? path : "(null)");
-    if (real_sdl_load_object == NULL) {
-        real_sdl_load_object = (void *(*)(const char *)) resolve_sdl_symbol("SDL_LoadObject");
-    }
-    if (real_sdl_load_object == NULL) return NULL;
-    return real_sdl_load_object(path);
-}
-
-/* SDL_GL_CreateContext：MC 的 GlDevice 在建窗后直接调它建上下文。
- * 在调用前把 profile 再压回 ES（MC 建窗前会重设 CORE），确保 EGL 属性表是 ES 语义；
- * 同时记录结果，便于区分"上下文创建失败"与"窗口创建失败"。 */
-static void *(*real_sdl_gl_create_context)(void *);
-
-static void *custom_SDL_GL_CreateContext_Func(void *window) {
-    force_egl_profile_es_before_window();
-    if (real_sdl_gl_create_context == NULL) {
-        real_sdl_gl_create_context = (void *(*)(void *)) resolve_sdl_symbol("SDL_GL_CreateContext");
-    }
-    if (real_sdl_gl_create_context == NULL) return NULL;
-    void *ctx = real_sdl_gl_create_context(window);
-    file_log("SDL_GL_CreateContext(window=%p) -> %p", window, ctx);
-    return ctx;
-}
-
 /* ---- eglGetProcAddress 代理（最底层统一出口） ----
  * SDL3 Android 后端与 LWJGL 的 GL 函数都经 eglGetProcAddress 获取。
  * 把 egl* 开头的函数交给真实 EGL（SDL/LWJGL 各自 EGL 句柄），而 gl* 一律
@@ -352,7 +257,7 @@ static void *custom_eglGetProcAddress_Func(const char *proc) {
 #define EGL_OPENGL_ES3_BIT 0x40
 #define EGL_OPENGL_BIT 0x8
 #define EGL_CONTEXT_CLIENT_VERSION 0x3098
-/* 与 FCL native_hooks/sdl_hook.c 保持一致：
+/* EGL 属性归一化：
  * CLIENT_VERSION(0x3098) 必须保留（决定实际 ES 版本），只剔除
  * MAJOR/MINOR_VERSION_KHR(0x30FB/0x30FC) 与 PROFILE_MASK 等系统 EGL 不认识的属性。
  * 之前把 MAJOR 写成 0x3098，等于把 CLIENT_VERSION 一并删掉，
@@ -542,23 +447,16 @@ static void *custom_SDL_LoadFunction_Func(void *handle, const char *name) {
  * SDL_GL_GetProcAddress → 代理（gl* 从渲染器 GL 库解析）；
  * SDL_GL_SetAttribute → 代理（profile 强制 ES）。 */
 static void *hooked_dlsym(void *handle, const char *symbol) {
-    /* 链式调用上一级 dlsym 钩子（pojavexec 的 customDlsym：SDL 窗口创建/复用等代理），
-     * 不能直接调用 libc dlsym，否则会绕过它们导致 SDL 窗口流程失效。 */
-    void *real = prev_dlsym_fn != NULL
-        ? prev_dlsym_fn(handle, symbol)
-        : real_dlsym_fn(handle, symbol);
+    /* 直接调用缓存的真实 dlsym。不能再叠加第二个 dlsym 补丁去链式调用上一级 hook：
+     * bytehook 的补丁函数依赖自身的调用栈帧，直接调用会破坏栈并导致进程在安装/首次
+     * 解析时崩溃（真机日志表现为勾子安装后立即退出）。 */
+    void *real = real_dlsym_fn(handle, symbol);
     if (symbol != NULL) {
         if (strncmp(symbol, "egl", 3) == 0 || strncmp(symbol, "SDL_", 4) == 0) {
             file_log("hooked_dlsym: %s -> %p", symbol, real);
         }
         if (strcmp(symbol, "SDL_GL_GetProcAddress") == 0) {
             return (void *)sdlGLGetProcAddressProxy;
-        }
-        if (strcmp(symbol, "SDL_GL_CreateContext") == 0) {
-            if (real_sdl_gl_create_context == NULL && real != NULL) {
-                real_sdl_gl_create_context = (void *(*)(void *)) real;
-            }
-            return (void *)custom_SDL_GL_CreateContext_Func;
         }
         if (strcmp(symbol, "SDL_GL_SetAttribute") == 0) {
             if (real_sdl_gl_set_attribute == NULL && real != NULL) {
@@ -636,14 +534,15 @@ static void install_verse_sdl_hooks(void) {
         return;
     }
     file_log("bytehook init ok (result=%d), installing hooks", initResult);
-    /* 与 FCL native_hooks/sdl_hook.c 对齐：本库只做两件事——
+    /* 本库只做三件事：
      * 1) SDL_GL_GetProcAddress 代理（gl* 从渲染器 GL 库解析，保证与 LWJGL 同源）；
-     * 2) SDL3 加载后预置 ES profile。
+     * 2) SDL3 加载后预置 ES profile；
+     * 3) dlsym 出口替换 SDL_GL_GetProcAddress，覆盖经 FML 启动入口由 LWJGL
+     *    dlsym 取地址、不经过 libSDL3 GOT 的路径。
      * 不再 hook eglGetProcAddress / eglCreateContext / eglChooseConfig：
-     * 之前的 eglGetProcAddress 代理把 egl* 回退到 dlsym(RTLD_DEFAULT)，命中的是系统
-     * libEGL 而非 SDL 通过 SDL_EGL_LIBRARY 加载的 MobileGlues，SDL 拿到的
-     * eglCreateContext 变成系统实现 → 桌面 core profile 属性被拒 EGL_BAD_ATTRIBUTE。
-     * SDL 自己会从渲染器 EGL 句柄解析 eglCreateContext，无需也不应代理解析。 */
+     * 全局 eglGetProcAddress 代理会把 egl* 回退到 dlsym(RTLD_DEFAULT)，命中的是系统
+     * libEGL 而非 SDL 通过 SDL_EGL_LIBRARY 加载的渲染器 EGL，SDL 拿到的
+     * eglCreateContext 变成系统实现。SDL 自己会从渲染器 EGL 句柄解析这些函数。 */
     fn_hook_all(NULL, "SDL_GL_GetProcAddress",
                 (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
     preset_egl_profile_es();
@@ -652,12 +551,10 @@ static void install_verse_sdl_hooks(void) {
                        (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
         file_log("bytehook_hook_single libSDL3.so SDL_GL_GetProcAddress installed");
     }
-    /* dlsym 出口：NeoForge 26.3 经 FML 启动入口，RenderPearl 由 LWJGL dlsym 取得
-     * SDL_GL_GetProcAddress（不经过 libSDL3 的 GOT），必须在这一层把 gl* 换成
-     * 渲染器 GL 库同源实现，否则 NGGL4ES 下报 "glGetError mismatch"。
-     * old_func 交给 bytehook 填写，链式调用 pojavexec 的 customDlsym（SDL 窗口代理）。 */
-    fn_hook_all(NULL, "dlsym", (void *)hooked_dlsym, &prev_dlsym_fn, NULL);
-    file_log("hooked_dlsym installed, prev=%p", prev_dlsym_fn);
+    /* dlsym 出口只安装单层补丁：old_func 传 NULL，代理内直接调用缓存的真实 dlsym。
+     * 传 &old_func 做链式调用会破坏 bytehook 调用栈，真机上表现为补丁安装后进程立即退出。 */
+    fn_hook_all(NULL, "dlsym", (void *)hooked_dlsym, NULL, NULL);
+    file_log("hooked_dlsym installed");
     LOGI("VerseSDL hooks installed: SDL_GL_GetProcAddress=%p",
          (void *)custom_SDL_GL_GetProcAddress_Func);
     file_log("hooks installed sdl=%p", (void *)custom_SDL_GL_GetProcAddress_Func);
@@ -731,12 +628,12 @@ Java_org_libsdl_app_SDL_nativeInstallSdlHooks(JNIEnv *env, jclass clazz) {
 
 /* ---- Vulkan 后端：预加载 vkshim 并把句柄写入 VULKAN_PTR ----
  * RenderPearl（26.2+/26.3）Vulkan 后端要求 SDL 与 LWJGL 使用同一 Vulkan 加载器实例
- * （校验 vkGetInstanceProcAddr 指针一致）。FCL 的做法：egl_bridge 在 VKSHIM_ENABLE=1
+ * （校验 vkGetInstanceProcAddr 指针一致）。启动链的做法：VKSHIM_ENABLE=1
  * 时 dlopen libvkshim.so 并把句柄写入 VULKAN_PTR，pojavexec 的 LWJGL ndlopen hook 与
  * SDL LoadObject hook 都会返回该句柄。这里在 JVM 启动前（app 进程）预 dlopen
  * libvkshim.so 并预置 VULKAN_PTR，效果等价且不依赖重编 pojavexec。 */
 
-/* Vulkan 驱动器=Turnip（VULKAN_DRIVER_SYSTEM 未置 "1"）时对齐 FCL egl_bridge load_vulkan：
+/* Vulkan 驱动器=Turnip（VULKAN_DRIVER_SYSTEM 未置 "1"）时加载 Vulkan：
  * 先 RTLD_GLOBAL 载 liblinkerhook.so 拦截 android_dlopen_ext，再加载系统加载器——加载器
  * 枚举驱动（vulkan.*）的请求被 hook 转向 DRIVER_PATH/libvulkan_freedreno.so。
  * 加载成功不代表驱动可用（freedreno 仅支持 Adreno，非 Adreno 设备设备枚举为空），

@@ -11,6 +11,14 @@ import java.util.UUID
 
 class AccountManager(private val accountDao: AccountDao) {
 
+    companion object {
+        private val OFFLINE_NAME_PATTERN = Regex("^[A-Za-z0-9_]{1,16}$")
+
+        /** 离线用户名必须符合 Minecraft 玩家名规则：字母/数字/下划线，1-16 位 */
+        fun isValidOfflineUsername(username: String): Boolean =
+            OFFLINE_NAME_PATTERN.matches(username)
+    }
+
     private val _accounts = MutableStateFlow<List<Account>>(emptyList())
     val accounts: StateFlow<List<Account>> = _accounts.asStateFlow()
 
@@ -27,6 +35,9 @@ class AccountManager(private val accountDao: AccountDao) {
     }
 
     suspend fun createOfflineAccount(username: String): Account = withContext(Dispatchers.IO) {
+        require(isValidOfflineUsername(username)) {
+            "离线用户名只能包含字母、数字、下划线，长度 1-16"
+        }
         val uuid = UUID.nameUUIDFromBytes("OfflinePlayer:$username".toByteArray()).toString().replace("-", "")
         val entity = AccountEntity(
             username = username,

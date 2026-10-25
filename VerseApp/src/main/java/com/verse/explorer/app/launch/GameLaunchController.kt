@@ -48,7 +48,7 @@ data class LaunchState(
 
 /**
  * Vulkan 启动前对话框状态（仅当所选渲染器/图形后端需要 Vulkan 时出现）
- * 对齐 FCL：先询问是否检测，检测完成后弹报告，无论支持与否都允许继续启动
+ * 先询问是否检测，检测完成后弹报告，无论支持与否都允许继续启动
  */
 sealed interface VulkanGateDialogState {
     /** 询问用户是否检测设备 Vulkan 支持情况（可忽略并直接启动） */
@@ -292,6 +292,18 @@ class GameLaunchController(private val context: Context) {
             steps[stepIdx] = LaunchStep("账户验证", "完成 (${account.username})", "check")
         }
         cachedAccount = account
+        // 离线名会作为玩家名进入单人服务器；中文/空格/符号会被原版服务端以
+        // "Invalid characters in username" 拒绝，启动前给出明确提示而不是进游戏才失败
+        account?.let { acc ->
+            if (acc.type == com.verse.explorer.core.account.AccountType.OFFLINE &&
+                !com.verse.explorer.core.account.AccountManager.isValidOfflineUsername(acc.username)
+            ) {
+                criticalErrors.add(
+                    "离线用户名「${acc.username}」包含中文或特殊字符，单人游戏会拒绝连接。" +
+                        "请到账户页重新创建仅含字母、数字、下划线的离线账户"
+                )
+            }
+        }
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, steps[stepIdx].status)
 
         // ========== 版本解析 ==========
@@ -425,7 +437,7 @@ class GameLaunchController(private val context: Context) {
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
         // ========== Vulkan 检测（仅当所选渲染器/图形后端需要 Vulkan）==========
-        // 对齐 FCL：需要 Vulkan 的启动方式先询问"是否检测"，检测完成后展示报告，
+        // 需要 Vulkan 的启动方式先询问"是否检测"，检测完成后展示报告，
         // 无论结论是否支持都允许继续启动；选择 OpenGL/GL4ES/MobileGlues 等渲染器时一律不检测。
         if (cachedVersion != null && needsVulkanCheck(cachedVersion.id)) {
             stepIdx++
