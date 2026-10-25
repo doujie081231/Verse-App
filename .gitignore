@@ -81,8 +81,5 @@ AI交接文档.md
 .zcodeignore
 .codex/
 
-# --- 构建辅助脚本/CI/内部文档（不入仓库）---
-/tools/
-/.github/
-FclCore/VERSE-CHANGES.md
+# --- 本地设计文档（不入仓库）---
 VerseApp/DESIGN.md
