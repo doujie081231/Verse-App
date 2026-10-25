@@ -77,6 +77,8 @@ static bytehook_init_fn_t fn_init;
 
 static void *sdl3_handle;
 static bool sdl_hooks_installed = false;
+/* 上一级 dlsym 钩子（pojavexec customDlsym），链式转发避免绕过 */
+static void *(*prev_dlsym_fn)(void *handle, const char *symbol) = NULL;
 
 /* ---- 真实 dlsym（在 hook 安装前缓存，代理内直接调用避免递归） ---- */
 typedef void *(*dlsym_t)(void *handle, const char *symbol);
@@ -184,6 +186,7 @@ static void *sdlGLGetProcAddressProxy(const char *proc) {
 static int (*real_sdl_gl_set_attribute)(int, int);
 
 static int custom_SDL_GL_SetAttribute_Func(int attr, int value) {
+    file_log("SDL_GL_SetAttribute: attr=0x%x value=%d", attr, value);
     if (attr == 20 /* SDL_GL_CONTEXT_PROFILE_MASK */ && value != 4 /* SDL_GL_CONTEXT_PROFILE_ES */) {
         file_log("SDL_GL_SetAttribute(PROFILE_MASK): force ES (was %d)", value);
         value = 4;
@@ -203,6 +206,99 @@ static void preset_egl_profile_es(void) {
     } else {
         file_log("preset_egl_profile_es: SDL_GL_SetAttribute unavailable");
     }
+}
+
+/* ---- 窗口创建前再次强制 ES profile（对齐 FCL forceEglProfileEs） ----
+ * MC 26.x RenderPearl 每次初始化都按桌面惯例重设 profile=CORE，SDL 的 gl_config 随之
+ * 带上 EGL_CONTEXT_MAJOR/MINOR_VERSION + OPENGL_PROFILE_MASK；MobileGlues 等 ES 实现
+ * 收到这些属性直接返回 EGL_BAD_ATTRIBUTE（"Could not create EGL context"）。
+ * 在 SDL 建立窗口（即加载 EGL、选 config、建上下文）之前用真实 SDL_GL_SetAttribute
+ * 覆写回 ES，确保属性表里只有 ES 语义。 */
+typedef struct SDL_Window SDL_Window;
+
+static SDL_Window *(*real_sdl_create_window)(const char *, int, int, unsigned);
+static SDL_Window *(*real_sdl_create_window_props)(unsigned);
+static void *(*real_sdl_load_object)(const char *);
+
+static void *resolve_sdl_symbol(const char *name) {
+    /* 优先从 libSDL3.so 自身取真实实现：dlsym(RTLD_DEFAULT) 可能命中
+     * pojavexec/其它代理导出的同名符号，直接调用会破坏窗口创建流程。 */
+    void *fn = sdl3_handle != NULL ? real_dlsym_fn(sdl3_handle, name) : NULL;
+    if (fn == NULL) fn = real_dlsym_fn(RTLD_DEFAULT, name);
+    return fn;
+}
+
+static void force_egl_profile_es_before_window(void) {
+    if (real_sdl_gl_set_attribute == NULL) {
+        real_sdl_gl_set_attribute = (int (*)(int, int)) resolve_sdl_symbol("SDL_GL_SetAttribute");
+    }
+    if (real_sdl_gl_set_attribute != NULL) {
+        int r = real_sdl_gl_set_attribute(20, 4);
+        /* MC 请求 3.3：SDL 会传 EGL_CONTEXT_MAJOR/MINOR_VERSION_KHR(0x3098/0x30FB)，
+         * MobileGlues 只接受 0x3098(CLIENT_VERSION)，带 MINOR 即 EGL_BAD_ATTRIBUTE。
+         * 把 minor 压成 0 后 SDL 只发 CLIENT_VERSION=3（等价 FCL 的归一化剔除 MINOR）。 */
+        real_sdl_gl_set_attribute(18 /* SDL_GL_CONTEXT_MINOR_VERSION */, 0);
+        real_sdl_gl_set_attribute(17 /* SDL_GL_CONTEXT_MAJOR_VERSION */, 2);
+        file_log("force_egl_profile_es: PROFILE_MASK=ES, MINOR=0 before window creation (ret=%d)", r);
+        int (*get_attr)(int, int *) = (int (*)(int, int *)) resolve_sdl_symbol("SDL_GL_GetAttribute");
+        if (get_attr != NULL) {
+            int profile = -1, major = -1, minor = -1;
+            get_attr(20, &profile);
+            get_attr(17, &major);
+            get_attr(18, &minor);
+            file_log("gl_config state: profile=%d major=%d minor=%d", profile, major, minor);
+        }
+    } else {
+        file_log("force_egl_profile_es: SDL_GL_SetAttribute unavailable");
+    }
+}
+
+static void *custom_SDL_CreateWindow_Func(const char *title, int w, int h, unsigned flags) {
+    force_egl_profile_es_before_window();
+    if (real_sdl_create_window == NULL) {
+        real_sdl_create_window = (SDL_Window *(*)(const char *, int, int, unsigned))
+            resolve_sdl_symbol("SDL_CreateWindow");
+    }
+    file_log("SDL_CreateWindow: %dx%d flags=0x%x", w, h, flags);
+    if (real_sdl_create_window == NULL) return NULL;
+    return real_sdl_create_window(title, w, h, flags);
+}
+
+static void *custom_SDL_CreateWindowWithProperties_Func(unsigned props) {
+    force_egl_profile_es_before_window();
+    if (real_sdl_create_window_props == NULL) {
+        real_sdl_create_window_props = (SDL_Window *(*)(unsigned))
+            resolve_sdl_symbol("SDL_CreateWindowWithProperties");
+    }
+    file_log("SDL_CreateWindowWithProperties: props=%u", props);
+    if (real_sdl_create_window_props == NULL) return NULL;
+    return real_sdl_create_window_props(props);
+}
+
+/* SDL 加载动态库（EGL/GL/Vulkan）时记录实际路径，定位渲染库来源 */
+static void *custom_SDL_LoadObject_Func(const char *path) {
+    file_log("SDL_LoadObject: %s", path != NULL ? path : "(null)");
+    if (real_sdl_load_object == NULL) {
+        real_sdl_load_object = (void *(*)(const char *)) resolve_sdl_symbol("SDL_LoadObject");
+    }
+    if (real_sdl_load_object == NULL) return NULL;
+    return real_sdl_load_object(path);
+}
+
+/* SDL_GL_CreateContext：MC 的 GlDevice 在建窗后直接调它建上下文。
+ * 在调用前把 profile 再压回 ES（MC 建窗前会重设 CORE），确保 EGL 属性表是 ES 语义；
+ * 同时记录结果，便于区分"上下文创建失败"与"窗口创建失败"。 */
+static void *(*real_sdl_gl_create_context)(void *);
+
+static void *custom_SDL_GL_CreateContext_Func(void *window) {
+    force_egl_profile_es_before_window();
+    if (real_sdl_gl_create_context == NULL) {
+        real_sdl_gl_create_context = (void *(*)(void *)) resolve_sdl_symbol("SDL_GL_CreateContext");
+    }
+    if (real_sdl_gl_create_context == NULL) return NULL;
+    void *ctx = real_sdl_gl_create_context(window);
+    file_log("SDL_GL_CreateContext(window=%p) -> %p", window, ctx);
+    return ctx;
 }
 
 /* ---- eglGetProcAddress 代理（最底层统一出口） ----
@@ -251,13 +347,19 @@ static void *custom_eglGetProcAddress_Func(const char *proc) {
  * EGL_CONTEXT_CLIENT_VERSION 决定，不受影响）；剔除 MAJOR/MINOR_VERSION，
  * 仅保留 CLIENT_VERSION；ES3 上下文创建失败时降级为 ES2 重试。 */
 #define EGL_NONE 0x3038
-#define EGL_RENDERABLE_TYPE 0x22
+#define EGL_RENDERABLE_TYPE 0x3040
 #define EGL_OPENGL_ES2_BIT 0x4
 #define EGL_OPENGL_ES3_BIT 0x40
-#define EGL_OPENGL_BIT 0x2
+#define EGL_OPENGL_BIT 0x8
 #define EGL_CONTEXT_CLIENT_VERSION 0x3098
-#define EGL_CONTEXT_MAJOR_VERSION_KHR 0x3098
-#define EGL_CONTEXT_MINOR_VERSION_KHR 0x30A1
+/* 与 FCL native_hooks/sdl_hook.c 保持一致：
+ * CLIENT_VERSION(0x3098) 必须保留（决定实际 ES 版本），只剔除
+ * MAJOR/MINOR_VERSION_KHR(0x30FB/0x30FC) 与 PROFILE_MASK 等系统 EGL 不认识的属性。
+ * 之前把 MAJOR 写成 0x3098，等于把 CLIENT_VERSION 一并删掉，
+ * 宿主 EGL 收到空属性表 → 上下文创建失败。 */
+#define EGL_CONTEXT_MAJOR_VERSION_KHR 0x30FB
+#define EGL_CONTEXT_MINOR_VERSION_KHR 0x30FC
+#define EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR 0x30FD
 
 typedef void *EGLDisplay;
 typedef void *EGLConfig;
@@ -311,6 +413,9 @@ static int normalizeEglContextAttribs(const EGLint *attrib_list, EGLint *fixed, 
             continue;
         }
         if (attr == EGL_CONTEXT_MINOR_VERSION_KHR) continue;
+        /* MobileGlues 是 ES 实现，桌面 PROFILE_MASK 属性会被判 EGL_BAD_ATTRIBUTE，
+         * 直接剔除（ES profile 由 SDL_GL_SetAttribute 侧强制） */
+        if (attr == EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR) continue;
         if (attr == EGL_CONTEXT_CLIENT_VERSION && version == 0) version = val;
         fixed[n] = attr;
         fixed[n + 1] = val;
@@ -321,15 +426,61 @@ static int normalizeEglContextAttribs(const EGLint *attrib_list, EGLint *fixed, 
 
 static eglChooseConfig_t sOrigEglChooseConfig = NULL;
 static eglCreateContext_t sOrigEglCreateContext = NULL;
+static bool sEglLibEnvLogged = false;
+
+/* 解析当前实际使用的 EGL 实现（SDL_EGL_LIBRARY / POJAVEXEC_EGL 均指向插件库）。
+ * 不能用 dlsym(RTLD_DEFAULT)：系统 libEGL.so 的同名符号优先命中，
+ * 会拿到与 SDL 实际加载的渲染器 EGL 不同源的函数指针。 */
+static void *resolve_egl_symbol(const char *name) {
+    void *h = NULL;
+    const char *egl = getenv("SDL_EGL_LIBRARY");
+    if (egl != NULL && egl[0] != '\0') {
+        h = dlopen(egl, RTLD_NOW | RTLD_GLOBAL);
+        if (!sEglLibEnvLogged) {
+            sEglLibEnvLogged = true;
+            file_log("resolve_egl_symbol: SDL_EGL_LIBRARY=%s handle=%p err=%s",
+                     egl, h, h ? "ok" : dlerror());
+        }
+    }
+    if (h == NULL) {
+        const char *pojav = getenv("POJAVEXEC_EGL");
+        if (pojav != NULL && pojav[0] != '\0') {
+            h = dlopen(pojav, RTLD_NOW | RTLD_GLOBAL);
+        }
+    }
+    if (h == NULL) {
+        h = dlopen("libEGL.so", RTLD_NOW | RTLD_GLOBAL);
+    }
+    void *fn = h != NULL ? real_dlsym_fn(h, name) : NULL;
+    if (fn == NULL) fn = real_dlsym_fn(RTLD_DEFAULT, name);
+    return fn;
+}
+
+static void log_egl_context_attribs(const EGLint *attrib_list) {
+    if (attrib_list == NULL) {
+        file_log("eglCreateContext attribs: (null)");
+        return;
+    }
+    char buf[512] = {0};
+    size_t used = 0;
+    for (int i = 0; i < 32 && attrib_list[i] != EGL_NONE; i += 2) {
+        used += snprintf(buf + used, sizeof(buf) - used, "0x%x=%d ",
+                         attrib_list[i], attrib_list[i + 1]);
+        if (used >= sizeof(buf) - 1) break;
+    }
+    file_log("eglCreateContext attribs: %s", buf);
+}
 
 static void *proxyEglCreateContext(EGLDisplay dpy, EGLConfig config, void *share,
                                    const EGLint *attrib_list) {
     /* hook_all 直接 GOT 拦截时（不经 dlsym/SDL_LoadFunction），origin 可能未初始化 */
     if (sOrigEglCreateContext == NULL) {
-        sOrigEglCreateContext = (eglCreateContext_t) real_dlsym_fn(RTLD_DEFAULT, "eglCreateContext");
+        sOrigEglCreateContext = (eglCreateContext_t) resolve_egl_symbol("eglCreateContext");
+        file_log("VSDL-proxy eglCreateContext resolve orig=%p", (void *)sOrigEglCreateContext);
         LOGI("VSDL-proxy eglCreateContext resolve orig=%p", (void *)sOrigEglCreateContext);
     }
     if (sOrigEglCreateContext == NULL) return NULL;
+    log_egl_context_attribs(attrib_list);
     EGLint fixed[64];
     const EGLint *use_list = attrib_list;
     int version = normalizeEglContextAttribs(attrib_list, fixed, 64);
@@ -342,6 +493,7 @@ static void *proxyEglCreateContext(EGLDisplay dpy, EGLConfig config, void *share
         EGLint es2[3] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
         ctx = sOrigEglCreateContext(dpy, config, share, es2);
     }
+    file_log("eglCreateContext result=%p", ctx);
     return ctx;
 }
 
@@ -349,7 +501,7 @@ static EGLBoolean proxyEglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list
                                        EGLConfig *configs, EGLint config_size,
                                        EGLint *num_config) {
     if (sOrigEglChooseConfig == NULL) {
-        sOrigEglChooseConfig = (eglChooseConfig_t) real_dlsym_fn(RTLD_DEFAULT, "eglChooseConfig");
+        sOrigEglChooseConfig = (eglChooseConfig_t) resolve_egl_symbol("eglChooseConfig");
         LOGI("VSDL-proxy eglChooseConfig resolve orig=%p", (void *)sOrigEglChooseConfig);
     }
     if (sOrigEglChooseConfig == NULL) return 0;
@@ -366,6 +518,7 @@ static EGLBoolean proxyEglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list
 static void *custom_SDL_LoadFunction_Func(void *handle, const char *name) {
     if (name != NULL) {
         LOGI("VSDL-LoadFunc %s (hooked)", name);
+        file_log("SDL_LoadFunction: %s", name);
     }
     void *r = real_dlsym_fn(handle, name);
     if (name != NULL) {
@@ -389,10 +542,23 @@ static void *custom_SDL_LoadFunction_Func(void *handle, const char *name) {
  * SDL_GL_GetProcAddress → 代理（gl* 从渲染器 GL 库解析）；
  * SDL_GL_SetAttribute → 代理（profile 强制 ES）。 */
 static void *hooked_dlsym(void *handle, const char *symbol) {
-    void *real = real_dlsym_fn(handle, symbol);
+    /* 链式调用上一级 dlsym 钩子（pojavexec 的 customDlsym：SDL 窗口创建/复用等代理），
+     * 不能直接调用 libc dlsym，否则会绕过它们导致 SDL 窗口流程失效。 */
+    void *real = prev_dlsym_fn != NULL
+        ? prev_dlsym_fn(handle, symbol)
+        : real_dlsym_fn(handle, symbol);
     if (symbol != NULL) {
+        if (strncmp(symbol, "egl", 3) == 0 || strncmp(symbol, "SDL_", 4) == 0) {
+            file_log("hooked_dlsym: %s -> %p", symbol, real);
+        }
         if (strcmp(symbol, "SDL_GL_GetProcAddress") == 0) {
             return (void *)sdlGLGetProcAddressProxy;
+        }
+        if (strcmp(symbol, "SDL_GL_CreateContext") == 0) {
+            if (real_sdl_gl_create_context == NULL && real != NULL) {
+                real_sdl_gl_create_context = (void *(*)(void *)) real;
+            }
+            return (void *)custom_SDL_GL_CreateContext_Func;
         }
         if (strcmp(symbol, "SDL_GL_SetAttribute") == 0) {
             if (real_sdl_gl_set_attribute == NULL && real != NULL) {
@@ -470,46 +636,31 @@ static void install_verse_sdl_hooks(void) {
         return;
     }
     file_log("bytehook init ok (result=%d), installing hooks", initResult);
-    /* SDL_GL_GetProcAddress：GOT/PLT 补丁（覆盖 SDL3 库内直接调用） */
+    /* 与 FCL native_hooks/sdl_hook.c 对齐：本库只做两件事——
+     * 1) SDL_GL_GetProcAddress 代理（gl* 从渲染器 GL 库解析，保证与 LWJGL 同源）；
+     * 2) SDL3 加载后预置 ES profile。
+     * 不再 hook eglGetProcAddress / eglCreateContext / eglChooseConfig：
+     * 之前的 eglGetProcAddress 代理把 egl* 回退到 dlsym(RTLD_DEFAULT)，命中的是系统
+     * libEGL 而非 SDL 通过 SDL_EGL_LIBRARY 加载的 MobileGlues，SDL 拿到的
+     * eglCreateContext 变成系统实现 → 桌面 core profile 属性被拒 EGL_BAD_ATTRIBUTE。
+     * SDL 自己会从渲染器 EGL 句柄解析 eglCreateContext，无需也不应代理解析。 */
     fn_hook_all(NULL, "SDL_GL_GetProcAddress",
                 (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
-    /* SDL_LoadFunction：SDL 经它解析 EGL 函数指针（eglChooseConfig/eglCreateContext
-     * 归一化代理，移动渲染器宿主 EGL 兼容；二分验证：停用后 glGetString SIGSEGV 复现，
-     * 该归一化是 MobileGlues context 创建的前提） */
-    fn_hook_all(NULL, "SDL_LoadFunction",
-                (void *)custom_SDL_LoadFunction_Func, NULL, NULL);
-    /* SDL_GL_SetAttribute 不做 GOT/PLT 补丁（bytehook 补丁该符号在 DefaultDispatch
-     * 线程触发 SEGV_ACCERR 写保护页崩溃——其导出段特殊）；profile 强制改由
-     * dlsym 出口代理（hooked_dlsym 返回 custom_SDL_GL_SetAttribute_Func）+ 下方
-     * SDL3 加载后的 preset 预置双保险覆盖。 */
-    /* 兜底：SDL3 加载后立即预置 ES profile（覆盖 props 创建窗口直接走全局 attribute） */
     preset_egl_profile_es();
-    /* 若 SDL3 已加载，精准补丁其导出符号（RenderPearl/LWJGL 经 dlsym 取地址后直接调用） */
     if (fn_hook_single != NULL && sdl3_handle != NULL) {
         fn_hook_single(NULL, "libSDL3.so", "SDL_GL_GetProcAddress",
                        (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
         file_log("bytehook_hook_single libSDL3.so SDL_GL_GetProcAddress installed");
     }
-    /* eglGetProcAddress：SDL/LWJGL 拿 gl* 的统一出口。libEGL.so 由系统或
-     * renderer 依赖链加载，hook_single 覆盖已加载实例，hook_all 兜底。 */
-    fn_hook_all(NULL, "eglGetProcAddress",
-                (void *)custom_eglGetProcAddress_Func, NULL, NULL);
-    if (fn_hook_single != NULL) {
-        fn_hook_single(NULL, "libEGL.so", "eglGetProcAddress",
-                       (void *)custom_eglGetProcAddress_Func, NULL, NULL);
-        file_log("bytehook_hook_single libEGL.so eglGetProcAddress installed");
-    }
-    /* 注意：不在此对 eglCreateContext/eglChooseConfig 做 hook_all 全局补丁——
-     * 该层级会拦截所有库（含 nggl4es 等其它 GL 渲染器的 SDL/poemexec 调用），
-     * 且 sOrig 经 RTLD_DEFAULT 可能解析到 mobileglues 的错误实现，破坏 26.2
-     * 等版本的 GL context 创建。EGL 归一化仅保留 dlsym 出口（hooked_dlsym）与
-     * SDL_LoadFunction 出口两条窄路径。 */
-    /* dlsym 出口：LWJGL DynamicLinkLoader 经 libc dlsym 取 SDL_GL_GetProcAddress 地址 */
-    fn_hook_all(NULL, "dlsym", (void *)hooked_dlsym, NULL, NULL);
-    LOGI("VerseSDL hooks installed: dlsym=%p SDL_GL_GetProcAddress=%p",
-         (void *)hooked_dlsym, (void *)custom_SDL_GL_GetProcAddress_Func);
-    file_log("hooks installed dlsym=%p sdl=%p",
-             (void *)hooked_dlsym, (void *)custom_SDL_GL_GetProcAddress_Func);
+    /* dlsym 出口：NeoForge 26.3 经 FML 启动入口，RenderPearl 由 LWJGL dlsym 取得
+     * SDL_GL_GetProcAddress（不经过 libSDL3 的 GOT），必须在这一层把 gl* 换成
+     * 渲染器 GL 库同源实现，否则 NGGL4ES 下报 "glGetError mismatch"。
+     * old_func 交给 bytehook 填写，链式调用 pojavexec 的 customDlsym（SDL 窗口代理）。 */
+    fn_hook_all(NULL, "dlsym", (void *)hooked_dlsym, &prev_dlsym_fn, NULL);
+    file_log("hooked_dlsym installed, prev=%p", prev_dlsym_fn);
+    LOGI("VerseSDL hooks installed: SDL_GL_GetProcAddress=%p",
+         (void *)custom_SDL_GL_GetProcAddress_Func);
+    file_log("hooks installed sdl=%p", (void *)custom_SDL_GL_GetProcAddress_Func);
     sdl_hooks_installed = true;
 }
 

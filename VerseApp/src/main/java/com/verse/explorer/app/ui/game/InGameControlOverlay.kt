@@ -442,6 +442,7 @@ class InGameControlOverlay(
             activity.showRedstoneDialog()
         })
         content.addView(rows.buttonRow("快捷输入", "管理") { activity.showQuickInput() })
+        content.addView(rows.buttonRow("模拟键盘", "打开") { activity.showSimulatedKeyboard() })
         content.addView(rows.buttonRow("发送键值", "发送") { showSendKeyDialog() })
         content.addView(rows.switchRow("禁用软键盘自适应", MenuSetting.isDisableSoftKeyAdjust) { on ->
             MenuSetting.isDisableSoftKeyAdjust = on

@@ -353,23 +353,38 @@ class CardGridState internal constructor(
 
     // ---------- 卡片管理 ----------
 
-    /** 追加一张卡片，落在最上最左的空闲位置 */
-    fun addCard(type: CardType, id: String = UUID.randomUUID().toString()): GridCard? {
+    /** 追加一张卡片，落在最上最左的空闲位置；传入 [preferredLayout] 时按指定落位 */
+    fun addCard(
+        type: CardType,
+        id: String = UUID.randomUUID().toString(),
+        preferredLayout: CardRect? = null
+    ): GridCard? {
         if (cards.any { it.id == id }) return null
         val lim = type.limits.clampedFor(geometry.columns)
         val width = type.defaultSpan.x.coerceIn(lim.minWidth, lim.maxWidth)
         val height = type.defaultSpan.y.coerceIn(lim.minHeight, lim.maxHeight)
-        val slot = GridEngine.findTopLeftFreeSlot(
-            width = width,
-            height = height,
-            columns = geometry.columns,
-            obstacles = layouts()
-        )
+        val layout = preferredLayout?.let {
+            CardRect(
+                id = id,
+                x = it.x.coerceAtLeast(0),
+                y = it.y.coerceAtLeast(0),
+                width = it.width.coerceIn(lim.minWidth, lim.maxWidth),
+                height = it.height.coerceIn(lim.minHeight, lim.maxHeight)
+            )
+        } ?: run {
+            val slot = GridEngine.findTopLeftFreeSlot(
+                width = width,
+                height = height,
+                columns = geometry.columns,
+                obstacles = layouts()
+            )
+            CardRect(id = id, x = slot.x, y = slot.y, width = width, height = height)
+        }
         val card = GridCard(
             id = id,
             type = type,
-            layout = CardRect(id = id, x = slot.x, y = slot.y, width = width, height = height),
-            reflowBase = ReflowBase(width, height, geometry.columns)
+            layout = layout,
+            reflowBase = ReflowBase(layout.width, layout.height, geometry.columns)
         )
         cards = cards + card
         commitLayout()

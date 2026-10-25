@@ -147,6 +147,16 @@ internal class JvmArgsBuilder(
         args.add("-Dorg.lwjgl.system.libname=liblwjgl.so")
         args.add("-Dorg.lwjgl.glfw.libname=libverseexec.so")
         args.add("-Dorg.lwjgl.opengl.libname=$glLibName")
+        // LWJGL 的 EGL 绑定同样指向渲染器 EGL 库（插件渲染器为插件 native 目录内的库）；
+        // 缺省走系统 libEGL.so 时 MobileGlues 下 MC 26.x 创建上下文报 EGL_BAD_ATTRIBUTE。
+        val eglLibName = if (effectiveRenderer.eglName.startsWith("/")) {
+            effectiveRenderer.eglName
+        } else {
+            val dir = effectiveRenderer.nativeLibDir.ifEmpty { nativeLibDir }
+            val candidate = File(dir, effectiveRenderer.eglName)
+            if (candidate.isFile) candidate.absolutePath else effectiveRenderer.eglName
+        }
+        args.add("-Dorg.lwjgl.egl.libname=$eglLibName")
         args.add("-Dorg.lwjgl.freetype.libname=libfreetype.so")
         args.add("-Dorg.lwjgl.vulkan.libname=libvulkan.so")
         args.add("-Dorg.lwjgl.spvc.libname=spirv-cross-c-shared")

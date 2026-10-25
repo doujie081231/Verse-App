@@ -7,10 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 
 /**
- * 应用「启动器部分屏幕全屏」与「忽略刘海」组合后的窗口显示模式：
- *  - 全屏开=沉浸式全屏（隐藏系统栏）并延伸到刘海区域（SHORT_EDGES/ALWAYS）；
- *  - 全屏关但忽略刘海开=系统栏保留悬浮，内容仍延伸到刘海/系统栏区域（edge-to-edge）；
- *  - 两者都关=退出沉浸、内容避让系统栏与刘海。
+ * 应用「启动器部分屏幕全屏」与「忽略刘海」相互独立组合后的窗口显示模式：
+ *  - 全屏开关只控制系统栏（状态栏/导航栏）是否沉浸隐藏；
+ *  - 忽略刘海只控制内容是否延伸进刘海/挖孔区域，与全屏开关互不影响。
  */
 internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boolean, ignoreNotch: Boolean) {
     val window = activity.window
@@ -30,9 +29,8 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
                     or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 )
         }
-        setDisplayCutoutMode(activity, extendToCutout = true)
     } else if (ignoreNotch) {
-        // 不隐藏系统栏，但内容延伸到刘海/系统栏后方（时间悬浮显示在画面上）
+        // 不隐藏系统栏，但内容延伸到系统栏后方（时间悬浮显示在画面上）
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -42,15 +40,15 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
                     or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 )
         }
-        setDisplayCutoutMode(activity, extendToCutout = true)
     } else {
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         }
-        setDisplayCutoutMode(activity, extendToCutout = false)
     }
+    // 刘海延伸只由「忽略刘海」决定：全屏开启也不会顺带占满刘海区
+    setDisplayCutoutMode(activity, extendToCutout = ignoreNotch)
 }
 
 /** 刘海显示模式：延伸=ALWAYS（API 30+ 全朝向）/SHORT_EDGES；避让=NEVER */

@@ -156,6 +156,17 @@ public record CurseAddon(int id, int gameId, String name, String slug, Links lin
             return RemoteMod.Type.CURSEFORGE;
         }
 
+        /** 只取 SHA-1（CurseForge algo=1），供整合包模组下载校验 */
+        private Map<String, String> sha1Hashes() {
+            if (hashes() == null)
+                return Collections.emptyMap();
+            for (LatestFileHash hash : hashes()) {
+                if (hash != null && hash.algo() == 1 && hash.value() != null)
+                    return Collections.singletonMap("sha1", hash.value());
+            }
+            return Collections.emptyMap();
+        }
+
         public RemoteMod.Version toVersion() {
             RemoteMod.VersionType versionType = switch (releaseType()) {
                 case 2 -> RemoteMod.VersionType.Beta;
@@ -171,7 +182,7 @@ public record CurseAddon(int id, int gameId, String name, String slug, Links lin
                     null,
                     fileDate(),
                     versionType,
-                    new RemoteMod.File(Collections.emptyMap(), downloadUrl(), fileName()),
+                    new RemoteMod.File(sha1Hashes(), downloadUrl(), fileName()),
                     dependencies.stream().map(dependency -> {
                         if (!RELATION_TYPE.containsKey(dependency.relationType())) {
                             throw new IllegalStateException("Broken datas.");

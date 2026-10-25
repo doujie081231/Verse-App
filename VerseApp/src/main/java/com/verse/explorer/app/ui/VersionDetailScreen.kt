@@ -60,6 +60,24 @@ fun VersionDetailScreen(
     var versionInfoText by remember { mutableStateOf("") }
     var showNamingDialog by remember { mutableStateOf(false) }
     var confirmedInstallName by remember { mutableStateOf<String?>(null) }
+    /** 移动网络确认（开始下载前确认，避免无意消耗流量） */
+    var showMobileDataConfirm by remember { mutableStateOf(false) }
+    var pendingInstallName by remember { mutableStateOf<String?>(null) }
+
+    /** 下发版本下载任务（命名确认或移动网络确认后调用） */
+    fun beginInstall(name: String) {
+        viewModel.installVersion(
+            com.verse.explorer.core.version.MinecraftVersion(
+                id = versionId,
+                type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
+                url = versionUrl,
+                releaseTime = ""
+            ),
+            installName = name,
+            loaderType = if (selectedLoader.isNotEmpty()) selectedLoader else null,
+            loaderVersion = selectedLoaderVersion
+        )
+    }
 
     LaunchedEffect(selectedLoader) {
         if (selectedLoader.isNotEmpty()) {
@@ -372,17 +390,7 @@ fun VersionDetailScreen(
                 onRetry = {
                     viewModel.cancelInstall()
                     viewModel.resetInstallState()
-                    viewModel.installVersion(
-                        com.verse.explorer.core.version.MinecraftVersion(
-                            id = versionId,
-                            type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
-                            url = versionUrl,
-                            releaseTime = ""
-                        ),
-                        confirmedInstallName ?: versionId,
-                        if (selectedLoader.isNotEmpty()) selectedLoader else null,
-                        selectedLoaderVersion
-                    )
+                    beginInstall(confirmedInstallName ?: versionId)
                 }
             )
         }
@@ -402,17 +410,43 @@ fun VersionDetailScreen(
             onConfirm = { name ->
                 showNamingDialog = false
                 confirmedInstallName = name
-                viewModel.installVersion(
-                    com.verse.explorer.core.version.MinecraftVersion(
-                        id = versionId,
-                        type = VersionType.entries.find { it.name.equals(versionType, ignoreCase = true) } ?: VersionType.RELEASE,
-                        url = versionUrl,
-                        releaseTime = ""
-                    ),
-                    installName = name,
-                    loaderType = if (selectedLoader.isNotEmpty()) selectedLoader else null,
-                    loaderVersion = selectedLoaderVersion
-                )
+                // 开始下载前确认移动网络，用户取消则不下发下载任务
+                if (com.verse.explorer.core.util.NetworkUtils.isMobileDataConnected(context)) {
+                    pendingInstallName = name
+                    showMobileDataConfirm = true
+                } else {
+                    beginInstall(name)
+                }
+            }
+        )
+    }
+
+    // 移动网络确认（版本下载流程）
+    if (showMobileDataConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showMobileDataConfirm = false
+                pendingInstallName = null
+            },
+            title = { Text("警告") },
+            text = { Text("您正在使用移动数据网络，继续下载将消耗流量。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = pendingInstallName
+                    showMobileDataConfirm = false
+                    pendingInstallName = null
+                    name?.let { beginInstall(it) }
+                }) {
+                    Text("坚持使用", color = VerseColors.PcAccent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showMobileDataConfirm = false
+                    pendingInstallName = null
+                }) {
+                    Text("取消", color = VerseColors.PcTextSecondary)
+                }
             }
         )
     }

@@ -20,6 +20,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -58,8 +59,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -167,15 +170,9 @@ fun MicrosoftLoginScreen(
                 }
             }
 
-            AnimatedVisibility(visible = isWebLoading) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp),
-                    color = VerseColors.PcAccent
-                )
-            }
-
+            // 进度条覆盖在 WebView 之上（不占布局空间）：页面每次重定向都会切换加载态，
+            // 若让进度条参与布局会反复改变 WebView 高度，表现为登录过程中闪屏/白屏
+            Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = {
@@ -185,6 +182,8 @@ fun MicrosoftLoginScreen(
                     }
                     try {
                         WebView(context).apply {
+                            // 深色背景：WebView 首帧默认白底，加载/重定向时会出现白色闪屏
+                            setBackgroundColor(VerseColors.PcBgPrimary.toArgb())
                             webViewClient = object : WebViewClient() {
                                 @Suppress("DEPRECATION")
                                 override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
@@ -311,6 +310,23 @@ fun MicrosoftLoginScreen(
                     // 不在此处重复加载 url
                 }
             )
+
+            // 加载进度：固定 3dp 覆盖层 + 透明度渐变，始终不改变 WebView 的布局尺寸
+            val barAlpha by animateFloatAsState(
+                targetValue = if (isWebLoading) 1f else 0f,
+                animationSpec = tween(180),
+                label = "webLoadingBar"
+            )
+            if (barAlpha > 0.01f) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .alpha(barAlpha),
+                    color = VerseColors.PcAccent
+                )
+            }
+            }
         }
 
         // 一旁悬浮的轮询状态卡片（右下角）：检测登录状态 + 设备码复制

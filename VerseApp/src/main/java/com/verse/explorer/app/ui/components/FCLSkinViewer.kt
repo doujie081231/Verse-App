@@ -21,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.verse.explorer.app.skin.SkinRenderer
 import com.verse.explorer.app.skin.SkinViewer
 import com.verse.explorer.core.account.Account
+import com.verse.explorer.core.account.AccountType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -101,8 +102,28 @@ fun FCLSkinViewer(
     }
 }
 
-/** 完整皮肤位图解析：本地皮肤文件 → 网络皮肤 URL → 默认 al 皮肤 */
-private fun loadFullSkin(context: Context, account: Account): Bitmap? {
+/** 完整皮肤位图解析：外置登录真实纹理 → 本地皮肤文件 → 网络皮肤 URL → 默认 al 皮肤 */
+private suspend fun loadFullSkin(context: Context, account: Account): Bitmap? {
+    // 外置登录：验证服务器的 session profile 里带真实皮肤纹理，
+    // 账号上记录的 skinUrl 是头像接口（只是头部裁剪图），直接当整张皮肤渲染会出现错位/默认皮肤
+    if (account.type == AccountType.AUTHLIB && !account.serverUrl.isNullOrBlank()) {
+        val textureUrl = runCatching {
+            com.verse.explorer.core.account.AuthlibServices.authlibAuthenticator
+                .fetchSkinTextureUrl(account.serverUrl!!, account.uuid)
+        }.getOrNull()
+        if (!textureUrl.isNullOrBlank()) {
+            runCatching {
+                val request = Request.Builder().url(textureUrl).build()
+                skinClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val bytes = response.body?.bytes() ?: return@use null
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    } else null
+                }
+            }.getOrNull()?.let { return it }
+        }
+    }
+
     // 本地皮肤文件（离线 / 外置落地 / 上传的自定义皮肤）
     val skinFile = account.skinFile
     if (!skinFile.isNullOrBlank()) {

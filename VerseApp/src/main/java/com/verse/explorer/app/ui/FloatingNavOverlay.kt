@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,9 +54,10 @@ internal fun FloatingNavOverlay(
     // 按钮是否在图标下显示功能名（默认开）：开启时胶囊容器加宽以容纳文字
     val showLabels = VersePersonalization.sidebarLabels
 
-    // 忽略刘海/启动器全屏时页面内容已铺满整屏，悬浮导航不再额外避让刘海，
-    // 否则按钮停在更靠内的位置，会压住页面标题与返回键
-    val avoidCutout = !(DisplayNotch.ignoreNotch || VersePersonalization.launcherFullScreen)
+    // 忽略刘海时页面内容已铺满整屏，悬浮导航不再额外避让刘海，
+    // 否则按钮停在更靠内的位置，会压住页面标题与返回键；
+    // 「启动器全屏」只控制系统栏沉浸，不影响这里的刘海避让
+    val avoidCutout = !DisplayNotch.ignoreNotch
     val cutoutPadding = if (avoidCutout) {
         Modifier.windowInsetsPadding(WindowInsets.displayCutout)
     } else {
@@ -294,6 +296,7 @@ internal fun NavCircleButton(
             Text(
                 text = label,
                 fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 color = tint,
                 textAlign = TextAlign.Center,
@@ -342,6 +345,7 @@ internal fun NavCircleMini(
             Text(
                 text = label,
                 fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 color = tint,
                 textAlign = TextAlign.Center,

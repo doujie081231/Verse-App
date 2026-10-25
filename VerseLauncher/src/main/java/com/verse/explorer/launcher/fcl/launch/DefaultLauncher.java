@@ -205,6 +205,11 @@ public class DefaultLauncher extends Launcher {
         // 替换为 renderer.getGLPath()）。缺少该参数时 LWJGL 默认找 libGL.so.1，Android 上不存在，导致
         // GL.create 抛 UnsatisfiedLinkError: Failed to locate library: libGL.so.1。
         res.addDefault("-Dorg.lwjgl.opengl.libname=", "${gl_lib_name}");
+        // 与 FCL 一致：LWJGL 的 org.lwjgl.egl 绑定同样指向渲染器 EGL 库
+        // （FCLauncher.rebaseArgs 把 ${egl_lib_name} 替换为插件/内置渲染器的 EGL 绝对路径）。
+        // 缺失时 LWJGL 走系统 libEGL.so：MobileGlues 插件下 MC 26.3 RenderPearl 请求桌面
+        // core 上下文，系统 EGL 返回 EGL_BAD_ATTRIBUTE → "Could not create EGL context"。
+        res.addDefault("-Dorg.lwjgl.egl.libname=", "${egl_lib_name}");
         File versionedFreetype = new File(getLwjglNativesDir(), "libfreetype.so");
         res.addDefault("-Dorg.lwjgl.freetype.libname=", versionedFreetype.exists()
                 ? versionedFreetype.getAbsolutePath()

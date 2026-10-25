@@ -129,23 +129,26 @@ class GameInputHandler(
         syncCapturedPointer()
     }
 
-    /** 捕获同步：物理鼠标模式下抓取态用相对鼠标
-     * （需指针捕获），GUI 态用屏幕绝对坐标（释放捕获）；非物理鼠标模式不捕获，
-     * 由 GameActivity.onWindowFocusChanged 在挂载时按需请求。 */
+    /** 捕获同步：有实体鼠标时启用指针捕获（相对移动并隐藏系统光标），
+     *  触屏设备不捕获，避免触摸事件被以相对形式送进捕获监听。 */
     fun syncCapturedPointer() {
         val view = captureViewProvider()
-        if (MenuSetting.isPhysicalMouseMode) {
-            if (isGrabbing) {
-                view?.requestFocus()
-                view?.requestPointerCapture()
-            } else {
-                view?.releasePointerCapture()
-                view?.clearFocus()
-            }
+        if (MenuSetting.isPhysicalMouseMode || hasPhysicalMouse()) {
+            view?.requestFocus()
+            view?.requestPointerCapture()
         } else {
             view?.releasePointerCapture()
+            view?.clearFocus()
         }
     }
+
+    /** 当前是否连接了实体鼠标（与 ZL2 PhysicalMouseChecker 一致：按 SOURCE_MOUSE 判定） */
+    private fun hasPhysicalMouse(): Boolean =
+        InputDevice.getDeviceIds().any { id ->
+            InputDevice.getDevice(id)?.let {
+                it.sources and InputDevice.SOURCE_MOUSE == InputDevice.SOURCE_MOUSE
+            } == true
+        }
 
     private fun effectiveGestureMode(): GestureMode {
         if (MenuSetting.isDisableBEGesture) {
@@ -199,6 +202,9 @@ class GameInputHandler(
     }
 
     private var lastCursorDiagTime = 0L
+
+    /** 模拟键盘：直接向游戏窗口发送 GLFW 按键（按住/抬起） */
+    fun sendVirtualKey(keycode: Int, press: Boolean) = sendKeyEvent(keycode, press)
 
     private fun sendKeyEvent(keycode: Int, press: Boolean) {
         val bridge = bridgeProvider() ?: return
@@ -263,16 +269,51 @@ class GameInputHandler(
         return handleExternalMouseEvent(event)
     }
 
-    /** GameMenu.setOnGenericMotionListener 的移植：物理鼠标（physicalMouseMode）hover/按钮/滚轮 */
-    fun handleGenericMotion(event: MotionEvent): Boolean {
-        if (event.isFromSource(InputDevice.SOURCE_MOUSE) && MenuSetting.isPhysicalMouseMode) {
-            if (!isGrabbing && event.action == MotionEvent.ACTION_HOVER_MOVE) {
-                setPointer(event.rawX, event.rawY)
-                return true
+    /** 物理鼠标按键位掩码（与 ZL2 pointerInteropFilter 一致，按 buttonState 差分上报） */
+    private var lastMouseButtonState = 0
+
+    /**
+     * 物理鼠标事件：不依赖「实体鼠标控制」开关，始终按 buttonState 差分上报左/右/中键，
+     * 并处理 hover 与滚轮。参考 ZL2 TouchInput 的 pointerInteropFilter 实现。
+     */
+    fun handlePhysicalMouseEvent(event: MotionEvent): Boolean {
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+
+        val buttons = event.buttonState
+        val changed = lastMouseButtonState xor buttons
+
+        fun dispatch(button: Int) {
+            if (changed and button != 0) {
+                val pressed = buttons and button != 0
+                when (button) {
+                    MotionEvent.BUTTON_PRIMARY -> sendKeyEvent(MOUSE_LEFT, pressed)
+                    MotionEvent.BUTTON_SECONDARY -> sendKeyEvent(MOUSE_RIGHT, pressed)
+                    MotionEvent.BUTTON_TERTIARY -> sendKeyEvent(MOUSE_MIDDLE, pressed)
+                }
             }
-            return handleExternalMouseEvent(event)
         }
-        return false
+        dispatch(MotionEvent.BUTTON_PRIMARY)
+        dispatch(MotionEvent.BUTTON_SECONDARY)
+        dispatch(MotionEvent.BUTTON_TERTIARY)
+        lastMouseButtonState = buttons
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_MOVE -> {
+                if (!isGrabbing) setPointer(event.rawX, event.rawY)
+            }
+            MotionEvent.ACTION_SCROLL -> {
+                val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                for (i in 0 until kotlin.math.abs(vScroll.toInt())) {
+                    sendKeyEvent(if (vScroll > 0) MOUSE_SCROLL_UP else MOUSE_SCROLL_DOWN, true)
+                }
+            }
+        }
+        return true
+    }
+
+    /** GameMenu.setOnGenericMotionListener 的移植：物理鼠标 hover/按钮/滚轮 */
+    fun handleGenericMotion(event: MotionEvent): Boolean {
+        return handlePhysicalMouseEvent(event)
     }
 
     fun handleTouchEvent(event: MotionEvent, skipPointerIds: Set<Int> = emptySet()) {

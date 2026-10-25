@@ -242,6 +242,19 @@ public class FCLauncher {
             }
             a = a.replace("${natives_directory}", libraryPath);
             args[i] = config.getRenderer() == null ? a : a.replace("${gl_lib_name}", config.getRenderer().getGLPath());
+            if (config.getRenderer() != null) {
+                // 渲染器 EGL 库绝对路径：插件渲染器取插件 native 目录，内置渲染器取主 APK 目录
+                // （libEGL.so 等系统库不在目录内则保留库名，交 linker 按默认搜索）
+                String eglName = config.getRenderer().getEglName();
+                String eglPath = eglName;
+                if (!eglName.startsWith("/")) {
+                    File candidate = new File(rendererLibPath(config.getRenderer()), eglName);
+                    if (candidate.isFile()) {
+                        eglPath = candidate.getAbsolutePath();
+                    }
+                }
+                args[i] = args[i].replace("${egl_lib_name}", eglPath);
+            }
         }
         return args;
     }
@@ -310,14 +323,14 @@ public class FCLauncher {
         // SDL 侧必须解析自渲染器 GL 库（NGGL4ES=libng_gl4es.so）。插件渲染器同样生效。
         Renderer renderer = config.getRenderer();
         String egl = envMap.get("POJAVEXEC_EGL");
-        // MobileGlues 的 EGL 对 SDL 的 window surface 创建不兼容（SDL 用它建 surface 失败 →
-        // MC Window "Invalid window"）；SDL 改回系统 EGL 建窗口，GL 函数仍经
-        // SDL_OPENGL_LIBRARY + versesdl 代理解析自渲染器库；同样不向 SDL 注入
-        // MobileGlues 作为 EGL 库。
-        boolean mobileGluesEgl = egl != null && egl.contains("mobileglues");
-        if (egl != null && !egl.startsWith("/") && !mobileGluesEgl) {
-            // 仅当 EGL 库真实打包在渲染器目录内才给 SDL 绝对路径（如 ANGLE）；
-            // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析（与 FCL 一致）
+        // 与 FCL 保持一致：SDL 的 EGL 库同样指向渲染器目录内的 EGL 库。
+        // MobileGlues 插件必须由 SDL 直接加载（FCL 实测可启动 26.3）：MC 26.x 经 SDL 请求
+        // 桌面 OpenGL core 上下文，系统 libEGL.so 不认识 EGL_CONTEXT_OPENGL_PROFILE_MASK /
+        // EGL_PLATFORM_ANGLE 等属性，直接返回 EGL_BAD_ATTRIBUTE（
+        // "Could not create EGL context"）；MG 的 EGL 会把请求映射到 GLES 3.2 正常建上下文。
+        if (egl != null && !egl.startsWith("/")) {
+            // 仅当 EGL 库真实打包在渲染器目录内才给 SDL 绝对路径（如 ANGLE/MobileGlues）；
+            // 系统 Mali libEGL.so 不在目录内，交 SDL 按自身默认解析
             File candidate = new File(rendererLibPath(renderer), egl);
             if (candidate.isFile()) {
                 egl = candidate.getAbsolutePath();
@@ -325,7 +338,7 @@ public class FCLauncher {
                 egl = null;
             }
         }
-        if (egl != null && !mobileGluesEgl) {
+        if (egl != null) {
             envMap.put("SDL_EGL_LIBRARY", egl);
         }
         String gl = renderer.getGlName();
@@ -334,6 +347,12 @@ public class FCLauncher {
                 gl = rendererLibPath(renderer) + "/" + gl;
             }
             envMap.put("SDL_OPENGL_LIBRARY", gl);
+        }
+        // 与 FCL 一致：MobileGlues 对 SDL 传入的 sRGB framebuffer EGL 参数不兼容，
+        // 关闭该 hint（FCL sdl_hook: SDL_OPENGL_FORCE_SRGB_FRAMEBUFFER=0）。
+        if (renderer.getGlName().toLowerCase(Locale.ROOT).contains("mobileglues")
+                || renderer.getEglName().toLowerCase(Locale.ROOT).contains("mobileglues")) {
+            envMap.put("SDL_OPENGL_FORCE_SRGB_FRAMEBUFFER", "0");
         }
     }
 

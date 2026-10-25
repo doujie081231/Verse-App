@@ -256,6 +256,7 @@ public class McbbsModpackCompletionTask extends CompletableFutureTask<Void> {
                                 if (StringUtils.isNotBlank(curseFile.getFileName())) {
                                     if (!modManager.hasSimpleMod(curseFile.getFileName())) {
                                         FileDownloadTask task = new FileDownloadTask(curseFile.getUrl(), modManager.getSimpleModPath(curseFile.getFileName()).toFile());
+                                        task.addIntegrityCheckHandler(FileDownloadTask.ZIP_INTEGRITY_CHECK_HANDLER);
                                         task.setCacheRepository(dependency.getCacheRepository());
                                         task.setCaching(true);
                                         dependencies.add(task.withCounter("fcl.modpack.download"));
@@ -304,10 +305,12 @@ public class McbbsModpackCompletionTask extends CompletableFutureTask<Void> {
     private Task<?> downloadFile(McbbsModpackManifest remoteManifest, McbbsModpackManifest.File file) throws IOException {
         if (file instanceof McbbsModpackManifest.AddonFile) {
             McbbsModpackManifest.AddonFile addonFile = (McbbsModpackManifest.AddonFile) file;
-            return new FileDownloadTask(
+            FileDownloadTask task = new FileDownloadTask(
                     new URL(remoteManifest.getFileApi() + "/overrides/" + NetworkUtils.encodeLocation(addonFile.getPath())),
                     modManager.getSimpleModPath(addonFile.getPath()).toFile(),
                     addonFile.getHash() != null ? new FileDownloadTask.IntegrityCheck("SHA-1", addonFile.getHash()) : null);
+            task.addIntegrityCheckHandler(FileDownloadTask.ZIP_INTEGRITY_CHECK_HANDLER);
+            return task;
         } else if (file instanceof McbbsModpackManifest.CurseFile) {
             // we download it later.
             return null;

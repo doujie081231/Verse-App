@@ -166,11 +166,12 @@ public class ServerModpackCompletionTask extends Task<Void> {
 
             if (download) {
                 total++;
-                dependencies.add(new FileDownloadTask(
+                FileDownloadTask task = new FileDownloadTask(
                         new URL(remoteManifest.getFileApi() + "/overrides/" + NetworkUtils.encodeLocation(file.getPath())),
                         actualPath.toFile(),
-                        new FileDownloadTask.IntegrityCheck("SHA-1", file.getHash()))
-                        .withCounter("fcl.modpack.download"));
+                        new FileDownloadTask.IntegrityCheck("SHA-1", file.getHash()));
+                task.addIntegrityCheckHandler(FileDownloadTask.ZIP_INTEGRITY_CHECK_HANDLER);
+                dependencies.add(task.withCounter("fcl.modpack.download"));
             }
         }
 
