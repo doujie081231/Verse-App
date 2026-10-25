@@ -16,7 +16,7 @@ object PermissionHelper {
         Manifest.permission.ACCESS_NETWORK_STATE,
         Manifest.permission.VIBRATE
     ).apply {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
             add(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
@@ -31,7 +31,7 @@ object PermissionHelper {
     }
     
     fun hasStoragePermission(context: Context): Boolean {
-        return if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+        return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE

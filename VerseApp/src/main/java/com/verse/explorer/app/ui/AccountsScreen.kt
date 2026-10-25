@@ -8,8 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
@@ -432,25 +430,18 @@ fun AccountsScreen(
         else -> "正在连接..."
     }
 
-    // 内置浏览器 + 一旁悬浮的轮询状态卡片：从右侧 1/3 屏幕滑入 + 轻微缩放 + 淡入
+    // 内置浏览器 + 一旁悬浮的轮询状态卡片：从右侧 1/3 屏幕滑入 + 淡入。
+    // 不叠加缩放：缩放会重采样 WebView 图层，登录页首帧/重定向时出现闪屏
     AnimatedVisibility(
         visible = showMsaWeb,
         modifier = Modifier.fillMaxSize(),
         enter = slideInHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
         ) { it / 3 } +
-            scaleIn(
-                animationSpec = tween(340, easing = FastOutSlowInEasing),
-                initialScale = 0.92f
-            ) +
             fadeIn(tween(220)),
         exit = slideOutHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
         ) { it / 3 } +
-            scaleOut(
-                animationSpec = tween(340, easing = FastOutSlowInEasing),
-                targetScale = 0.92f
-            ) +
             fadeOut(tween(220))
     ) {
         androidx.activity.compose.BackHandler {

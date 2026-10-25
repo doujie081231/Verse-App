@@ -68,6 +68,7 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
             GlobalScope.launch(Dispatchers.IO) {
                 val javaVersion = when {
                     javaVer <= 8 -> "java8"
+                    javaVer >= 25 -> "java25"
                     javaVer >= 21 -> "java21"
                     else -> "java17"
                 }

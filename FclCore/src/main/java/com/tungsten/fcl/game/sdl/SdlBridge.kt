@@ -90,6 +90,22 @@ object SdlBridge {
         } else {
             SDLSurface.setNativeSurface(surface)
         }
+        // SDL 默认按 ROTATION_0（竖屏自然方向）处理窗口；横屏设备不告知旋转时，
+        // SDL 会把 1280x2800 的竖屏缓冲当窗口尺寸 → MC 画面呈竖屏。
+        // SDLActivity 里这两处初始化在 FCL 中被注释掉了，这里在 Surface 就绪时补上。
+        runCatching {
+            val natural = SDLActivity.getNaturalOrientation()
+            val rotation = SDLActivity.getCurrentRotation()
+            android.util.Log.i(
+                "VerseSDL",
+                "rotation sync: configOrientation=${activity.resources.configuration.orientation}, " +
+                    "displayRotation=${activity.display?.rotation}, natural=$natural, rotation=$rotation"
+            )
+            SDLActivity.nativeSetNaturalOrientation(natural)
+            SDLActivity.onNativeRotationChanged(rotation)
+        }.onFailure {
+            android.util.Log.e("VerseSDL", "rotation sync failed: ${it}", it)
+        }
     }
 
     @JvmStatic

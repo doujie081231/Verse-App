@@ -131,12 +131,14 @@ object ModpackInstaller {
      * @param gameDir 游戏根目录（versions/libraries 所在）
      * @param zipFile mrpack/zip 整合包文件
      * @param name    生成的游戏版本名（默认用 manifest name）
+     * @param iconFile 下载阶段取得的项目图标（优先于 zip 内图标作为版本图标）
      * @param onEvent 阶段事件回调（可能来自任意线程，调用方需自行切回主线程）
      */
     suspend fun installModpack(
         gameDir: File,
         zipFile: File,
         name: String? = null,
+        iconFile: File? = null,
         onEvent: (ModpackTaskEvent) -> Unit
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
@@ -181,9 +183,10 @@ object ModpackInstaller {
                 cleanupFailedVersion(repo, runName)
                 throw IOException("整合包安装结束但未生成版本 $runName")
             }
-            // 提取整合包作者图标（zip 根目录）到版本目录，供主页/已安装版本卡片展示
+            // 提取整合包作者图标（优先下载阶段取得的项目图标，其次 zip 根目录）到版本目录，
+            // 供主页/已安装版本卡片展示
             heapSnapshot("before-icon")
-            saveModpackIcon(zipFile, GameConfig.getVersionsDir(gameDir).resolve(runName))
+            saveModpackIcon(zipFile, GameConfig.getVersionsDir(gameDir).resolve(runName), iconFile)
             heapSnapshot("after-icon")
             Log.i(TAG, "整合包安装完成: $runName")
             com.verse.explorer.core.log.DownloadLog.modpack("整合包安装完成: $runName")
@@ -325,10 +328,22 @@ object ModpackInstaller {
     }
 
     /**
-     * 从整合包 zip 根目录提取作者提供的图标（CurseForge 根目录 "modpack icon.png"、
-     * Modrinth 根目录 "icon.png" 等），写入 versions/<name>/modpack_icon.png。
+     * 写入版本图标：下载阶段取得的项目图标优先（安装包下载完成后同步取图标，
+     * 覆盖 zip 内图标），没有则从整合包 zip 根目录提取作者提供的图标
+     * （CurseForge 根目录 "modpack icon.png"、Modrinth 根目录 "icon.png" 等），
+     * 写入 versions/<name>/modpack_icon.png。
      */
-    private fun saveModpackIcon(zipFile: File, versionRoot: File) {
+    private fun saveModpackIcon(zipFile: File, versionRoot: File, downloadedIcon: File? = null) {
+        if (downloadedIcon != null && downloadedIcon.isFile && downloadedIcon.length() > 0) {
+            try {
+                versionRoot.mkdirs()
+                downloadedIcon.copyTo(File(versionRoot, "modpack_icon.png"), overwrite = true)
+                Log.i(TAG, "已保存整合包图标: ${downloadedIcon.name}")
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "保存下载图标失败，回退 zip 图标: ${e.message}")
+            }
+        }
         try {
             ZipFile(zipFile).use { zip ->
                 // 只枚举一次条目：Enumeration 每次从头遍历，

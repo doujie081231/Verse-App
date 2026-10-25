@@ -140,39 +140,48 @@ class ModLoaderManager {
     }
 
     private suspend fun fetchNeoForgeVersions(mcVersion: String): List<ModLoader> = withContext(Dispatchers.IO) {
-        try {
-            val url = URL("https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 10000
-            conn.readTimeout = 15000
-            conn.setRequestProperty("User-Agent", "VerseExplorerX/1.0")
+        // 与 FCL NeoForgeBMCLVersionList 一致：按 MC 版本查询 /neoforge/list/{mcVersion}。
+        // 旧实现拉的是全局 maven 版本列表且不过滤 mcversion，会把别的 MC 版本的
+        // NeoForge 版本（甚至 1.20.1 的 forge-* 命名）列出来 → 安装必然版本不匹配/下载失败。
+        val mirrors = listOf(
+            "https://bmclapi2.bangbang93.com/neoforge/list/$mcVersion",
+            "https://bmclapi.nofated.win/neoforge/list/$mcVersion"
+        )
+        for (urlStr in mirrors) {
+            try {
+                val conn = URL(urlStr).openConnection() as HttpURLConnection
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+                conn.setRequestProperty("User-Agent", "VerseExplorerX/1.0")
 
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+                    conn.disconnect()
+                    continue
+                }
+
+                val body = conn.inputStream.bufferedReader().readText()
                 conn.disconnect()
-                return@withContext emptyList()
-            }
 
-            val body = conn.inputStream.bufferedReader().readText()
-            conn.disconnect()
-
-            val json = JsonParser.parseString(body).asJsonObject
-            val versions = json.getAsJsonArray("versions") ?: return@withContext emptyList()
-            val result = mutableListOf<ModLoader>()
-            for (elem in versions) {
-                val version = elem.asString
-                result.add(ModLoader(
-                    name = "NeoForge $version",
-                    version = version,
-                    type = ModLoaderType.NEOFORGE,
-                    mcVersion = mcVersion,
-                    url = "https://maven.neoforged.net/releases/net/neoforged/neoforge/${version}/neoforge-${version}-installer.jar",
-                    stable = true
-                ))
-            }
-            result.takeLast(10)
-        } catch (e: Exception) {
-            emptyList()
+                val array = JsonParser.parseString(body).asJsonArray
+                val result = mutableListOf<ModLoader>()
+                for (elem in array) {
+                    val obj = elem.asJsonObject
+                    val entryMc = obj.get("mcversion")?.asString ?: continue
+                    if (entryMc != mcVersion) continue
+                    val version = obj.get("version")?.asString ?: continue
+                    result.add(ModLoader(
+                        name = "NeoForge $version",
+                        version = version,
+                        type = ModLoaderType.NEOFORGE,
+                        mcVersion = mcVersion,
+                        url = "https://bmclapi2.bangbang93.com/neoforge/version/$version/download/installer.jar",
+                        stable = true
+                    ))
+                }
+                if (result.isNotEmpty()) return@withContext result.takeLast(20)
+            } catch (_: Exception) {}
         }
+        emptyList()
     }
 
     private suspend fun fetchQuiltVersions(mcVersion: String): List<ModLoader> = withContext(Dispatchers.IO) {

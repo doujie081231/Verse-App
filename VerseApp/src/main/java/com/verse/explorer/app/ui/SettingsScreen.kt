@@ -228,6 +228,7 @@ fun SettingsScreen(navController: NavHostController) {
         }
         MenuSetting.windowScale = renderScale.coerceIn(25, 300) / 100.0
         MenuSetting.notifyChange(MenuSetting.Key.WINDOW_SCALE)
+        Toast.makeText(context, "设置已保存", Toast.LENGTH_SHORT).show()
     }
 
     fun resetAll() {
@@ -423,6 +424,12 @@ fun SettingsScreen(navController: NavHostController) {
                                 // 即时生效：内容容器让出/占回 displayCutout 区（MainActivity 响应式读取）
                                 DisplayNotch.updateIgnoreNotch(on)
                             }
+                            // 启动器部分屏幕全屏：只控制系统栏沉浸，与「忽略刘海」互不影响
+                            PcSwitchRow(
+                                "启动器全屏",
+                                "启动器沉浸式全屏（隐藏状态栏与导航栏）；刘海区域是否延伸由上方「忽略刘海」单独决定",
+                                VersePersonalization.launcherFullScreen
+                            ) { VersePersonalization.applyLauncherFullScreen(it) }
                         }
                     }
 
@@ -657,7 +664,8 @@ fun SettingsScreen(navController: NavHostController) {
                                 listOf(
                                     "8" to "Java 8",
                                     "17" to "Java 17",
-                                    "21" to "Java 21"
+                                    "21" to "Java 21",
+                                    "25" to "Java 25"
                                 )
                             ) { javaVersion = it }
                             PcDropdownRow(
@@ -878,12 +886,6 @@ fun SettingsScreen(navController: NavHostController) {
                                     ActionMenuSide.START.name to "左侧"
                                 )
                             ) { VersePersonalization.applyActionMenuSide(it) }
-                            // 启动器部分屏幕全屏：默认开=沉浸式全屏并延伸到刘海区域，改动即时生效
-                            PcSwitchRow(
-                                "启动器全屏",
-                                "沉浸式全屏显示并延伸到刘海区域；关闭后退出沉浸并避让刘海",
-                                VersePersonalization.launcherFullScreen
-                            ) { VersePersonalization.applyLauncherFullScreen(it) }
                         }
                     }
 

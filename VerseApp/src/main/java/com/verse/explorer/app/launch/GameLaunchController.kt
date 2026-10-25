@@ -7,12 +7,14 @@ import android.util.Log
 import com.verse.explorer.app.VerseApplication
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.VersionSettingsRepository
+import com.verse.explorer.app.device.VulkanCapabilities
 import com.verse.explorer.app.device.VulkanCheckManager
 import com.verse.explorer.app.device.VulkanEnsureResult
 import com.verse.explorer.app.device.normalizeMcVersion
 import com.verse.explorer.app.device.supportFor
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.app.ui.game.GameActivity
+import com.verse.explorer.launcher.renderer.RendererManager
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.java.JavaRuntime
 import com.verse.explorer.core.java.JavaRuntimeManager
@@ -44,6 +46,27 @@ data class LaunchState(
     val errors: List<String> = emptyList()
 )
 
+/**
+ * Vulkan 启动前对话框状态（仅当所选渲染器/图形后端需要 Vulkan 时出现）
+ * 对齐 FCL：先询问是否检测，检测完成后弹报告，无论支持与否都允许继续启动
+ */
+sealed interface VulkanGateDialogState {
+    /** 询问用户是否检测设备 Vulkan 支持情况（可忽略并直接启动） */
+    data object Ask : VulkanGateDialogState
+
+    /** 检测结果报告 */
+    data class Report(
+        val capabilities: VulkanCapabilities?,
+        val useTurnip: Boolean,
+        val supported: Boolean,
+        val missingRequired: List<String>,
+        val missingOptional: List<String>
+    ) : VulkanGateDialogState
+}
+
+/** 用户对 Vulkan 对话框的选择 */
+enum class VulkanGateDecision { IGNORE, DETECT, CONTINUE, CANCEL }
+
 class GameLaunchController(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val settingsRepo = SettingsRepository
@@ -52,6 +75,32 @@ class GameLaunchController(private val context: Context) {
 
     private val _launchState = MutableStateFlow(LaunchState())
     val launchState: StateFlow<LaunchState> = _launchState.asStateFlow()
+
+    private val _vulkanGateDialog = MutableStateFlow<VulkanGateDialogState?>(null)
+    /** 启动流程挂起等待的 Vulkan 对话框；非空时 UI 应展示对应对话框 */
+    val vulkanGateDialog: StateFlow<VulkanGateDialogState?> = _vulkanGateDialog.asStateFlow()
+
+    private var vulkanDecision: CompletableDeferred<VulkanGateDecision>? = null
+
+    /** UI：忽略检测，直接启动 */
+    fun vulkanGateIgnore() {
+        vulkanDecision?.complete(VulkanGateDecision.IGNORE)
+    }
+
+    /** UI：开始检测 */
+    fun vulkanGateDetect() {
+        vulkanDecision?.complete(VulkanGateDecision.DETECT)
+    }
+
+    /** UI：看过报告后继续启动 */
+    fun vulkanGateContinue() {
+        vulkanDecision?.complete(VulkanGateDecision.CONTINUE)
+    }
+
+    /** UI：取消启动 */
+    fun vulkanGateCancel() {
+        vulkanDecision?.complete(VulkanGateDecision.CANCEL)
+    }
 
     fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
         if (_launchState.value.isLaunching) return
@@ -375,68 +424,77 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）==========
-        // 启动前判定设备 Vulkan 能力是否满足该版本依赖，缺失项警告后允许继续；
-        // 同时刷新 needsVulkanShim 门控（仅设备缺口可被 vkshim 补齐时才启用包装层）
-        if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(cachedVersion.id)) {
+        // ========== Vulkan 检测（仅当所选渲染器/图形后端需要 Vulkan）==========
+        // 对齐 FCL：需要 Vulkan 的启动方式先询问"是否检测"，检测完成后展示报告，
+        // 无论结论是否支持都允许继续启动；选择 OpenGL/GL4ES/MobileGlues 等渲染器时一律不检测。
+        if (cachedVersion != null && needsVulkanCheck(cachedVersion.id)) {
             stepIdx++
             steps.add(LaunchStep("Vulkan 检查", "进行中...", "code"))
-            emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在检测设备 Vulkan 能力...")
+            emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在读取设备 Vulkan 能力...")
 
-            val verSettingsForVk = versionId?.let {
-                VersionSettingsRepository(context).getVersionSettings(it)
-            }
-            val vkDriverSystem = if (verSettingsForVk != null && !verSettingsForVk.usesGlobal) {
-                verSettingsForVk.vkDriverSystem
+            val (useTurnip, driverPath) = vulkanDriverSelection(cachedVersion.id)
+            val ensure = VulkanCheckManager.ensureSupported(
+                context, cachedVersion.id, useTurnip, driverPath
+            )
+            var continueLaunch = true
+            if (ensure == VulkanEnsureResult.SUPPORTED) {
+                steps[stepIdx] = LaunchStep("Vulkan 检查", "完成 (已缓存)", "check")
             } else {
-                settingsRepo.getVkDriverSystem()
-            }
-            val useTurnip = !vkDriverSystem
-            val driverPath = if (useTurnip) {
-                (context.applicationInfo.nativeLibraryDir)
-            } else null
-
-            var ensure = VulkanCheckManager.ensureSupported(context, cachedVersion.id, useTurnip, driverPath)
-            if (ensure != VulkanEnsureResult.SUPPORTED) {
-                // 无有效缓存或判定不支持：执行一次完整检测刷新结论与 shim 门控
-                val capabilities = VulkanCheckManager.check(context, useTurnip, driverPath)
-                ensure = if (capabilities != null &&
-                    capabilities.supportFor(com.verse.explorer.app.device.normalizeMcVersion(cachedVersion.id)).isSupported
-                ) VulkanEnsureResult.SUPPORTED else VulkanEnsureResult.UNSUPPORTED
-                val missing = capabilities
-                    ?.supportFor(com.verse.explorer.app.device.normalizeMcVersion(cachedVersion.id))
-                    ?.missingRequired
-                    ?.joinToString(", ") { it.dependency.name }
-                if (!missing.isNullOrEmpty()) {
-                    // Vulkan 缺失提示只针对 26.3：26.2 仍可回落到 OpenGL 后端，
-                    // 提示缺失 Vulkan 会让玩家误以为无法启动。
-                    if (vulkanMissingPromptNeeded(cachedVersion.id)) {
-                        steps[stepIdx] = LaunchStep("Vulkan 检查", "警告", "warning")
-                        warnings.add("设备缺失本版本必需的 Vulkan 依赖: $missing（可继续但渲染后端可能初始化失败）")
-                        VerseLogger.warn("Vulkan 检查: 设备缺失 $missing", "LaunchController")
-                        // launchCheck 运行在 Dispatchers.IO，Toast 必须切主线程（否则
-                        // Can't toast on a thread that has not called Looper.prepare()）
-                        android.os.Handler(android.os.Looper.getMainLooper()).post {
-                            android.widget.Toast.makeText(
-                                context,
-                                "当前设备图形能力有限，可能无法运行此版本；可尝试在版本设置中更换渲染器",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    } else {
-                        steps[stepIdx] = LaunchStep("Vulkan 检查", "完成 (缺项可回落 GL)", "check")
-                        VerseLogger.info("Vulkan 检查: 设备缺失 $missing，26.2 按 OpenGL 回落", "LaunchController")
+                steps[stepIdx] = LaunchStep("Vulkan 检查", "等待确认", "warning")
+                emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "等待确认是否检测 Vulkan 支持")
+                when (awaitVulkanDecision(VulkanGateDialogState.Ask)) {
+                    VulkanGateDecision.DETECT -> {
+                        steps[stepIdx] = LaunchStep("Vulkan 检查", "检测中...", "code")
+                        emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在检测设备 Vulkan 支持...")
+                        val capabilities = VulkanCheckManager.check(context, useTurnip, driverPath)
+                        val support = capabilities?.supportFor(normalizeMcVersion(cachedVersion.id))
+                        val supported = support?.isSupported == true
+                        val missingRequired = support?.missingRequired
+                            ?.map { it.dependency.name }.orEmpty()
+                        val missingOptional = support?.missingOptional
+                            ?.map { it.dependency.name }.orEmpty()
+                        val decision = awaitVulkanDecision(
+                            VulkanGateDialogState.Report(
+                                capabilities = capabilities,
+                                useTurnip = useTurnip,
+                                supported = supported,
+                                missingRequired = missingRequired,
+                                missingOptional = missingOptional
+                            )
+                        )
+                        continueLaunch = decision != VulkanGateDecision.CANCEL
+                        steps[stepIdx] = LaunchStep(
+                            "Vulkan 检查",
+                            when {
+                                capabilities == null -> "跳过 (检测失败)"
+                                supported -> "完成 (${capabilities.versionString})"
+                                else -> "警告 (缺少必需项)"
+                            },
+                            if (supported) "check" else "warning"
+                        )
+                        VerseLogger.info(
+                            "Vulkan 检测: supported=$supported, missing=$missingRequired, " +
+                                "可选缺失=$missingOptional, 继续启动=$continueLaunch",
+                            "LaunchController"
+                        )
                     }
-                } else if (capabilities == null) {
-                    steps[stepIdx] = LaunchStep("Vulkan 检查", "跳过 (检测失败)", "skip")
-                    VerseLogger.warn("Vulkan 检测失败，按无信息继续", "LaunchController")
-                } else {
-                    steps[stepIdx] = LaunchStep("Vulkan 检查", "完成 (${capabilities.versionString})", "check")
+                    VulkanGateDecision.IGNORE -> {
+                        steps[stepIdx] = LaunchStep("Vulkan 检查", "已忽略", "skip")
+                        VerseLogger.info("用户忽略 Vulkan 检测，直接启动", "LaunchController")
+                    }
+                    else -> continueLaunch = false
                 }
-            } else {
-                steps[stepIdx] = LaunchStep("Vulkan 检查", "完成", "check")
             }
             emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
+            if (!continueLaunch) {
+                VerseLogger.info("用户取消 Vulkan 检测流程，终止本次启动", "LaunchController")
+                _launchState.value = LaunchState(
+                    phase = LaunchPhase.IDLE,
+                    isLaunching = false,
+                    message = "已取消启动"
+                )
+                return null
+            }
         }
 
         // ========== 检查汇总 ==========
@@ -552,11 +610,57 @@ class GameLaunchController(private val context: Context) {
         return m.value.split(".").mapNotNull { it.toIntOrNull() }
     }
 
-    /** Vulkan 缺失提示的版本门槛：只有 26.3 起必须 Vulkan，26.2 可回落 OpenGL */
-    private fun vulkanMissingPromptNeeded(versionId: String): Boolean =
-        com.tungsten.fclcore.util.versioning.GameVersionNumber.compare(
-            com.verse.explorer.app.device.normalizeMcVersion(versionId), "26.3"
-        ) >= 0
+    /** 启动流程挂起，等待 UI 对 Vulkan 对话框做出选择 */
+    private suspend fun awaitVulkanDecision(state: VulkanGateDialogState): VulkanGateDecision {
+        val deferred = CompletableDeferred<VulkanGateDecision>()
+        vulkanDecision = deferred
+        _vulkanGateDialog.value = state
+        try {
+            return deferred.await()
+        } finally {
+            vulkanDecision = null
+            _vulkanGateDialog.value = null
+        }
+    }
+
+    /**
+     * 是否需要 Vulkan 检测：仅当版本带 Vulkan 后端（26.2+）且当前启动方式真的走 Vulkan
+     * （Zink/Freedreno 渲染器，或图形 API 显式 vulkan）。
+     * OpenGL/GL4ES/MobileGlues 等渲染方式一律不检测。
+     */
+    private fun needsVulkanCheck(versionId: String): Boolean {
+        if (!VulkanCheckManager.hasVulkanBackend(versionId)) return false
+        val vs = VersionSettingsRepository(context).getVersionSettings(versionId)
+        val rendererId = if (vs.usesGlobal) settingsRepo.getRenderer() else vs.renderer
+        val backend = if (vs.usesGlobal) {
+            SettingsRepository.getGraphicsBackend()
+        } else vs.graphicsBackend
+        val renderer = RendererManager.getRendererById(context, rendererId)
+        // MobileGlues 是 GL 实现，OptionsInjector 会强制 opengl 后端，无需 Vulkan 检测
+        if (renderer != null && renderer.glName.contains("mobileglues", ignoreCase = true)) {
+            return false
+        }
+        val vulkanRenderer = renderer != null && (
+            renderer.id.equals("zink", ignoreCase = true) ||
+                renderer.id.equals("freedreno", ignoreCase = true) ||
+                renderer.glName.contains("zink", ignoreCase = true) ||
+                renderer.glName.contains("freedreno", ignoreCase = true) ||
+                renderer.pojavRenderer.contains("zink", ignoreCase = true) ||
+                renderer.pojavRenderer.contains("freedreno", ignoreCase = true)
+            )
+        return vulkanRenderer || backend.equals("vulkan", ignoreCase = true)
+    }
+
+    /** 当前版本的 Vulkan 驱动选择：返回 (是否使用 Turnip, Turnip 驱动目录) */
+    private fun vulkanDriverSelection(versionId: String): Pair<Boolean, String?> {
+        val vs = VersionSettingsRepository(context).getVersionSettings(versionId)
+        val systemDriver = if (vs.usesGlobal) settingsRepo.getVkDriverSystem() else vs.vkDriverSystem
+        return if (systemDriver) {
+            false to null
+        } else {
+            true to context.applicationInfo.nativeLibraryDir
+        }
+    }
 
     private fun selectBestRuntime(runtimes: List<JavaRuntime>, requiredVersion: Int): JavaRuntime? {
         val exactMatch = runtimes.find { it.version == requiredVersion }

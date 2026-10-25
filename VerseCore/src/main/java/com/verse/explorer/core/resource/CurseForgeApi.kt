@@ -199,6 +199,10 @@ object CurseForgeApi {
             sourceUrl = "",
             dateCreated = mod.dateCreated ?: "",
             dateModified = mod.dateModified ?: "",
+            gallery = (mod.screenshots ?: emptyList()).mapNotNull { shot ->
+                val url = shot.url ?: shot.thumbnailUrl ?: return@mapNotNull null
+                ResourceGallery(url, shot.title ?: shot.description ?: "")
+            },
             source = "curseforge",
             projectType = ""
         )
@@ -340,8 +344,16 @@ object CurseForgeApi {
         val authors: List<CfAuthor>? = emptyList(),
         val categories: List<CfCategory>? = emptyList(),
         val latestFilesIndexes: List<CfFileIndex>? = emptyList(),
+        val screenshots: List<CfScreenshot>? = emptyList(),
         val dateCreated: String? = null,
         val dateModified: String? = null
+    )
+
+    data class CfScreenshot(
+        val title: String? = null,
+        val description: String? = null,
+        @SerializedName("thumbnailUrl") val thumbnailUrl: String? = null,
+        val url: String? = null
     )
 
     data class CfImage(@SerializedName("url") val url: String? = null)

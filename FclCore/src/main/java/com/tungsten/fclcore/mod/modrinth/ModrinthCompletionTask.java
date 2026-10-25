@@ -22,14 +22,17 @@ import com.tungsten.fclcore.download.ModpackFileCandidates;
 import com.tungsten.fclcore.game.DefaultGameRepository;
 import com.tungsten.fclcore.mod.ModManager;
 import com.tungsten.fclcore.mod.ModpackCompletionException;
+import com.tungsten.fclcore.task.DownloadException;
 import com.tungsten.fclcore.task.FileDownloadTask;
 import com.tungsten.fclcore.task.Task;
+import com.tungsten.fclcore.util.DigestUtils;
 import com.tungsten.fclcore.util.Logging;
 import com.tungsten.fclcore.util.gson.JsonUtils;
 import com.tungsten.fclcore.util.io.FileUtils;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -114,11 +117,24 @@ public class ModrinthCompletionTask extends Task<Void> {
             Path filePath = runDirectory.resolve(file.getPath()).toAbsolutePath().normalize();
             if (!filePath.startsWith(runDirectory))
                 throw new ModpackCompletionException("Unsecure path: " + file.getPath());
-            if (Files.exists(filePath))
-                continue;
+            String sha1 = file.getHashes() == null ? null : file.getHashes().get("sha1");
+            if (Files.isRegularFile(filePath)) {
+                // 已存在文件校验：sha1 可用且匹配才复用，
+                // 不匹配（中断/镜像错误留下的坏文件）删除后重新下载
+                if (sha1 == null || sha1.isEmpty())
+                    continue;
+                String actual = DigestUtils.digestToString("SHA-1", filePath);
+                if (sha1.equalsIgnoreCase(actual))
+                    continue;
+                Files.deleteIfExists(filePath);
+            }
             if (modsDirectory.equals(filePath.getParent()) && this.modManager.hasSimpleMod(FileUtils.getName(filePath)))
                 continue;
-            FileDownloadTask task = new FileDownloadTask(ModpackFileCandidates.of(file.getDownloads()), filePath.toFile());
+            FileDownloadTask.IntegrityCheck check = sha1 == null || sha1.isEmpty()
+                    ? null
+                    : new FileDownloadTask.IntegrityCheck("SHA-1", sha1);
+            FileDownloadTask task = new SkipMissingFileDownloadTask(ModpackFileCandidates.of(file.getDownloads()), filePath.toFile(), check);
+            task.addIntegrityCheckHandler(FileDownloadTask.ZIP_INTEGRITY_CHECK_HANDLER);
             task.setCacheRepository(dependency.getCacheRepository());
             task.setCaching(true);
             dependencies.add(task.withCounter("fcl.modpack.download"));
@@ -143,5 +159,40 @@ public class ModrinthCompletionTask extends Task<Void> {
             throw new ModpackCompletionException(new FileNotFoundException());
         if (!allNameKnown.get() || !isDependenciesSucceeded())
             throw new ModpackCompletionException();
+    }
+
+    /**
+     * 源端已下架（404）的整合包文件直接跳过：
+     * 单个 mod 在镜像与官方都返回 404 时不应让整个整合包安装失败，
+     * 其余文件正常安装，缺失的文件在启动日志中体现。
+     */
+    private static final class SkipMissingFileDownloadTask extends FileDownloadTask {
+        SkipMissingFileDownloadTask(List<URL> urls, File file, FileDownloadTask.IntegrityCheck check) {
+            super(urls, file, check);
+        }
+
+        @Override
+        public void execute() throws Exception {
+            try {
+                super.execute();
+            } catch (DownloadException e) {
+                // FetchTask 会把 404 包在 DownloadException 里抛出，需要沿因果链判断
+                if (isNotFound(e)) {
+                    Logging.LOG.log(Level.WARNING, "Modpack file not found on all sources, skipped: " + getFile(), e);
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        private static boolean isNotFound(Throwable throwable) {
+            Throwable current = throwable;
+            while (current != null) {
+                if (current instanceof FileNotFoundException)
+                    return true;
+                current = current.getCause();
+            }
+            return false;
+        }
     }
 }

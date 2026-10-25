@@ -42,7 +42,11 @@ data class DownloadCenterItem(
     val progress: Float = -1f,
     val speed: Long = 0,
     val state: DownloadCenterState = DownloadCenterState.RUNNING,
-    val error: String? = null
+    val error: String? = null,
+    /** 已下载字节（供下载弹窗展示 "已下载/总大小"） */
+    val downloaded: Long = 0,
+    /** 总字节；0 表示未知 */
+    val total: Long = 0
 )
 
 /**
@@ -236,7 +240,10 @@ object DownloadCenter {
         }
         val progress = if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else -1f
         _items.update { list ->
-            list.map { if (it.id == id) it.copy(progress = progress, speed = speed) else it }
+            list.map {
+                if (it.id == id) it.copy(progress = progress, speed = speed, downloaded = downloaded, total = total)
+                else it
+            }
         }
         refreshNotification()
     }

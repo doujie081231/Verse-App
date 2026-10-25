@@ -219,7 +219,6 @@ object ModrinthApi {
     // Modrinth 官方 API 国内 TTFB 慢，镜像 mod.mcimirror.top 优先）
     private const val MODRINTH_API = "https://api.modrinth.com/v2"
     private const val MODRINTH_API_MIRROR = "https://mod.mcimirror.top/modrinth/v2"
-    private const val CDN_MIRROR_HOST = "mod.mcimirror.top"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -285,26 +284,6 @@ object ModrinthApi {
             throw lastError ?: Exception("Failed to fetch from all sources")
         }
 
-    /**
-     * 避免 cdn.modrinth.com / cdn-alt.modrinth.com 在国内加载缓慢/失败。
-     */
-    private fun toCdnMirror(url: String): String {
-        return if (url.contains("cdn.modrinth.com")) {
-            url.replace("cdn.modrinth.com", CDN_MIRROR_HOST)
-        } else if (url.contains("cdn-alt.modrinth.com")) {
-            url.replace("cdn-alt.modrinth.com", CDN_MIRROR_HOST)
-        } else {
-            url
-        }
-    }
-
-    /** markdown 正文/画廊中的内嵌图片链接同样走 CDN 镜像 */
-    private fun applyCdnMirror(text: String): String {
-        return text
-            .replace("cdn.modrinth.com", CDN_MIRROR_HOST)
-            .replace("cdn-alt.modrinth.com", CDN_MIRROR_HOST)
-    }
-
     suspend fun searchProjects(
         query: String = "",
         projectType: String = "mod",
@@ -344,25 +323,12 @@ object ModrinthApi {
         }
 
         val body = fetchWithMirror("/search?${params.joinToString("&")}", useMirror, 60_000)
-        val result = gson.fromJson(body, ModrinthSearchResult::class.java)
-        result.hits.forEach { hit ->
-            hit.iconUrl?.let { url -> hit.iconUrl = toCdnMirror(url) }
-        }
-        result
+        gson.fromJson(body, ModrinthSearchResult::class.java)
     }
 
     suspend fun getProject(projectId: String, useMirror: Boolean = true): ModrinthProject = withContext(Dispatchers.IO) {
         val body = fetchWithMirror("/project/$projectId", useMirror, null)
-        val project = gson.fromJson(body, ModrinthProject::class.java)
-        project.iconUrl?.let { url -> project.iconUrl = toCdnMirror(url) }
-        if (project.body.isNotEmpty() || !project.gallery.isNullOrEmpty()) {
-            project.copy(
-                body = applyCdnMirror(project.body),
-                gallery = project.gallery?.takeIf { it.isNotEmpty() }?.map { it.copy(url = toCdnMirror(it.url)) }
-            )
-        } else {
-            project
-        }
+        gson.fromJson(body, ModrinthProject::class.java)
     }
 
     suspend fun getProjectVersions(projectId: String, useMirror: Boolean = true): List<ModrinthVersion> = withContext(Dispatchers.IO) {

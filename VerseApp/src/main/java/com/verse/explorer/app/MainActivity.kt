@@ -96,15 +96,11 @@ class MainActivity : ComponentActivity() {
             }
             VerseExplorerTheme {
                 Surface(
-                    // 刘海避让用黑边：仅在既未开启「启动器全屏」也未开启「忽略刘海（全屏）」时，
-                    // 根容器按 displayCutout 内缩并把挖孔区域填成纯黑；
-                    // 启动器全屏本身即要求延伸至刘海区域，不再保留黑边。
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (DisplayNotch.ignoreNotch || VersePersonalization.launcherFullScreen) Modifier
-                            else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
-                        ),
+                    // 刘海区域完全交给窗口的 layoutInDisplayCutoutMode（MainWindowMode 中设置）处理：
+                    // 不忽略刘海时窗口模式为 NEVER，系统自动避让；忽略时窗口延伸到挖孔区。
+                    // 这里不再叠加 displayCutout 内边距，否则关闭忽略刘海时会被二次内缩，
+                    // 主页网格宽度/高度变化后卡片被重排到顶部。
+                    modifier = Modifier.fillMaxSize(),
                     color = Color.Black
                 ) {
                     val showEula = !eulaAgreed.value

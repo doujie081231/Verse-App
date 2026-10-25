@@ -153,9 +153,9 @@ class GameLaunchOrchestrator(
                         if (code == 0) {
                             statusOverlay.setTitle("游戏已退出")
                             statusOverlay.setMessage("退出码: $code")
-                            // JVM 在同一进程内无法二次初始化：退出后结束进程，
-                            // 下次启动由全新进程承载新的 JVM
-                            activity.finishAffinity()
+                            // 游戏运行在独立 :game 进程，结束后仅关闭游戏页并结束该进程，
+                            // 启动器主界面保持在后台可继续使用
+                            activity.finish()
                             killProcessSoon()
                             return@withContext
                         }
@@ -593,12 +593,7 @@ class GameLaunchOrchestrator(
             }
             val more = report.issues.size - minOf(3, report.issues.size)
             val detail = shown + if (more > 0) "\n• …等共 ${report.issues.size} 个问题" else ""
-            VerseLogger.error("模组兼容性预检未通过:\n$detail", TAG)
-            throw IllegalStateException(
-                "检测到与当前版本不兼容的模组，已停止启动：\n$detail\n\n" +
-                    "请到 版本设置 → 模组管理 中移除或禁用这些模组后重试；" +
-                    "确认无误也可在版本设置中关闭「模组检查」强制启动。"
-            )
+            VerseLogger.warn("模组兼容性提示（不阻断启动）:\n$detail", TAG)
         }.onFailure { e ->
             if (e is IllegalStateException) throw e
             // 预检自身异常不阻断启动，只记日志
@@ -730,7 +725,7 @@ class GameLaunchOrchestrator(
         // 旧 JVM 已失效，不能在当前进程再建一个：挂起冷启动后结束进程
         val intent = restarter.buildRestartIntent(params)
         scheduleColdStart(activity, intent, RESTART_GAME_REQUEST_CODE)
-        activity.finishAffinity()
+        activity.finish()
         killProcessSoon()
     }
 

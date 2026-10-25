@@ -270,6 +270,32 @@ class ResourceRepository(
     fun getModsDir(): File = GameConfig.getModsDir(GameConfig.getGameDir(context))
 
     /**
+     * 下载整合包项目图标到指定缓存文件（安装完成后写入版本图标）。
+     * 整合包文件下载完成后立即取项目图标，
+     * 安装包内没有图标时仍能显示整合包作者提供的图标。
+     * 失败返回 null（图标缺失不影响安装）。
+     */
+    suspend fun downloadIcon(
+        url: String,
+        destFile: File,
+        isCancelled: () -> Boolean = { false }
+    ): File? = withContext(Dispatchers.IO) {
+        if (url.isBlank()) return@withContext null
+        try {
+            destFile.parentFile?.mkdirs()
+            destFile.delete()
+            val result = smartClient.download(
+                originalUrl = url,
+                targetFile = destFile,
+                isCancelled = isCancelled
+            )
+            destFile.takeIf { result.isSuccess && it.isFile && it.length() > 0 }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * 查询某资源文件是否已安装在任一版本的 [folder]（mods/resourcepacks 等）目录：
      * 文件名 + SHA1 双重匹配，命中返回已有文件（用于前置模组等批量下载的本地去重）。
      */

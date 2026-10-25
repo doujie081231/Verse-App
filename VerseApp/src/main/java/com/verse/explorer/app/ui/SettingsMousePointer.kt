@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.R
 import com.verse.explorer.app.BuildConfig
@@ -194,84 +195,96 @@ private fun PointerPreview(shape: MousePointerSetting.Shape, refreshKey: Int, si
     }
 }
 
-/** 指针热点编辑对话框：预览图上以红点标记热点，两个滑块编辑百分比坐标 */
+/** 指针热点编辑对话框：左侧预览图（红点标记热点），右侧两个滑块，横屏下有足够留白 */
 @Composable
 private fun MouseHotspotDialog(shape: MousePointerSetting.Shape, onClose: () -> Unit) {
     val initial = remember(shape) { MousePointerSetting.hotspot(shape) }
     var x by remember { mutableIntStateOf(initial[0]) }
     var y by remember { mutableIntStateOf(initial[1]) }
 
-    AlertDialog(
-        onDismissRequest = onClose,
-        title = {
-            Text(
-                "${shapeLabel(shape)}·指针热点",
-                color = VerseColors.PcTextPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-        },
-        text = {
-            Column {
+    Dialog(onDismissRequest = onClose) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = VerseColors.PcBgSecondary,
+            modifier = Modifier.width(460.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    "${shapeLabel(shape)}·指针热点",
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     "热点是鼠标的实际作用点（点击/悬停命中位置），以图片宽高的百分比表示。",
                     fontSize = 11.sp,
                     color = VerseColors.PcTextMuted
                 )
-                Spacer(Modifier.height(10.dp))
-                Box(modifier = Modifier.size(120.dp)) {
-                    val bitmap = remember(shape) { MousePointerSetting.loadBitmap(shape) }
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Image(
-                            painter = painterResource(shape.defaultRes),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Box(modifier = Modifier.size(96.dp)) {
+                        val bitmap = remember(shape) { MousePointerSetting.loadBitmap(shape) }
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Image(
+                                painter = painterResource(shape.defaultRes),
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val cx = size.width * x / 100f
+                            val cy = size.height * y / 100f
+                            drawCircle(Color(0xFFC9350F), radius = 5.dp.toPx(), center = Offset(cx, cy))
+                            drawCircle(
+                                Color.White,
+                                radius = 4.dp.toPx(),
+                                center = Offset(cx, cy),
+                                style = Stroke(width = 1.dp.toPx())
+                            )
+                        }
                     }
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val cx = size.width * x / 100f
-                        val cy = size.height * y / 100f
-                        drawCircle(Color(0xFFC9350F), radius = 5.dp.toPx(), center = Offset(cx, cy))
-                        drawCircle(
-                            Color.White,
-                            radius = 4.dp.toPx(),
-                            center = Offset(cx, cy),
-                            style = Stroke(width = 1.dp.toPx())
+                    Column(modifier = Modifier.weight(1f)) {
+                        PcSliderRow(
+                            label = "热点 X",
+                            value = x,
+                            valueRange = 0..100,
+                            suffix = "%",
+                            onValueChange = { x = it }
+                        )
+                        PcSliderRow(
+                            label = "热点 Y",
+                            value = y,
+                            valueRange = 0..100,
+                            suffix = "%",
+                            onValueChange = { y = it }
                         )
                     }
                 }
-                PcSliderRow(
-                    label = "热点 X",
-                    value = x,
-                    valueRange = 0..100,
-                    suffix = "%",
-                    onValueChange = { x = it }
-                )
-                PcSliderRow(
-                    label = "热点 Y",
-                    value = y,
-                    valueRange = 0..100,
-                    suffix = "%",
-                    onValueChange = { y = it }
-                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onClose) { Text("取消", color = VerseColors.PcTextSecondary) }
+                    TextButton(onClick = {
+                        MousePointerSetting.setHotspot(shape, x, y)
+                        onClose()
+                    }) { Text("保存", color = VerseColors.PcAccent) }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                MousePointerSetting.setHotspot(shape, x, y)
-                onClose()
-            }) { Text("保存", color = VerseColors.PcAccent) }
-        },
-        dismissButton = {
-            TextButton(onClick = onClose) { Text("取消", color = VerseColors.PcTextSecondary) }
-        },
-        containerColor = VerseColors.PcBgSecondary
-    )
+        }
+    }
 }

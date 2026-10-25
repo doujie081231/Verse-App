@@ -7,7 +7,6 @@ import com.tungsten.fclcore.download.DefaultDependencyManager
 import com.tungsten.fclcore.download.RemoteVersion
 import com.tungsten.fclcore.download.fabric.FabricRemoteVersions
 import com.tungsten.fclcore.download.forge.ForgeRemoteVersion
-import com.tungsten.fclcore.download.neoforge.NeoForgeRemoteVersion
 import com.tungsten.fclcore.download.optifine.OptiFineRemoteVersion
 import com.tungsten.fclcore.game.DefaultGameRepository
 import com.tungsten.fclcore.task.AsyncTaskExecutor
@@ -65,11 +64,15 @@ object FclLoaderInstaller {
                     Instant.now(),
                     listOf("$BMCL/forge/download?mcversion=$versionId&version=$loaderVersion&branch=&category=installer&format=jar")
                 )
-                "neoforge" -> NeoForgeRemoteVersion(
-                    versionId,
-                    loaderVersion,
-                    listOf("$BMCL/neoforge/version/$loaderVersion/download/installer.jar")
-                )
+                "neoforge" -> {
+                    // 与 FCL 一致：经 NeoForgeBMCLVersionList 按 MC 版本取远程版本
+                    // （含 1.20.1 的 normalize 处理与正确的 BMCL 安装器 URL），
+                    // 不再手工拼 installer.jar 路径。
+                    val list = com.tungsten.fclcore.download.neoforge.NeoForgeBMCLVersionList(BMCL)
+                    list.refreshAsync(versionId).join()
+                    list.getVersion(versionId, loaderVersion).orElse(null)
+                        ?: throw IOException("NeoForge $loaderVersion 不适用于 MC $versionId")
+                }
                 "fabric" -> FabricRemoteVersions.of(
                     versionId,
                     loaderVersion,

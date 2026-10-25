@@ -131,6 +131,12 @@ class SmartDownloadClient(
 
         /** 镜像熔断时长：60s */
         private const val MIRROR_CIRCUIT_BREAK_MS = 60_000L
+
+        /** 单个候选源的重试次数 */
+        private const val SOURCE_RETRY = 5
+
+        /** 单源重试间隔 */
+        private const val RETRY_BACKOFF_MS = 200L
     }
 
     /** 进度回调 */
@@ -622,32 +628,51 @@ class SmartDownloadClient(
         var lastError: Exception? = null
         for (url in availableUrls) {
             if (isCancelled()) return false
-            try {
-                // 小文件直接写目标文件，避免 .tmp rename 的 IO 开销
-                val success = downloadSingleStreamWithLowSpeedDetection(url, targetFile, isCancelled, onProgress, url)
-                if (success) {
-                    if (expectedSha1 != null) {
-                        val actualSha1 = calculateSHA1(targetFile)
-                        if (!actualSha1.equals(expectedSha1, ignoreCase = true)) {
-                            targetFile.delete()
-                            markMirrorFail(url)
-                            Log.w(TAG, "SHA1 mismatch from $url, trying next mirror")
-                            continue
+            var attempt = 0
+            // 单源内重试：临时网络错误重试同一源（半截文件续传），
+            // 4xx（源无此文件）与低速源立即换源，不再空转
+            while (attempt < SOURCE_RETRY) {
+                if (isCancelled()) return false
+                try {
+                    // 小文件直接写目标文件，避免 .tmp rename 的 IO 开销
+                    val success = downloadSingleStreamWithLowSpeedDetection(url, targetFile, isCancelled, onProgress, url)
+                    if (success) {
+                        if (expectedSha1 != null) {
+                            val actualSha1 = calculateSHA1(targetFile)
+                            if (!actualSha1.equals(expectedSha1, ignoreCase = true)) {
+                                targetFile.delete()
+                                lastError = Exception("SHA1 mismatch from $url")
+                                Log.w(TAG, "SHA1 mismatch from $url, trying next mirror")
+                                break
+                            }
                         }
+                        markMirrorSuccess(url)
+                        return true
                     }
-                    markMirrorSuccess(url)
-                    return true
-                } else {
-                    markMirrorFail(url)
+                    lastError = Exception("Download failed: $url")
+                    attempt++
+                } catch (e: CancelledException) {
+                    // 取消：保留半截文件供下次续传
+                    throw e
+                } catch (e: LowSpeedException) {
+                    // 低速源立即换源：重试同一慢速源没有意义
+                    lastError = e
+                    break
+                } catch (e: HttpResultException) {
+                    lastError = e
+                    if (e.code in 400..499) {
+                        // 4xx：该源没有此文件，不重试直接换下一候选
+                        break
+                    }
+                    attempt++
+                } catch (e: Exception) {
+                    lastError = e
+                    attempt++
                 }
-            } catch (e: CancelledException) {
-                // 取消：保留半截文件供下次续传
-                throw e
-            } catch (e: Exception) {
-                lastError = e
-                markMirrorFail(url)
-                Log.w(TAG, "Mirror $url failed: ${e.message}")
+                if (attempt < SOURCE_RETRY) delay(RETRY_BACKOFF_MS)
             }
+            markMirrorFail(url)
+            Log.w(TAG, "Mirror $url failed: ${lastError?.message}")
         }
         if (lastError != null) Log.e(TAG, "All mirrors failed: ${lastError.message}")
         return false
@@ -669,7 +694,7 @@ class SmartDownloadClient(
             .build()
 
         httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw Exception("HTTP ${response.code}")
+            if (!response.isSuccessful) throw HttpResultException(response.code)
             val body = response.body ?: throw Exception("Empty body")
 
             // 200：服务端不支持 Range（或没有半截数据），清空重来
@@ -742,6 +767,9 @@ class SmartDownloadClient(
     }
 
     private class LowSpeedException(val speedBps: Long) : Exception("Low speed: ${speedBps / 1024}KB/s")
+
+    /** 单次请求返回的 HTTP 状态码：4xx 表示该源没有此文件，直接换源而不是重试 */
+    private class HttpResultException(val code: Int) : Exception("HTTP $code")
 
     /** 用户取消下载：抛出后由上层捕获，不再重试 */
     private class CancelledException : Exception("下载已取消")

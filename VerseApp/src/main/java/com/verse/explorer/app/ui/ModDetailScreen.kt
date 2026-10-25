@@ -136,6 +136,8 @@ fun ModDetailScreen(
     var downloadText by remember { mutableStateOf("") }
     var downloadDone by remember { mutableStateOf(false) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    // 下载/安装结束后的结果弹窗：success + 提示文案（失败时带具体错误）
+    var downloadResult by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     // 本页提交的下载 key 前缀（整合包 zip / 单资源 / 前置模组）
     val modpackKeyPrefix = "modpack:$projectId:"
@@ -161,6 +163,11 @@ fun ModDetailScreen(
     var modpackJob by remember { mutableStateOf<Job?>(null) }
     /** 本次已下载的整合包 zip（安装完成/失败/取消后删除，避免介质残留） */
     var modpackZip by remember { mutableStateOf<File?>(null) }
+    /** 本次下载的整合包项目图标缓存（安装完成/失败/取消后删除） */
+    var modpackIcon by remember { mutableStateOf<File?>(null) }
+    /** 移动网络确认（开始下载前确认，避免无意消耗流量） */
+    var showMobileDataConfirm by remember { mutableStateOf(false) }
+    var pendingModpackInstall by remember { mutableStateOf<Pair<ResourceVersion, String?>?>(null) }
 
     var showModpackNamingDialog by remember { mutableStateOf(false) }
     var modpackConfirmName by remember { mutableStateOf<String?>(null) }
@@ -175,11 +182,18 @@ fun ModDetailScreen(
     LaunchedEffect(centerItems, selectedVersion) {
         val item = centerItems.firstOrNull { it.key.startsWith(modpackKeyPrefix) } ?: return@LaunchedEffect
         if (modpackState.visible && modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE) {
-            val text = if (item.progress >= 0) "${(item.progress * 100).toInt()}%" else ""
+            val percent = if (item.progress >= 0) "${(item.progress * 100).toInt()}%" else ""
+            // 下载阶段同时展示已下载/总大小
+            val sizeText = if (item.total > 0) {
+                "${FileUtils.formatFileSize(item.downloaded)} / ${FileUtils.formatFileSize(item.total)}"
+            } else ""
+            val speedText = if (item.speed > 0) formatSpeed(item.speed) else ""
             modpackState = modpackState.copy(
                 fileProgress = item.progress.coerceAtLeast(0f),
                 downloadSpeed = item.speed,
-                fileText = if (item.speed > 0) "$text · ${formatSpeed(item.speed)}" else text
+                fileText = listOf(percent, sizeText, speedText)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" · ")
             )
         }
     }
@@ -262,10 +276,17 @@ fun ModDetailScreen(
         scope.launch { fetchData() }
     }
 
-    fun runModpackInstall(appContext: android.content.Context, file: File?, name: String?, ver: ResourceVersion?) {
+    fun runModpackInstall(
+        appContext: android.content.Context,
+        file: File?,
+        name: String?,
+        ver: ResourceVersion?,
+        iconFile: File?
+    ) {
         if (file == null || !file.exists()) return
         Schedulers.androidUIThread().execute {
             modpackZip = file
+            modpackIcon = iconFile
             installInProgress = true
             modpackState = ModpackInstallUiState(
                 visible = true,
@@ -280,7 +301,8 @@ fun ModDetailScreen(
                 gameDir = gameDir,
                 zipFile = file,
                 // 与版本命名弹窗一致：默认取 manifest.name（标题），命名后按用户输入
-                name = name
+                name = name,
+                iconFile = iconFile
             ) { ev ->
                 modpackChannel.trySend(ev)
             }
@@ -289,6 +311,8 @@ fun ModDetailScreen(
                     onSuccess = {
                         modpackZip?.delete()
                         modpackZip = null
+                        modpackIcon?.delete()
+                        modpackIcon = null
                         installInProgress = false
                         downloadDone = true
                         downloadText = "整合包安装完成"
@@ -297,6 +321,8 @@ fun ModDetailScreen(
                     onFailure = { e ->
                         modpackZip?.delete()
                         modpackZip = null
+                        modpackIcon?.delete()
+                        modpackIcon = null
                         if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
                             installInProgress = false
                             modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
@@ -319,12 +345,13 @@ fun ModDetailScreen(
      * 整合包下载 + 安装（像下载版本一样弹出下载弹窗）：
      * 1. 整合包 .mrpack 文件提交到下载中心下载（应用级协程，退出页面不中断），
      *    弹窗第一阶段"下载整合包文件"订阅队列条目进度；
+     *    下载完成后同步取整合包项目图标，供安装后作为版本图标；
      * 2. 下载完成后走安装链路（见 runModpackInstall），每个阶段以任务事件形式
      *    逐阶段展示在弹窗中；下载源由引擎（BMCLAPI）负责，不自研。
      *
      * @param name 版本名（命名弹窗确认值；为 null 时默认取整合包标题）
      */
-    fun startModpackInstall(ver: ResourceVersion, name: String?) {
+    fun startModpackDownload(ver: ResourceVersion, name: String?, skipMobileCheck: Boolean = false) {
         if (downloading) return
         val itemKey = "$modpackKeyPrefix${ver.id}"
         // 同一整合包已在队列中：待安装则续接安装，下载中则恢复弹窗进度
@@ -344,6 +371,12 @@ fun ModDetailScreen(
             }
             else -> {}
         }
+        // 真正下发下载任务前确认移动网络，用户取消则不下发任何任务
+        if (!skipMobileCheck && com.verse.explorer.core.util.NetworkUtils.isMobileDataConnected(context)) {
+            pendingModpackInstall = ver to name
+            showMobileDataConfirm = true
+            return
+        }
         downloadDone = false
         downloadError = null
         downloadText = "准备下载整合包..."
@@ -356,18 +389,24 @@ fun ModDetailScreen(
         val appContext = context.applicationContext
         val runName = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
         val zipRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
+        val iconRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
         DownloadCenter.submit(
             key = itemKey,
             title = project?.title ?: ver.versionNumber,
             // 待安装动作：下载完成后（本页自动续接或重新进入本页时）执行安装
-            installAction = Runnable { runModpackInstall(appContext, zipRef.get(), runName, ver) },
-            cleanupAction = Runnable { runCatching { zipRef.get()?.delete() } },
+            installAction = Runnable { runModpackInstall(appContext, zipRef.get(), runName, ver, iconRef.get()) },
+            cleanupAction = Runnable {
+                runCatching { zipRef.get()?.delete() }
+                runCatching { iconRef.get()?.delete() }
+            },
             onComplete = { success, error ->
                 Schedulers.androidUIThread().execute {
                     if (success) {
                         downloadText = "整合包下载完成"
                     } else {
                         modpackZip = null
+                        modpackIcon?.delete()
+                        modpackIcon = null
                         downloadError = error ?: "整合包下载失败"
                         downloadText = downloadError ?: "整合包下载失败"
                         modpackState = modpackState.copy(
@@ -380,9 +419,29 @@ fun ModDetailScreen(
             task = { onProgress, isCancelled ->
                 val result = repository.downloadVersion("modpack", ver, isCancelled, onProgress)
                 result.getOrNull()?.let { zipRef.set(it) }
+                if (result.isSuccess) {
+                    // 整合包项目图标：下载阶段取得，安装后作为版本图标（失败不影响安装）
+                    val iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
+                    if (iconUrl != null) {
+                        iconRef.set(
+                            repository.downloadIcon(
+                                url = iconUrl,
+                                destFile = File(appContext.cacheDir, "modpack_icon_${ver.id}.png"),
+                                isCancelled = isCancelled
+                            )
+                        )
+                    }
+                }
                 result.isSuccess
             }
         )
+    }
+
+    /**
+     * 开始整合包下载：移动网络确认在下发下载任务前完成（见 startModpackDownload）。
+     */
+    fun startModpackInstall(ver: ResourceVersion, name: String?) {
+        startModpackDownload(ver, name)
     }
 
     /** 取消整合包下载/安装：下载中取消队列任务；安装中取消安装器 */
@@ -396,6 +455,8 @@ fun ModDetailScreen(
             modpackJob = null
             modpackZip?.delete()
             modpackZip = null
+            modpackIcon?.delete()
+            modpackIcon = null
             val ph = modpackState.phase
             if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
                 modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
@@ -573,17 +634,12 @@ fun ModDetailScreen(
                             if (ok.get() + fail.get() >= queued.get()) {
                                 if (fail.get() == 0) {
                                     downloadDone = true
-                                    downloadText = "前置模组已安装到 ${versionIds.size} 个版本"
+                                    downloadText = ""
+                                    downloadResult = true to "前置模组已安装到 ${versionIds.size} 个版本"
                                 } else {
-                                    downloadError = "完成:成功 ${ok.get()} / 失败 ${fail.get()}"
-                                    downloadText = downloadError ?: "下载失败"
+                                    downloadText = ""
+                                    downloadResult = false to "前置模组安装完成：成功 ${ok.get()} 个 / 失败 ${fail.get()} 个"
                                 }
-                                Toast.makeText(
-                                    appContext,
-                                    if (fail.get() == 0) "前置模组安装完成 (${ok.get()})"
-                                    else "完成:成功 ${ok.get()} / 失败 ${fail.get()}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
                             }
                         }
                     },
@@ -623,12 +679,11 @@ fun ModDetailScreen(
                 Schedulers.androidUIThread().execute {
                     if (success) {
                         downloadDone = true
-                        downloadText = "已安装到 ${targetVersions.size} 个版本"
-                        Toast.makeText(appContext, "已安装到 ${targetVersions.size} 个版本", Toast.LENGTH_SHORT).show()
+                        downloadText = ""
+                        downloadResult = true to "已安装到 ${targetVersions.size} 个版本"
                     } else if (error != "已取消") {
-                        downloadError = error ?: "下载失败"
-                        downloadText = downloadError ?: "下载失败"
-                        Toast.makeText(appContext, downloadError ?: "下载失败", Toast.LENGTH_SHORT).show()
+                        downloadText = ""
+                        downloadResult = false to (error ?: "下载失败")
                     }
                 }
             },
@@ -877,8 +932,8 @@ fun ModDetailScreen(
                                                         }
                                                     }
                                                 } ?: (if (isSelected) downloadText else ""),
-                                                downloadDone = isSelected && downloadDone,
-                                                downloadError = if (isSelected) downloadError else null,
+                                                downloadDone = false,
+                                                downloadError = null,
                                                 onDownload = { beginInstall() },
                                                 modifier = Modifier.padding(vertical = 3.dp)
                                             )
@@ -940,8 +995,8 @@ fun ModDetailScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
                                     ) {
-                                        // 随页面滚动，不占用固定纵向空间
-                                        if (deps.isNotEmpty()) {
+                                        // 随页面滚动，不占用固定纵向空间；整合包自带全部依赖，不展示前置模组区块
+                                        if (deps.isNotEmpty() && projectType != "modpack") {
                                             item {
                                                 Surface(
                                                     shape = RoundedCornerShape(8.dp),
@@ -1176,6 +1231,92 @@ fun ModDetailScreen(
                 startModpackInstall(ver, name)
             }
         )
+    }
+
+    // 移动网络确认（下载大文件前先确认）
+    if (showMobileDataConfirm) {
+        AlertDialog(
+            onDismissRequest = {
+                showMobileDataConfirm = false
+                pendingModpackInstall = null
+            },
+            title = { Text("警告") },
+            text = { Text("您正在使用移动数据网络，继续下载将消耗流量。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val pending = pendingModpackInstall
+                    showMobileDataConfirm = false
+                    pendingModpackInstall = null
+                    pending?.let { (ver, name) -> startModpackDownload(ver, name, skipMobileCheck = true) }
+                }) {
+                    Text("坚持使用", color = VerseColors.PcAccent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showMobileDataConfirm = false
+                    pendingModpackInstall = null
+                }) {
+                    Text("取消", color = VerseColors.PcTextSecondary)
+                }
+            }
+        )
+    }
+
+    // ===== 下载/安装结果弹窗（完成或失败 + 错误原因）=====
+    downloadResult?.let { (success, message) ->
+        Dialog(onDismissRequest = { downloadResult = null }) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = VerseColors.PcBgActive,
+                modifier = Modifier.width(360.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(22.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(
+                                    (if (success) VerseColors.PcGreen else VerseColors.PcRed).copy(alpha = 0.15f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (success) Icons.Filled.CheckCircle else Icons.Filled.Error,
+                                contentDescription = null,
+                                tint = if (success) VerseColors.PcGreen else VerseColors.PcRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (success) "下载完成" else "下载失败",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = VerseColors.PcTextPrimary
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = message,
+                        fontSize = 13.sp,
+                        color = if (success) VerseColors.PcTextSecondary else VerseColors.PcRed
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        PcButton(
+                            text = "知道了",
+                            onClick = { downloadResult = null },
+                            variant = PcButtonVariant.PRIMARY
+                        )
+                    }
+                }
+            }
+        }
     }
 
     // ===== 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）=====

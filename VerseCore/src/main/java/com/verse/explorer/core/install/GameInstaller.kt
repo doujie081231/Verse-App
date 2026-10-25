@@ -14,6 +14,7 @@ import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -92,6 +93,12 @@ class GameInstaller(private val context: Context) {
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
 
+    /** 单个候选源的重试次数 */
+    private val sourceRetry = 5
+
+    /** 单源重试间隔 */
+    private val retryBackoffMs = 200L
+
     // 全局下载聚合：各阶段实时累计已下载字节与速度（供进度 UI 显示）
     private val downloadAgg = DownloadAggregator()
 
@@ -110,6 +117,9 @@ class GameInstaller(private val context: Context) {
     }
 
     class CancelledInstallException : Exception("安装已取消")
+
+    /** 单次请求返回的 HTTP 状态码：4xx 表示该源没有此文件，直接换源而不是重试 */
+    private class HttpStatusException(val code: Int, url: String) : Exception("HTTP $code: $url")
 
     /** 并发下载聚合器：按文件累计已下载字节，500ms 窗口估算速度（供进度 UI 显示） */
     private class DownloadAggregator {
@@ -288,7 +298,7 @@ class GameInstaller(private val context: Context) {
                 val batchSize = 32
                 // 失败必须让安装失败：否则界面显示「安装完成」，玩家启动时才崩在
                 // 类加载阶段（如缺 netty-common 导致 NoClassDefFoundError）
-                val failedLibs = java.util.concurrent.ConcurrentLinkedQueue<String>()
+                val failedLibs = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, String, String?>>()
                 missingLibs.chunked(batchSize).forEach { batch ->
                     coroutineScope {
                         batch.map { (url, path, sha1) ->
@@ -303,11 +313,11 @@ class GameInstaller(private val context: Context) {
                                     ) { p -> downloadAgg.report(path, p.downloaded) }
                                     if (result.isFailure) {
                                         Log.w("GameInstaller", "Lib failed: $path - ${result.exceptionOrNull()?.message}")
-                                        failedLibs.add(libFile.name)
+                                        failedLibs.add(Triple(url, path, sha1))
                                     }
                                 } catch (e: Exception) {
                                     Log.w("GameInstaller", "Lib failed: $path - ${e.message}")
-                                    failedLibs.add(libFile.name)
+                                    failedLibs.add(Triple(url, path, sha1))
                                 }
                             }
                         }.forEach { it.await() }
@@ -326,8 +336,31 @@ class GameInstaller(private val context: Context) {
                 }
 
                 checkCancelled()
+                // 镜像波动（瞬时 5xx/超时/SHA1 校验失败）会让个别库单次下载失败，
+                // 与 FCL 一致做一次补下载，避免整个安装因此中断
                 if (failedLibs.isNotEmpty()) {
-                    val sample = failedLibs.take(3).joinToString("、")
+                    val retryList = failedLibs.toList()
+                    failedLibs.clear()
+                    retryList.forEach { (url, path, sha1) ->
+                        checkCancelled()
+                        val libFile = File(librariesDir, path)
+                        val result = runCatching {
+                            smartClient.download(
+                                originalUrl = url,
+                                targetFile = libFile,
+                                expectedSha1 = sha1,
+                                isCancelled = { cancelled }
+                            ) { p -> downloadAgg.report(path, p.downloaded) }
+                        }.getOrNull()
+                        if (result == null || result.isFailure) {
+                            Log.w("GameInstaller", "Lib retry failed: $path")
+                            failedLibs.add(Triple(url, path, sha1))
+                        }
+                    }
+                }
+
+                if (failedLibs.isNotEmpty()) {
+                    val sample = failedLibs.take(3).joinToString("、") { File(it.second).name }
                     val more = if (failedLibs.size > 3) " 等" else ""
                     throw java.io.IOException("${failedLibs.size} 个库文件下载失败：$sample$more，请重试安装")
                 }
@@ -691,7 +724,7 @@ class GameInstaller(private val context: Context) {
             .build()
         try {
             fastHttpClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw Exception("HTTP ${response.code}: $url")
+                if (!response.isSuccessful) throw HttpStatusException(response.code, url)
                 val body = response.body ?: throw Exception("Empty body: $url")
                 val totalBytes = body.contentLength().coerceAtLeast(-1L)
                 body.byteStream().use { input ->
@@ -756,20 +789,30 @@ class GameInstaller(private val context: Context) {
                         var success = false
                         for (mirrorUrl in urls) {
                             if (cancelled) throw CancelledInstallException()
-                            try {
-                                downloadAssetFile(
-                                    mirrorUrl,
-                                    assetPath,
-                                    onBytes = { d, _ -> downloadAgg.report(assetPath.name, d) },
-                                    isCancelled = { cancelled }
-                                )
-                                success = true
-                                break
-                            } catch (e: CancelledInstallException) {
-                                throw e
-                            } catch (_: Exception) {
-                                // 尝试下一个镜像
+                            var attempt = 0
+                            // 单源内重试：瞬时错误重试同一源，4xx 立即换源
+                            while (attempt < sourceRetry) {
+                                try {
+                                    downloadAssetFile(
+                                        mirrorUrl,
+                                        assetPath,
+                                        onBytes = { d, _ -> downloadAgg.report(assetPath.name, d) },
+                                        isCancelled = { cancelled }
+                                    )
+                                    success = true
+                                    break
+                                } catch (e: CancelledInstallException) {
+                                    throw e
+                                } catch (e: HttpStatusException) {
+                                    // 4xx：该源没有此文件，不重试直接换下一候选
+                                    if (e.code in 400..499) break
+                                    attempt++
+                                } catch (_: Exception) {
+                                    attempt++
+                                }
+                                if (attempt < sourceRetry) delay(retryBackoffMs)
                             }
+                            if (success) break
                         }
                         if (!success) {
                             // 全部镜像直连失败：回退多源镜像重试

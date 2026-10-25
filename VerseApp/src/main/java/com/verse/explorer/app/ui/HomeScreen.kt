@@ -29,6 +29,8 @@ import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.launch.GameLaunchController
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.ui.components.AccountAvatar
+import com.verse.explorer.app.ui.components.PcButton
+import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcLaunchOverlay
 import com.verse.explorer.app.ui.home.HomeHubState
 import com.verse.explorer.app.ui.home.HomeVersionActions
@@ -161,6 +163,141 @@ fun HomeScreen(
                 launchState = launchState,
                 onDismiss = { launchOverlayDismissed = true }
             )
+        }
+
+        // Vulkan 检测对话框：仅当所选渲染器/图形后端需要 Vulkan 时由启动流程弹出
+        val vulkanGate by launchController.vulkanGateDialog.collectAsState()
+        vulkanGate?.let { gate ->
+            VulkanGateDialog(
+                state = gate,
+                onIgnore = launchController::vulkanGateIgnore,
+                onDetect = launchController::vulkanGateDetect,
+                onContinue = launchController::vulkanGateContinue,
+                onCancel = launchController::vulkanGateCancel
+            )
+        }
+    }
+}
+
+/**
+ * Vulkan 启动前对话框（对齐 FCL）：
+ * 询问是否检测 → 检测完成后展示能力报告 → 支持与否都可继续启动
+ */
+@Composable
+private fun VulkanGateDialog(
+    state: com.verse.explorer.app.launch.VulkanGateDialogState,
+    onIgnore: () -> Unit,
+    onDetect: () -> Unit,
+    onContinue: () -> Unit,
+    onCancel: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = {
+            when (state) {
+                is com.verse.explorer.app.launch.VulkanGateDialogState.Ask -> onCancel()
+                is com.verse.explorer.app.launch.VulkanGateDialogState.Report -> onCancel()
+            }
+        }
+    ) {
+        Surface(
+            modifier = Modifier.width(440.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = VerseColors.PcBgSecondary
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                when (state) {
+                    is com.verse.explorer.app.launch.VulkanGateDialogState.Ask -> {
+                        Text(
+                            "Vulkan 支持检测",
+                            color = VerseColors.PcTextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 17.sp
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "当前选择的启动方式需要设备支持 Vulkan（Zink / Vulkan 图形后端）。\n" +
+                                "是否检测本机的 Vulkan 支持情况？\n\n" +
+                                "· 忽略：不检测，直接启动\n" +
+                                "· 检测：完成后显示能力报告，可自行决定是否继续启动",
+                            color = VerseColors.PcTextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            PcButton("忽略（直接启动）", onIgnore, variant = PcButtonVariant.SECONDARY)
+                            Spacer(Modifier.width(10.dp))
+                            PcButton("开始检测", onDetect, variant = PcButtonVariant.PRIMARY)
+                        }
+                    }
+                    is com.verse.explorer.app.launch.VulkanGateDialogState.Report -> {
+                        val caps = state.capabilities
+                        Text(
+                            "Vulkan 检测报告",
+                            color = VerseColors.PcTextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 17.sp
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Column(modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                            if (caps == null) {
+                                Text(
+                                    "检测失败：无法初始化 Vulkan，设备可能不支持（仍可选择继续启动）",
+                                    color = VerseColors.PcRed,
+                                    fontSize = 13.sp
+                                )
+                            } else {
+                                Text(
+                                    if (state.supported) "结论：设备满足该版本 Vulkan 依赖，可以正常启动"
+                                    else "结论：设备缺少必需项，Vulkan 渲染可能无法正常启动",
+                                    color = if (state.supported) VerseColors.PcTextPrimary else VerseColors.PcRed,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text("Vulkan 版本：${caps.versionString}", color = VerseColors.PcTextSecondary, fontSize = 13.sp)
+                                Text(
+                                    "驱动：" + if (caps.usedCustomDriver && state.useTurnip) "Turnip" else "系统驱动",
+                                    color = VerseColors.PcTextSecondary,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    "扩展/功能：支持 ${caps.extensions.size} 项扩展",
+                                    color = VerseColors.PcTextSecondary,
+                                    fontSize = 13.sp
+                                )
+                                if (state.missingRequired.isNotEmpty()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("缺少必需项（影响 Vulkan 启动）：", color = VerseColors.PcRed, fontSize = 13.sp)
+                                    state.missingRequired.forEach {
+                                        Text("· $it", color = VerseColors.PcRed, fontSize = 12.sp)
+                                    }
+                                }
+                                if (state.missingOptional.isNotEmpty()) {
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("缺少可选项（不影响启动）：", color = VerseColors.PcTextSecondary, fontSize = 13.sp)
+                                    state.missingOptional.forEach {
+                                        Text("· $it", color = VerseColors.PcTextSecondary, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(18.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            PcButton("取消启动", onCancel, variant = PcButtonVariant.SECONDARY)
+                            Spacer(Modifier.width(10.dp))
+                            PcButton("继续启动", onContinue, variant = PcButtonVariant.LAUNCH)
+                        }
+                    }
+                }
+            }
         }
     }
 }

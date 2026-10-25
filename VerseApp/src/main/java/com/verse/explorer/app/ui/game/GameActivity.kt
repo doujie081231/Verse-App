@@ -142,8 +142,28 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     internal var inGameControl: InGameControlOverlay? = null
 
+    /**
+     * SDL 的方向请求一律忽略、始终锁定横屏。
+     *
+     * MC 26.3 RenderPearl 初始化时会先创建一个 320x480 的隐藏工具窗口，SDL 的
+     * SDLActivity.setOrientation() 按该窗口 w<h 请求 SENSOR_PORTRAIT，直接把整个
+     * Activity 转成竖屏（真机 dumpsys：requestedOrientation=SENSOR_PORTRAIT、
+     * 窗口 1280x2800）。FCL 的 JVMActivity 同样覆写此方法并强制 sensorLandscape，
+     * 这里直接对齐。
+     */
+    override fun setRequestedOrientation(requestedOrientation: Int) {
+        super.setRequestedOrientation(
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 游戏固定横屏：sensorLandscape 在系统「旋转锁定」/部分 OEM 上仍会保持竖屏
+        // （真机实测 display rotation=0、窗口 1280x2800 → MC 呈竖屏）。
+        // 显式锁定 LANDSCAPE，绕开旋转锁，保证窗口 2800x1280。
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         try {
             if (SettingsRepository.getRequestMicPermission() &&
@@ -448,10 +468,19 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         // 指针捕获仅用于实体鼠标模式的相对移动。触屏模式下捕获会把触摸屏事件
         // 以相对形式送进 OnCapturedPointerListener（Android 14+ 行为），与触摸的
         // 绝对坐标流互相抢光标，导致可见箭头与实际点击位置错开（2.4.40 根因）
-        if (hasFocus && MenuSetting.isPhysicalMouseMode) {
+        if (hasFocus && (MenuSetting.isPhysicalMouseMode || hasPhysicalMouse())) {
             touchOverlay?.requestPointerCapture()
         }
     }
+
+    /** 是否连接了实体鼠标（与 ZL2 PhysicalMouseChecker 一致） */
+    private fun hasPhysicalMouse(): Boolean =
+        android.view.InputDevice.getDeviceIds().any { id ->
+            android.view.InputDevice.getDevice(id)?.let {
+                it.sources and android.view.InputDevice.SOURCE_MOUSE ==
+                    android.view.InputDevice.SOURCE_MOUSE
+            } == true
+        }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (graphicOutputShown) {
@@ -466,6 +495,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // 双指下滑演示遮罩 / 控制面板可见：事件交给覆盖层视图处理（按钮可点击、手势可响应）
             if (inGameControl?.isOverlayVisible() == true) {
                 return super.dispatchTouchEvent(ev)
+            }
+            // 实体鼠标：按键/滚轮/hover 统一交给输入层处理（参考 ZL2 的鼠标事件分发，
+            // 不再依赖「实体鼠标控制」开关；否则鼠标只能移动虚拟光标，左右键无效）
+            if (ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+                if (inputHandler.handlePhysicalMouseEvent(ev)) return true
             }
             // TouchController 模组：把游戏区触摸按比例转发给模组，由模组处理虚拟按键
             if (touchProxyEnabled) {
@@ -741,6 +775,30 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         hitResultType = type
     }
 
+    private var simulatedKeyboardDialog: android.app.Dialog? = null
+
+    /** 打开模拟键盘（布局与 ZL2 一致，补全 F1-F12 等功能键与符号键） */
+    fun showSimulatedKeyboard() {
+        if (simulatedKeyboardDialog?.isShowing == true) return
+        val dialog = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
+        val view = androidx.compose.ui.platform.ComposeView(this).apply {
+            setContent {
+                SimulatedKeyboard(
+                    onKey = { code, pressed -> inputHandler.sendVirtualKey(code, pressed) },
+                    onDismiss = { dialog.dismiss() }
+                )
+            }
+        }
+        dialog.setContentView(view)
+        dialog.window?.setLayout(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        dialog.setOnDismissListener { simulatedKeyboardDialog = null }
+        dialog.show()
+        simulatedKeyboardDialog = dialog
+    }
+
     fun onGraphicOutput() {
         VerseLogger.debug("onGraphicOutput fired, surface=${textureView?.width}x${textureView?.height}", "Input")
         statusOverlay.hide()
@@ -995,6 +1053,14 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val sdlSurface = org.libsdl.app.SDLActivity.getSDLSurface()
             if (sdlSurface != null && SdlBridge.sdlEnabled) {
                 runCatching {
+                    // 屏幕旋转同步：横屏锁定后 display.rotation 可能晚于 Surface 就绪才生效，
+                    // 尺寸变化时再补一次，避免 SDL 仍按竖屏自然方向计算窗口
+                    org.libsdl.app.SDLActivity.nativeSetNaturalOrientation(
+                        org.libsdl.app.SDLActivity.getNaturalOrientation()
+                    )
+                    org.libsdl.app.SDLActivity.onNativeRotationChanged(
+                        org.libsdl.app.SDLActivity.getCurrentRotation()
+                    )
                     sdlSurface.surfaceChanged()
                     sdlSurface.nativeResize(winWidth, winHeight)
                 }

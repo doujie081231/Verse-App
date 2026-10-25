@@ -143,8 +143,9 @@ fun VerseHomeGrid(
     }
 
     // 与版本卡片记录保持同步：记录已删除的版本卡片撤出网格，记录存在而网格缺卡时补齐。
-    // 记录尚未从持久化载入时（列表为空）不撤卡，避免启动首帧把已固定卡片全部清掉。
-    LaunchedEffect(Unit) {
+    // 等首次布局播种完成后再同步，避免记录先到而把新卡片落到左上角（0,0）。
+    LaunchedEffect(seededFirstLayout) {
+        if (!seededFirstLayout) return@LaunchedEffect
         VersionCardManager.cards.collect { states ->
             if (!VersionCardManager.isInitialized()) return@collect
             val recordIds = states.map { it.record.cardId }.toSet()
@@ -153,7 +154,11 @@ fun VerseHomeGrid(
                 .forEach { state.removeCard(it.id) }
             states.forEach { cardState ->
                 if (state.cards.none { it.id == cardState.record.cardId }) {
-                    state.addCard(HomeCards.versionCardType(), cardState.record.cardId)
+                    state.addCard(
+                        HomeCards.versionCardType(),
+                        cardState.record.cardId,
+                        newVersionCardLayout(state, state.geometry.columns)
+                    )
                 }
             }
         }
@@ -241,11 +246,40 @@ private fun systemCardSeeds(columns: Int, visibleRows: Int = 0): List<CardSeed> 
         )
     }
 
+/** 新增版本卡片的默认落位：水平居中，取自上而下的第一个空行，避免落到左上角 (0,0) */
+private fun newVersionCardLayout(state: CardGridState, columns: Int): CardRect {
+    val type = HomeCards.versionCardType()
+    val w = type.defaultSpan.x.coerceIn(1, columns)
+    val h = type.defaultSpan.y.coerceAtLeast(1)
+    val x = ((columns - w) / 2).coerceAtLeast(0)
+    var y = 0
+    while (state.cards.any { card ->
+            val r = card.layout
+            x < r.right && x + w > r.x && y < r.bottom && y + h > r.y
+        }) {
+        y++
+    }
+    return CardRect("", x, y, w, h)
+}
+
 /**
  * 修复退化布局：首帧异常窗口宽度会把全部卡片钳制到左列并持久化，
  * 加载后若检测到「所有卡片都贴左列」（且不止一张卡），把固定功能卡片重新居中。
  */
 private fun repairDegenerateLayout(state: CardGridState, columns: Int) {
+    // 版本卡片曾因记录先于播种到达而落在 (0,0)：系统卡已居中时，把这类版本卡移到系统块下方
+    val systemCentered = state.cards.any { it.id == "system_account" && it.layout.y > 1 }
+    if (systemCentered) {
+        state.cards
+            .filter {
+                it.type.typeId == HomeCards.VERSION_CARD_TYPE_ID &&
+                    it.layout.x == 0 && it.layout.y == 0
+            }
+            .map { it.id }
+            .forEach { id ->
+                state.applyLayouts(mapOf(id to newVersionCardLayout(state, columns)))
+            }
+    }
     if (state.cards.size < 2) return
     if (state.cards.any { it.layout.x != 0 }) return
     state.applyLayouts(systemCardLayouts(columns, state.visibleRowCount()))
