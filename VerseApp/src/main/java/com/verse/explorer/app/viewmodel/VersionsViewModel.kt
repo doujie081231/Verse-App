@@ -44,8 +44,13 @@ data class InstallState(
 
 class VersionsViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val gameDir = GameConfig.getGameDir(application)
-    private val versionManager = VersionManager(gameDir)
+    /** 当前游戏目录：用户可能在使用中切换目录，不能在建 ViewModel 时缓存旧路径 */
+    private val gameDir: File
+        get() = GameConfig.getGameDir(getApplication())
+
+    private val versionManager: VersionManager
+        get() = VersionManager(gameDir)
+
     private val gameInstaller = GameInstaller(application)
 
     private val _uiState = MutableStateFlow(VersionsUiState())

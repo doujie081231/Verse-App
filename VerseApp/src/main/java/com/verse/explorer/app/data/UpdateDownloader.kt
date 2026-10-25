@@ -7,11 +7,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.CancellationException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 应用内更新 APK 下载器（参考 FCL UpdateDialog 的实现思路）。
+ * 应用内更新 APK 下载器。
  *
  * 下载源由 [UpdateSources.part1Urls] 给出（Gitee 主、GitHub 备），**逐卷回退**：
  * 对每个分卷先试 Gitee，失败/被拦再试 GitHub；全部源都 404 才视为分卷结束。
@@ -31,11 +32,20 @@ object UpdateDownloader {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** 当前进行中的调用；取消下载即取消它 */
+    /** 当前进行中的请求（下载或大小探测）；取消下载即中断它 */
     private val activeCall = AtomicReference<okhttp3.Call?>(null)
 
+    /** 用户取消标记：探测阶段没有活跃下载连接时靠它中止循环 */
+    @Volatile
+    private var cancelRequested = false
+
     fun cancel() {
+        cancelRequested = true
         activeCall.getAndSet(null)?.cancel()
+    }
+
+    private fun throwIfCancelled() {
+        if (cancelRequested) throw CancellationException("已取消")
     }
 
     fun apkFile(context: Context): File = File(File(context.cacheDir, APK_DIR), APK_NAME)
@@ -49,6 +59,7 @@ object UpdateDownloader {
         part1Urls: List<String>,
         onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
     ): File = withContext(Dispatchers.IO) {
+        cancelRequested = false
         val dir = File(context.cacheDir, APK_DIR)
         if (!dir.isDirectory) dir.mkdirs()
         val destFile = apkFile(context)
@@ -64,6 +75,7 @@ object UpdateDownloader {
             java.io.FileOutputStream(destFile).use { output ->
                 var n = 1
                 while (true) {
+                    throwIfCancelled()
                     val candidates = part1Urls.map { it.replace(Regex("\\.part1$"), ".part$n") }
                     val partFile = File(dir, "$APK_NAME.part$n")
                     var ended = false
@@ -71,12 +83,15 @@ object UpdateDownloader {
                         var bytes: File? = null
                         var lastError: Exception? = null
                         for (url in candidates) {
+                            throwIfCancelled()
                             try {
                                 bytes = downloadSingle(url, partFile) { d, _, s ->
                                     onProgress(downloadedAll + d, grandTotal, s)
                                 }
                                 if (bytes != null) break
                                 // 该源 404：记为该源缺卷，继续试下一源
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: IOException) {
                                 // 取消（用户中断）直接上抛
                                 throw e
@@ -111,10 +126,13 @@ object UpdateDownloader {
             // 单文件：按候选顺序试
             var lastError: Exception? = null
             for (url in part1Urls) {
+                throwIfCancelled()
                 val tmp = File(dir, "$APK_NAME.part")
                 try {
                     val f = downloadSingle(url, tmp) { d, t, s -> onProgress(d, t, s) }
                     if (f != null && f.renameTo(destFile)) return@withContext destFile
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: IOException) {
                     throw e
                 } catch (e: Exception) {
@@ -130,10 +148,12 @@ object UpdateDownloader {
     /** 用各源 HEAD 探测分卷总大小；全部失败返回 -1（进度条只显示已下载量） */
     private fun probeGrandTotal(part1Urls: List<String>): Long {
         for (first in part1Urls) {
+            throwIfCancelled()
             var total = 0L
             var any = false
             var n = 1
             while (n <= 8) { // 上限保护：最多探测 8 卷
+                throwIfCancelled()
                 val size = probeSize(first.replace(Regex("\\.part1$"), ".part$n"))
                 if (size <= 0) break
                 total += size
@@ -162,6 +182,7 @@ object UpdateDownloader {
                     java.io.FileOutputStream(target).use { output ->
                         val buf = ByteArray(64 * 1024)
                         while (true) {
+                            throwIfCancelled()
                             val n = input.read(buf)
                             if (n < 0) break
                             output.write(buf, 0, n)
@@ -182,6 +203,10 @@ object UpdateDownloader {
                 }
                 return target
             }
+        } catch (e: IOException) {
+            // OkHttp 取消连接时抛 IOException("Canceled")，转成取消异常交给 UI 静默处理
+            if (cancelRequested) throw CancellationException("已取消")
+            throw e
         } finally {
             activeCall.compareAndSet(call, null)
         }
@@ -190,12 +215,17 @@ object UpdateDownloader {
     /** HEAD 探测远端文件大小；不可得返回 -1 */
     private fun probeSize(url: String): Long {
         if (!url.startsWith("http")) return -1
+        val call = client.newCall(Request.Builder().url(url).head().build())
+        activeCall.set(call)
         return try {
-            client.newCall(Request.Builder().url(url).head().build()).execute().use { resp ->
+            call.execute().use { resp ->
                 if (resp.isSuccessful) resp.header("Content-Length")?.toLongOrNull() ?: -1 else -1
             }
         } catch (_: Exception) {
+            throwIfCancelled()
             -1
+        } finally {
+            activeCall.compareAndSet(call, null)
         }
     }
 }

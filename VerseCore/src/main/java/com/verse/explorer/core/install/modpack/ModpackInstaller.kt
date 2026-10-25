@@ -16,6 +16,7 @@ import com.tungsten.fclcore.task.TaskListener
 import com.verse.explorer.core.config.GameConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipFile
 import java.io.File
 import java.io.IOException
@@ -347,10 +348,17 @@ object ModpackInstaller {
         try {
             ZipFile(zipFile).use { zip ->
                 // 只枚举一次条目：Enumeration 每次从头遍历，
-                // 若在序列 lambda 内重复获取会得到永不耗尽的首元素序列（死循环/内存爆涨）
-                val rootFiles = zip.entries.asIterator().asSequence()
-                    .filter { !it.isDirectory && !it.name.contains('/') && !it.name.contains('\\') }
-                    .toList()
+                // 若在序列 lambda 内重复获取会得到永不耗尽的首元素序列（死循环/内存爆涨）。
+                // 不能使用 Enumeration.asIterator()：Android 10 及更早的系统库没有该 Java 9 API，
+                // 会抛 NoSuchMethodError 让整合包安装直接失败。
+                val entries = zip.entries
+                val rootFiles = ArrayList<ZipArchiveEntry>()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (!entry.isDirectory && !entry.name.contains('/') && !entry.name.contains('\\')) {
+                        rootFiles.add(entry)
+                    }
+                }
                 val entry = rootFiles.firstOrNull { e ->
                     val n = e.name.lowercase()
                     (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".webp")) &&
