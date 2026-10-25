@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.resourceViewModel
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -38,7 +40,7 @@ fun ModpacksScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val viewModel = ResourceViewModel.shared(context.applicationContext as android.app.Application, "modpack")
+    val viewModel = resourceViewModel("modpack")
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val results by viewModel.results.collectAsStateWithLifecycle()
 

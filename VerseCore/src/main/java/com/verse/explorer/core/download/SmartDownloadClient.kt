@@ -180,9 +180,9 @@ class SmartDownloadClient(
             if (isCancelled()) throw CancelledException()
 
             // 已存在文件的复用判定：
-            //  - 已知总量且长度吻合时做完整性校验，通过则直接跳过；
-            //  - 长度不符（半截文件）时保留文件进入续传流程，不做整文件校验
-            //    （否则中断残留的 .part 会被误判损坏直接删除，无法续传）
+            // - 已知总量且长度吻合时做完整性校验，通过则直接跳过；
+            // - 长度不符（半截文件）时保留文件进入续传流程，不做整文件校验
+            // （否则中断残留的 .part 会被误判损坏直接删除，无法续传）
             if (targetFile.exists() && targetFile.length() > 0) {
                 val sizeComplete = if (knownSize > 0) targetFile.length() == knownSize else true
                 if (expectedSha1 != null && sizeComplete) {

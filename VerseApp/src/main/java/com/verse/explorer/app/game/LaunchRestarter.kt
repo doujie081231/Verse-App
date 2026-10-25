@@ -8,8 +8,8 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
-import com.verse.explorer.app.ui.game.GameActivity
+import com.verse.explorer.core.launch.LaunchRequest
+import com.verse.explorer.app.launch.LaunchIntentCodec
 
 /**
  * 冷启动调度：先在系统闹钟里挂起目标 Activity 的 PendingIntent，
@@ -37,26 +37,8 @@ fun killProcessSoon(delayMillis: Long = 400L) {
 
 class LaunchRestarter(private val activity: ComponentActivity) {
 
-    fun buildRestartIntent(params: GameLaunchParams): Intent {
-        return Intent(activity, GameActivity::class.java).apply {
-            putExtra("versionId", params.versionId)
-            putExtra("gameDir", params.gameDirPath)
-            putExtra("javaHome", params.javaHome)
-            putExtra("javaVersion", params.javaVersion)
-            putExtra("maxMemory", params.maxMemory)
-            putExtra("minMemory", params.minMemory)
-            putExtra("gcType", params.gcType)
-            putExtra("customJvmArgs", params.customJvmArgs)
-            putExtra("width", params.gameWidth)
-            putExtra("height", params.gameHeight)
-            putExtra("renderer", params.renderer)
-            putExtra("launchMethod", params.launchMethod)
-            putExtra("username", params.username)
-            putExtra("uuid", params.uuid)
-            putExtra("multiplayerMode", params.isMultiplayer)
-            putExtra("accessToken", params.accessToken)
-            putExtra("userType", params.userType)
-            putExtra("authlibServerUrl", params.authlibServerUrl)
+    fun buildRestartIntent(params: LaunchRequest): Intent {
+        return LaunchIntentCodec.create(activity, params).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
     }

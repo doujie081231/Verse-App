@@ -1,0 +1,60 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check FclCore drift
+        run: |
+          python3 -m unittest discover -s tools -p 'test_*.py'
+          python3 tools/fclcore_drift.py --check
+          python3 tools/architecture_check.py
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK components
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platforms;android-37.0" \
+            "build-tools;35.0.0" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865" \
+            "cmake;3.22.1" --channel=3
+
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :VerseCore:testDebugUnitTest :VerseLauncher:testDebugUnitTest :VerseApp:testDebugUnitTest -Darch=arm64 --no-daemon --stacktrace
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: "*/build/reports/tests/*"
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :VerseApp:assembleDebug -Darch=arm64 --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Verse-arm64-debug-APK
+          path: VerseApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

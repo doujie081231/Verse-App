@@ -321,7 +321,7 @@ object CurseForgeApi {
         return "https://edge.forgecdn.net/files/$part1/$part2/$fileName"
     }
 
-    // ==================== CurseForge 响应模型 ====================
+    // CurseForge 响应模型
 
     data class CfSearchResponse(val data: List<CfMod>? = emptyList(), val pagination: CfPagination? = null)
     data class CfPagination(val totalCount: Long = 0)

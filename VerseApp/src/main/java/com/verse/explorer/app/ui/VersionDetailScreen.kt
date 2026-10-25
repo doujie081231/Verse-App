@@ -1,5 +1,7 @@
 package com.verse.explorer.app.ui
 
+import com.verse.explorer.app.viewmodel.activityViewModel
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -47,7 +49,7 @@ fun VersionDetailScreen(
     navController: NavHostController
 ) {
     val context = LocalContext.current
-    val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
+    val viewModel = activityViewModel(VersionsViewModel::class.java)
     val installState by viewModel.installState.collectAsState()
 
     var selectedSource by remember { mutableStateOf("mojang") }
@@ -360,7 +362,7 @@ fun VersionDetailScreen(
         }
     }
 
-    // 下载/安装进度弹窗（分阶段动画流程卡片，进度内嵌卡片已移除）
+    // 使用分阶段进度弹窗展示下载与安装任务。
     if (installState.isInstalling && installState.versionId == versionId) {
         Dialog(onDismissRequest = {}) {
             InstallFlowCard(

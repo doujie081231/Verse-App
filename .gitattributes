@@ -1,0 +1,2 @@
+# Accept existing CRLF files while still checking real trailing whitespace.
+* whitespace=trailing-space,space-before-tab,cr-at-eol

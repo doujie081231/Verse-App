@@ -263,7 +263,7 @@ class GameInputHandler(
         return handleExternalMouseEvent(event)
     }
 
-    /** GameMenu.setOnGenericMotionListener 的移植：物理鼠标（physicalMouseMode）hover/按钮/滚轮 */
+    /** 处理物理鼠标模式下的悬停、按键和滚轮事件；适配 GameMenu 的输入约定。 */
     fun handleGenericMotion(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE) && MenuSetting.isPhysicalMouseMode) {
             if (!isGrabbing && event.action == MotionEvent.ACTION_HOVER_MOVE) {
@@ -416,7 +416,7 @@ class GameInputHandler(
                     || kotlin.math.abs(newDownY - downY) > TAP_MAX_DIST
                 ) {
                     // 发生滑动：标记 hasMoved 并彻底取消长按 —— 滑动转视角绝不应触发 BUILD/FIGHT 点击。
-                    //   Verse 手动分流下误判率高，滑动过即取消更符合"滑动=转视角"预期。）
+                    // Verse 手动分流下误判率高，滑动过即取消更符合"滑动=转视角"预期。）
                     hasMoved = true
                 }
                 handler.removeCallbacks(holdRunnable)

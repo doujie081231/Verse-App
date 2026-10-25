@@ -4,25 +4,6 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 
-// 旧版兼容类型：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
-@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
-enum class RendererType(val displayName: String, val glLibName: String) {
-    ZINK("Zink (Vulkan)", "libOSMesa_8.so"),
-    VIRGL("VirGL (OpenGL)", "libOSMesa.so"),
-    GL4ES("GL4ES (OpenGL 2)", "libgl4es_12.so"),
-    NGGL4ES("ng-GL4ES", "libgl4es_12.so"),
-    VGPU("VGPU (OpenGL)", "libvgpu.so"),
-    FREEDRENO("Freedreno (Turnip)", "libOSMesa_8.so")
-}
-
-// 旧版兼容数据类：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
-@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
-data class RendererConfig(
-    val type: RendererType,
-    val width: Int = 1280,
-    val height: Int = 720
-)
-
 object RendererManager {
 
     private const val TAG = "RendererManager"
@@ -77,9 +58,9 @@ object RendererManager {
 
     // NGGL4ES：eglName="libEGL.so"（系统 Mali EGL），glName="libng_gl4es.so"。
     // 环境变量：LIBGL_USE_MC_COLOR=1, LIBGL_GL=31, LIBGL_ES=3, LIBGL_NORMALIZE=1, LIBGL_NOERROR=1,
-    //           LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so,
-    //           POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so。
-    // 之前误用 ANGLE（libEGL_angle.so + libGLESv2_angle.so）作为 EGL/GLES，与系统 Mali 驱动不同；
+    // LIBGL_NAME=libng_gl4es.so, LIBEGL_NAME=libEGL.so,
+    // POJAVEXEC_EGL=eglName=libEGL.so, POJAV_RENDERER=opengles3, DLOPEN=libspirv-cross-c-shared.so。
+    // NGGL4ES 使用系统 EGL；不要混用 ANGLE 的 EGL/GLES 库。
     // libng_gl4es.so 必须使用较新构建，旧构建存在水面贴图错乱与滑动卡顿问题。
     val NGGL4ES = RendererConfig(
         displayName = "NGGL4ES/Krypton Wrapper",
@@ -301,47 +282,4 @@ object RendererManager {
         }
     }
 
-    // 旧版兼容方法：GameWindow 仍调用，保留至迁移完成
-    @Deprecated("Renderer initialization is now handled by environment variables")
-    fun initializeRenderer(surface: android.view.Surface, config: com.verse.explorer.launcher.renderer.RendererConfig) {
-        Log.d(TAG, "Renderer ${config.type.displayName} initialized via environment variables")
-    }
-
-    @Deprecated("No-op for compatibility")
-    fun cleanup() {
-        Log.d(TAG, "Renderer cleanup complete")
-    }
-
-    @Deprecated("No-op for compatibility")
-    fun isRendererAvailable(type: RendererType): Boolean {
-        return true
-    }
-
-    @Deprecated("Use renderer.glName")
-    fun getGlLibName(type: RendererType): String {
-        return type.glLibName
-    }
-}
-
-// 旧版兼容方法：MinecraftLauncher 当前代码仍调用，保留至迁移完成
-@Deprecated("Use RendererManager.getRendererById / applyRendererEnvironment")
-fun resolveRendererType(renderer: String): RendererType {
-    return when (renderer.lowercase()) {
-        "gl4es" -> RendererType.GL4ES
-        "nggl4es" -> RendererType.NGGL4ES
-        "zink" -> RendererType.ZINK
-        "freedreno" -> RendererType.FREEDRENO
-        "virgl" -> RendererType.VIRGL
-        "vgpu" -> RendererType.VGPU
-        else -> RendererType.GL4ES
-    }
-}
-
-@Deprecated("Environment setup is now handled inside MinecraftLauncher.setupRendererEnvironment")
-fun setupRendererEnvironment(
-    config: com.verse.explorer.launcher.launch.LaunchConfiguration,
-    rendererConfig: RendererConfig
-): RendererConfig {
-    // 实际渲染器环境变量设置已在 MinecraftLauncher 内部完成，此处仅保持兼容签名
-    return rendererConfig
 }

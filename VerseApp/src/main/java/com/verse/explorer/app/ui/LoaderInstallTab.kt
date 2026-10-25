@@ -25,7 +25,7 @@ import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
-import com.verse.explorer.core.install.loader.FclLoaderInstaller
+import com.verse.explorer.app.appContainer
 import com.verse.explorer.core.mod.ModLoader
 import com.verse.explorer.core.mod.ModLoaderManager
 import com.verse.explorer.core.mod.ModLoaderType
@@ -112,7 +112,7 @@ internal fun LoaderInstallTab(
                 return@launch
             }
             val result = withContext(Dispatchers.IO) {
-                FclLoaderInstaller.installFcl(
+                context.appContainer.loaderInstallBackend.install(
                     gameDir = gameDir,
                     versionId = baseVersionId,
                     loaderType = type.apiId,

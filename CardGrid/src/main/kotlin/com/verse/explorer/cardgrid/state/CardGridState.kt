@@ -214,7 +214,7 @@ class CardGridState internal constructor(
 
     private val animators = mutableMapOf<String, Animatable<Rect, AnimationVector4D>>()
 
-    // ---------- 播种 ----------
+    // 播种
 
     /**
      * 播种卡片类型与持久化的卡片布局：
@@ -269,7 +269,7 @@ class CardGridState internal constructor(
         val materialized = pending.mapNotNull { seed ->
             typeById[seed.typeId]?.let { type ->
                 val layout = layouts.getValue(seed.id)
-                //折算基准取持久化跨度与存储列数，存储列数未知时以当前几何为基准
+                // 折算基准取持久化跨度与存储列数，存储列数未知时以当前几何为基准
                 val base = if (pendingColumns > 0) {
                     ReflowBase(seed.layout.width, seed.layout.height, pendingColumns)
                 } else {
@@ -278,14 +278,14 @@ class CardGridState internal constructor(
                 GridCard(id = seed.id, type = type, layout = layout, reflowBase = base)
             }
         }
-        //播种布局以持久化数据为准，替换几何就绪前先行补位加入的同 id 卡片，避免重复
+        // 播种布局以持久化数据为准，替换几何就绪前先行补位加入的同 id 卡片，避免重复
         val seededIds = materialized.mapTo(mutableSetOf()) { it.id }
         cards = cards.filterNot { it.id in seededIds } + materialized
         materialized.forEach { animateTo(it, effectiveLayout(it), defaultSpec) }
         return true
     }
 
-    // ---------- 几何 ----------
+    // 几何
 
     /**
      * 依据容器宽度更新网格，列数变化时触发整体重排
@@ -306,9 +306,9 @@ class CardGridState internal constructor(
         densityFactor = density.density
         geometry = newGeometry
         geometryReady = true
-        //本次播种落位的卡片从未按旧几何布局，直接重排会按错误比例折算尺寸
+        // 本次播种落位的卡片从未按旧几何布局，直接重排会按错误比例折算尺寸
         val materialized = materializePending(newColumns = newGeometry.columns)
-        //旧几何来自真实测量时才视为列数变化；初始默认几何只用于占位，不参与重排
+        // 旧几何来自真实测量时才视为列数变化；初始默认几何只用于占位，不参与重排
         if (!materialized && wasReady && newGeometry.columns != oldColumns && cards.isNotEmpty()) {
             reflowTo(newColumns = newGeometry.columns, oldColumns = oldColumns)
         }
@@ -351,7 +351,7 @@ class CardGridState internal constructor(
         return rows * cellPx
     }
 
-    // ---------- 卡片管理 ----------
+    // 卡片管理
 
     /** 追加一张卡片，落在最上最左的空闲位置 */
     fun addCard(type: CardType, id: String = UUID.randomUUID().toString()): GridCard? {
@@ -403,7 +403,7 @@ class CardGridState internal constructor(
         onCardRemoved(id)
     }
 
-    // ---------- 命中测试（网格内容坐标系） ----------
+    // 命中测试（网格内容坐标系）
 
     /** 命中测试卡片，z 序高的优先（调整态卡优先，其余列表靠后者在上，与绘制层叠顺序一致） */
     fun cardAt(position: Offset): GridCard? {
@@ -442,7 +442,7 @@ class CardGridState internal constructor(
         ResizeEdge.Bottom -> Offset(rect.center.x, rect.bottom)
     }
 
-    // ---------- 调整会话：拖动 ----------
+    // 调整会话：拖动
 
     /** 长按成功，卡片进入拖动（同时也进入了调整态） */
     fun onCardDragStart(card: GridCard, pointer: Offset) {
@@ -536,7 +536,7 @@ class CardGridState internal constructor(
         cancelSession()
     }
 
-    // ---------- 调整会话：缩放 ----------
+    // 调整会话：缩放
 
     /** 开始拖动某条边的手柄，单向调整跨度 */
     fun onResizeStart(card: GridCard, edge: ResizeEdge, pointer: Offset) {
@@ -597,7 +597,7 @@ class CardGridState internal constructor(
         }
     }
 
-    // ---------- 调整态 ----------
+    // 调整态
 
     /** 指定卡片当前的交互状态 */
     fun interactionOf(cardId: String): CardInteraction {
@@ -630,7 +630,7 @@ class CardGridState internal constructor(
         )
     }
 
-    // ---------- 渲染 ----------
+    // 渲染
 
     /** 指定卡片的渲染矩形动画器 */
     internal fun animatorFor(card: GridCard): Animatable<Rect, AnimationVector4D> =
@@ -666,7 +666,7 @@ class CardGridState internal constructor(
         }
     }
 
-    // ---------- 内部：结算 ----------
+    // 内部：结算
 
     internal fun effectiveLayout(card: GridCard): CardRect =
         displaced[card.id] ?: card.layout
@@ -699,7 +699,7 @@ class CardGridState internal constructor(
             when {
                 card.id == current.card.id -> card.copy(
                     layout = target,
-                    //用户结算的跨度成为新的折算基准
+                    // 用户结算的跨度成为新的折算基准
                     reflowBase = ReflowBase(target.width, target.height, geometry.columns)
                 )
                 else -> settled[card.id]?.let { card.copy(layout = it) } ?: card
@@ -734,7 +734,7 @@ class CardGridState internal constructor(
     }
 
     private fun reflowTo(newColumns: Int, oldColumns: Int) {
-        //跨度自基准一次性折算，避免逐级取整把小幅增长吞噬成固定跨度
+        // 跨度自基准一次性折算，避免逐级取整把小幅增长吞噬成固定跨度
         val respanned = cards.map { card ->
             val base = card.reflowBase
             if (base == null) {
@@ -749,7 +749,7 @@ class CardGridState internal constructor(
                 )
             }
         }
-        //跨度已折算完毕，oldColumns 传同值使重排只做位置打包
+        // 跨度已折算完毕，oldColumns 传同值使重排只做位置打包
         val layouts = GridEngine.reflow(
             cards = respanned,
             oldColumns = newColumns,
@@ -763,7 +763,7 @@ class CardGridState internal constructor(
         commitLayout()
     }
 
-    // ---------- 内部：跟手矩形 ----------
+    // 内部：跟手矩形
 
     /** 依据指针位置计算缩放时跟手的原始矩形，被拖动边钳制在最小跨度与推挤结算的跨度之间 */
     private fun rawRectForResize(

@@ -69,13 +69,13 @@ public class CustomControls {
 		this.mControlDataList.add(shiftData);
 		this.mControlDataList.add(new ControlData(ctx, R.string.control_jump, new int[]{LwjglGlfwKeycode.GLFW_KEY_SPACE}, "${right} - ${margin} * 2 - ${width}", "${bottom} - ${margin} * 2 - ${height}", true));
 
-		//The default controls are conform to the V3
+		// 默认布局使用版本 8 的序列化格式。
 		version = 8;
 	}
 
 	
 	public void save(String path) throws IOException {
-		//Current version is the V3.2 so the version as to be marked as 8 !
+		// 写入布局前统一使用版本 8，供读取端识别序列化格式。
 		version = 8;
 
 		Tools.write(path, Tools.GLOBAL_GSON.toJson(this));

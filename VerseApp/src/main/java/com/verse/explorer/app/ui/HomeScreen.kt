@@ -20,13 +20,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.verse.explorer.core.data.SettingsRepository
-import com.verse.explorer.app.launch.GameLaunchController
 import com.verse.explorer.app.launch.LaunchPhase
 import com.verse.explorer.app.ui.components.AccountAvatar
 import com.verse.explorer.app.ui.components.PcLaunchOverlay
@@ -57,7 +54,8 @@ fun HomeScreen(
     onLaunchGame: (String?) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val launchController = remember { GameLaunchController(context) }
+    val launchViewModel = com.verse.explorer.app.viewmodel.activityViewModel(com.verse.explorer.app.viewmodel.GameLaunchViewModel::class.java)
+    val launchController = launchViewModel.controller
     val launchState by launchController.launchState.collectAsState()
     val scope = rememberCoroutineScope()
 

@@ -31,13 +31,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
+ * 展示运行时组件的安装状态与实时进度。
  *
- * - 显示 10 个运行时组件的安装状态（含可选组件）
- * - 一键安装所有缺失组件
- * - 实时进度反馈
- * - 安装完毕后自动进入启动器
- *
- * （JAVA_11 已移除：MC 1.16-1.17 实际使用 Java 8/17 兼容，无需单独 JRE 11）
+ * 支持安装缺失组件，并在初始化完成后通知调用方。
+ * 支持的运行时类型由 RuntimeComponent 定义。
  */
 @Composable
 fun RuntimeSetupScreen(

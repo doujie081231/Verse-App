@@ -2,14 +2,9 @@ package com.verse.explorer.app.ui.game
 
 import android.app.AlertDialog
 import android.content.DialogInterface
-import android.graphics.Color
 import android.graphics.SurfaceTexture
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -33,7 +28,8 @@ import androidx.compose.ui.graphics.toArgb
 import com.verse.explorer.app.R
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.version.VersionJsonResolver
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
+import com.verse.explorer.app.launch.LaunchIntentCodec
+import com.verse.explorer.app.permissions.observeAppPermissionRequests
 import com.verse.explorer.app.game.GameLaunchOrchestrator
 import com.verse.explorer.app.game.GameLogManager
 import com.verse.explorer.app.game.JavaRuntimeDetector
@@ -42,13 +38,12 @@ import com.verse.explorer.app.game.NativesDeployer
 import com.verse.explorer.app.game.TouchControllerProxy
 import com.verse.explorer.app.terracotta.TerracottaController
 import com.verse.explorer.app.ui.VerseLogger
-import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.launcher.bridge.CallbackBridge
 import com.tungsten.fcl.control.view.LogWindow
 import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
-import com.tungsten.fclauncher.bridge.FCLBridgeCallback
+import com.verse.explorer.core.launch.GameRuntimeCallbacks
 import kotlinx.coroutines.CancellationException
 import net.kdt.pojavlaunch.MinecraftGLSurface
 import net.kdt.pojavlaunch.Tools
@@ -60,7 +55,7 @@ import net.kdt.pojavlaunch.customcontrols.mouse.GyroControl
 import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 
-class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.SurfaceTextureListener {
+class GameActivity : ComponentActivity(), GameRuntimeCallbacks, TextureView.SurfaceTextureListener {
 
     private val logManager = GameLogManager(this)
     private val versionResolver = VersionJsonResolver { logManager.appendStatusLog(it) }
@@ -144,6 +139,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        observeAppPermissionRequests()
 
         try {
             if (SettingsRepository.getRequestMicPermission() &&
@@ -153,25 +149,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 1001)
             }
 
-            val versionId = intent.getStringExtra("versionId")
-            val gameDirPath = intent.getStringExtra("gameDir")
-            val javaHome = intent.getStringExtra("javaHome")
-
-            val javaVersion = intent.getIntExtra("javaVersion", 0)
-            val maxMemory = intent.getIntExtra("maxMemory", 2048)
-            val minMemory = intent.getIntExtra("minMemory", 512)
-            val gcType = intent.getStringExtra("gcType") ?: "G1GC"
-            val customJvmArgs = intent.getStringExtra("customJvmArgs") ?: ""
-            val gameWidth = intent.getIntExtra("width", 854)
-            val gameHeight = intent.getIntExtra("height", 480)
-            val renderer = intent.getStringExtra("renderer") ?: "gl4es"
-            val launchMethod = intent.getStringExtra("launchMethod") ?: "pojav"
-            val username = intent.getStringExtra("username") ?: "Player"
-            val uuid = intent.getStringExtra("uuid") ?: "00000000000000000000000000000000"
-            val isMultiplayer = intent.getBooleanExtra("multiplayerMode", false)
-            val accessToken = intent.getStringExtra("accessToken") ?: "0"
-            val userType = intent.getStringExtra("userType") ?: "mojang"
-            val authlibServerUrl = intent.getStringExtra("authlibServerUrl")
+            val params = LaunchIntentCodec.read(intent).getOrElse {
+                Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
+                finish()
+                return
+            }
+            val versionId = params.versionId
+            val gameDirPath = params.gameDirPath
+            val javaHome = params.javaHome
+            val javaVersion = params.javaVersion
+            val maxMemory = params.maxMemory
+            val minMemory = params.minMemory
+            val gcType = params.gcType
+            val customJvmArgs = params.customJvmArgs
+            val gameWidth = params.gameWidth
+            val gameHeight = params.gameHeight
+            val renderer = params.renderer
+            val launchMethod = params.launchMethod
+            val username = params.username
+            val userType = params.userType
+            val isMultiplayer = params.isMultiplayer
 
             VerseLogger.info("GameActivity.onCreate: intent 参数", "GameActivity")
             VerseLogger.info("  versionId=$versionId, gameDir=$gameDirPath", "GameActivity")
@@ -181,12 +178,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             VerseLogger.info("  window=$gameWidth x $gameHeight, multiplayer=$isMultiplayer", "GameActivity")
             VerseLogger.info("  username=$username, userType=$userType", "GameActivity")
             VerseLogger.info("  customJvmArgs=$customJvmArgs", "GameActivity")
-
-            if (versionId == null || gameDirPath == null) {
-                Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
-                finish()
-                return
-            }
 
             // TouchController 模组：在 Java 虚拟机启动前启动控制代理并写入套接字环境变量，
             // 模组启动后即可与启动器建立连接（坐标转发在内置触控布局挂载前完成配置）
@@ -263,28 +254,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             )
             logManager.javaHomeProvider = { orchestrator.javaHome }
 
-            orchestrator.configure(
-                GameLaunchParams(
-                    versionId = versionId,
-                    gameDirPath = gameDirPath,
-                    javaHome = javaHome,
-                    javaVersion = javaVersion,
-                    maxMemory = maxMemory,
-                    minMemory = minMemory,
-                    gcType = gcType,
-                    customJvmArgs = customJvmArgs,
-                    gameWidth = gameWidth,
-                    gameHeight = gameHeight,
-                    renderer = renderer,
-                    launchMethod = launchMethod,
-                    username = username,
-                    uuid = uuid,
-                    isMultiplayer = isMultiplayer,
-                    accessToken = accessToken,
-                    userType = userType,
-                    authlibServerUrl = authlibServerUrl
-                )
-            )
+            orchestrator.configure(params)
 
             orchestrator.startLaunch()
             // 首帧信号到达前保留启动卡片（JVM 启动后显示「正在等待游戏画面出现」，可手动关闭）；
@@ -430,11 +400,6 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         } catch (e: Throwable) {
             VerseLogger.error("orchestrator.release() failed: ${e.message}")
         }
-        // 仅当输入已安全启用过才复位：类从未初始化时调用会触发首次 loadLibrary（见 inputReady 注释）。
-        if (inputReady) {
-            CallbackBridge.nativeSetInputReady(false)
-            CallbackBridge.setFCLBridge(null)
-        }
         if (touchProxyEnabled) {
             TouchControllerProxy.clearPointers()
         }
@@ -472,9 +437,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 forwardTouchToProxy(ev)
             }
             // 手机触屏走普通 touch 事件（pointer capture 不影响触摸源）：
-            //   · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
-            //     手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
-            //   · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
+            // · 虚拟按钮（方向键/功能键）→ 手动转发 touchOverlay（ControlLayout/ControlButton 消费）；
+            // 手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
+            // · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
             val buttonPointerIds = resolveButtonPointerIds(ev)
             if (inGameControl?.trackMultiTouch(ev, buttonPointerIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
@@ -846,7 +811,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 visibility = View.GONE
             }
             touchCharInput = charInput
-            //「Mouse」特殊按钮在 Verse 未实现虚拟鼠标模式，仅在 GUI 态显示光标，不重复接线
+            // 「Mouse」特殊按钮在 Verse 未实现虚拟鼠标模式，仅在 GUI 态显示光标，不重复接线
             net.kdt.pojavlaunch.MainActivity.hostHandler = { action ->
                 runOnUiThread {
                     if (action == "keyboard") showQuickInput()

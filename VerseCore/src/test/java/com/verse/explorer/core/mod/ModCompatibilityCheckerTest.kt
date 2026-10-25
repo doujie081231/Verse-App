@@ -57,7 +57,7 @@ class ModCompatibilityCheckerTest {
     private fun reportOf(vararg jars: File, mc: String, loader: String?, java: Int) =
         ModCompatibilityChecker.check(jars.first().parentFile, mc, loader, java)
 
-    // ---------- 加载器匹配 ----------
+    // 加载器匹配
 
     @Test
     fun fabricMod_onForgeVersion_flagged() {
@@ -101,7 +101,7 @@ mandatory=true
         assertTrue(report.issues[0].reason.contains("Forge"))
     }
 
-    // ---------- MC 版本约束 ----------
+    // MC 版本约束
 
     @Test
     fun mcRange_geLt_matchingVersion_passes() {
@@ -170,7 +170,7 @@ versionRange="[1.20,1.21)"
         assertTrue(reportOf(jar, mc = "1.21.1", loader = "fabric", java = 17).hasIssues)
     }
 
-    // ---------- Java 版本约束 ----------
+    // Java 版本约束
 
     @Test
     fun javaRequirement_tooLow_flagged() {
@@ -192,7 +192,7 @@ versionRange="[1.20,1.21)"
         assertFalse(reportOf(jar, mc = "1.20.1", loader = "fabric", java = 0).hasIssues)
     }
 
-    // ---------- 边界 ----------
+    // 边界
 
     @Test
     fun disabledAndNonJarFiles_ignored() {
@@ -220,7 +220,7 @@ versionRange="[1.20,1.21)"
         assertTrue(ModCompatibilityChecker.check(File(tmp.root, "nope"), "1.20.1", "fabric", 17).modCount == 0)
     }
 
-    // ---------- 版本比较器 ----------
+    // 版本比较器
 
     @Test
     fun compareMc_numericSemantics() {

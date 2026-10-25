@@ -6,7 +6,7 @@ package com.verse.explorer.app.terracotta
  */
 object TerracottaTexts {
 
-    // ===== 通用 =====
+    // 通用
     const val MULTIPLAYER = "多人联机"
     const val MENU = "联机菜单"
     const val MENU_OPEN = "打开"
@@ -17,7 +17,7 @@ object TerracottaTexts {
     fun metadata(terracottaVersion: String, easyTierVersion: String): String =
         "陶瓦版本：$terracottaVersion\nEasyTier 版本：$easyTierVersion"
 
-    // ===== 设置页 =====
+    // 设置页
     const val ENABLE = "启用多人联机"
     const val ABOUT = "Terracotta | 陶瓦联机"
     const val ABOUT_EASYTIER = "关于 EasyTier"
@@ -40,7 +40,7 @@ object TerracottaTexts {
             "最终联机体验和参与联机者的网络情况有较大关系。\n" +
             "在多人联机全过程中，您必须严格遵守您所在国家与地区的全部法律法规。"
 
-    // ===== 通知 =====
+    // 通知
     const val NOTIFICATION_TITLE = "Terracotta | 陶瓦联机 正在运行"
     const val NOTIFICATION_CHANNEL = "陶瓦联机 VPN"
     const val NOTIFICATION_CHANNEL_DESC = "陶瓦联机 VPN 状态"
@@ -48,7 +48,7 @@ object TerracottaTexts {
     fun notificationDesc(identity: String, state: String?): String =
         "身份：$identity，状态：${state ?: "未知"}"
 
-    // ===== 状态 =====
+    // 状态
     fun statusText(state: TerracottaState): String = when (state) {
         is TerracottaState.Waiting -> "等待中"
         is TerracottaState.HostScanning -> STATUS_HOST_SCANNING
@@ -68,7 +68,7 @@ object TerracottaTexts {
     const val STATUS_GUEST_OK = "已加入房间"
     const val STATUS_EXCEPTION = "连接断开"
 
-    // ===== 等待页 =====
+    // 等待页
     const val WAITING_HOST_TITLE = "我想当房主"
     const val WAITING_HOST_DESC = "创建房间并生成邀请码，与好友一起畅玩"
     const val WAITING_GUEST_TITLE = "我想当房客"
@@ -79,7 +79,7 @@ object TerracottaTexts {
     const val WAITING_GUEST_PROMPT_PCL2CE = "旧版本 PCL CE 邀请码"
     const val WAITING_GUEST_PROMPT_SCAFFOLDING = "Scaffolding 邀请码"
 
-    // ===== 房主 =====
+    // 房主
     const val HOST_SCANNING_DESC = "请进入单人存档，按下 ESC 键，选择对局域网开放，点击创建局域网世界。"
     const val HOST_SCANNING_BACK = "这将同时停止扫描局域网世界。"
     const val HOST_STARTING_BACK = "这将会取消创建房间。"
@@ -89,7 +89,7 @@ object TerracottaTexts {
     const val HOST_OK_CODE_DESC = "请提醒您的朋友在 FCL 或 HMCL 或 PCL CE 多人联机功能中选择房客模式，并输入该邀请码。"
     const val HOST_OK_BACK = "这将同时彻底关闭房间，其他房客将退出并不再能重新加入该房间。"
 
-    // ===== 房客 =====
+    // 房客
     const val GUEST_STARTING_BACK = "这不会影响其他房客加入当前房间。"
     const val GUEST_OK_ADDRESS =
         "请前往游戏主界面，选择多人游戏，双击进入陶瓦联机大厅。备用联机地址："
@@ -98,7 +98,7 @@ object TerracottaTexts {
     const val GUEST_OK_ADDRESS_DESC = "如非必要请勿使用此地址。"
     const val GUEST_OK_BACK = "这不会影响其他房客加入当前房间。"
 
-    // ===== 异常 =====
+    // 异常
     const val EXCEPTION_BACK = "可再试一次"
 
     fun exceptionText(type: TerracottaState.ExceptionState.ExceptionType): String = when (type) {
@@ -116,7 +116,7 @@ object TerracottaTexts {
             "协议错误：房主发送了错误的响应数据，请向开发者反馈该问题"
     }
 
-    // ===== 难度 =====
+    // 难度
     fun difficultyText(difficulty: TerracottaState.GuestStarting.Difficulty): String? = when (difficulty) {
         TerracottaState.GuestStarting.Difficulty.EASIEST -> "当前网络状态极好：稍等一下就成功！"
         TerracottaState.GuestStarting.Difficulty.SIMPLE -> "当前网络状态较好：建立连接需要一段时间……"
@@ -127,7 +127,7 @@ object TerracottaTexts {
 
     const val DIFFICULTY_ESTIMATE_ONLY = "连接成功率由房主和房客的 NAT 类型推算得到，仅供参考。"
 
-    // ===== 玩家 =====
+    // 玩家
     const val PLAYER_LIST = "玩家列表"
     const val PLAYER_ANONYMOUS = "匿名玩家"
 
@@ -137,7 +137,7 @@ object TerracottaTexts {
         ProfileKind.GUEST -> "房客"
     }
 
-    // ===== 教程 =====
+    // 教程
     const val TUTORIAL_HOST =
         "房主使用方法：\n\n" +
             " - 在启动器多人联机主页阅读用户须知后启用联机功能\n" +
@@ -163,7 +163,7 @@ object TerracottaTexts {
             " - 该软件支持与 HMCL 和 PCL CE 等支持 Scaffolding 协议的软件互联\n" +
             " - 使用备用服务器地址加入游戏时，不支持离线账户，自行解决"
 
-    // ===== 控制器错误提示 =====
+    // 控制器错误提示
     const val NOT_INITIALIZED = "陶瓦联机未初始化"
     const val VPN_PERMISSION_REQUIRED = "需要授予 VPN 权限才能使用陶瓦联机"
 }

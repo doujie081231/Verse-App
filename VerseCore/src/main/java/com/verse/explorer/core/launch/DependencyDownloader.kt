@@ -14,10 +14,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.zip.ZipInputStream
 
 data class RepairProgress(
     val stage: RepairStage,
@@ -42,14 +40,15 @@ enum class RepairStage {
     FAILED
 }
 
-class DependencyDownloader(private val context: Context) {
+class DependencyDownloader(private val context: Context, private val paths: com.verse.explorer.core.install.InstallationPaths) {
 
-    private val gameDir = GameConfig.getGameDir(context)
-    private val versionsDir = GameConfig.getVersionsDir(gameDir)
-    private val librariesDir = GameConfig.getLibrariesDir(gameDir)
-    private val assetsDir = GameConfig.getAssetsDir(gameDir)
-    private val nativesDir = GameConfig.getNativesDir(gameDir)
+    private val gameDir = paths.root
+    private val versionsDir = paths.versions
+    private val librariesDir = paths.libraries
+    private val assetsDir = paths.assets
+    private val nativesDir = paths.natives
     private val gson = Gson()
+    private val transfer = RepairDownloadExecutor()
 
     private val isArm64 = Build.SUPPORTED_ABIS.contains("arm64-v8a")
     private val isArm32 = Build.SUPPORTED_ABIS.contains("armeabi-v7a")
@@ -233,7 +232,7 @@ class DependencyDownloader(private val context: Context) {
                 }
             }
             
-            val verifyResult = DependencyChecker(context).checkAll(versionId)
+            val verifyResult = DependencyChecker(context, gameDir).checkAll(versionId)
             
             println("[DependencyDownloader] Verify result: allOk=${verifyResult.allOk}")
             verifyResult.dependencies.forEach { dep ->
@@ -252,6 +251,8 @@ class DependencyDownloader(private val context: Context) {
 
             onProgress(RepairProgress(RepairStage.COMPLETED, "所有依赖已就绪！", 1f))
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             onProgress(RepairProgress(RepairStage.FAILED, "修复失败: ${e.message}", 0f))
             false
@@ -280,6 +281,8 @@ class DependencyDownloader(private val context: Context) {
                 }
             }
             success
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -321,6 +324,8 @@ class DependencyDownloader(private val context: Context) {
             } finally {
                 versionConn.disconnect()
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             println("[DependencyDownloader] Error downloading version JSON: ${e.message}")
             false
@@ -371,7 +376,7 @@ class DependencyDownloader(private val context: Context) {
                 clientJar.delete()
             }
 
-            downloadFileWithProgress(url, clientJar, expectedSha1, expectedSize) { progress, message ->
+            transfer.downloadFileWithProgress(url, clientJar, expectedSha1, expectedSize) { progress, message ->
                 val mappedProgress = progressMapper(progress)
                 onProgress(RepairProgress(
                     RepairStage.DOWNLOADING_CLIENT,
@@ -390,6 +395,8 @@ class DependencyDownloader(private val context: Context) {
             }
 
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -447,7 +454,7 @@ class DependencyDownloader(private val context: Context) {
                 var downloadUrl = GameConfig.replaceWithMirror(originalUrl)
 
                 try {
-                    downloadFileWithRetry(downloadUrl, libFile, sha1.ifEmpty { null }, 3) { progress, _ ->
+                    transfer.downloadFileWithRetry(downloadUrl, libFile, sha1.ifEmpty { null }, 3) { progress, _ ->
                         val libProgress = (index.toFloat() + progress) / missingLibs.size
                         val mappedProgress = progressMapper(libProgress)
                         onProgress(RepairProgress(
@@ -459,10 +466,12 @@ class DependencyDownloader(private val context: Context) {
                             index + 1
                         ))
                     }
-                } catch (e: Exception) {
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                     println("[DependencyDownloader] Mirror failed for $path, trying original URL")
                     try {
-                        downloadFileWithRetry(originalUrl, libFile, sha1.ifEmpty { null }, 2) { progress, _ ->
+                        transfer.downloadFileWithRetry(originalUrl, libFile, sha1.ifEmpty { null }, 2) { progress, _ ->
                             val libProgress = (index.toFloat() + progress) / missingLibs.size
                             val mappedProgress = progressMapper(libProgress)
                             onProgress(RepairProgress(
@@ -482,6 +491,8 @@ class DependencyDownloader(private val context: Context) {
             }
 
             failedCount == 0
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -625,7 +636,7 @@ class DependencyDownloader(private val context: Context) {
 
                 val downloadUrl = GameConfig.replaceWithMirror(originalUrl)
                 try {
-                    downloadFileWithRetry(downloadUrl, nativeFile, sha1.ifEmpty { null }, 2) { progress, _ ->
+                    transfer.downloadFileWithRetry(downloadUrl, nativeFile, sha1.ifEmpty { null }, 2) { progress, _ ->
                         val natProgress = (index.toFloat() + progress) / missingNatives.size
                         val mappedProgress = progressMapper(natProgress)
                         onProgress(RepairProgress(
@@ -638,10 +649,12 @@ class DependencyDownloader(private val context: Context) {
                         ))
                     }
                     successCount++
-                } catch (e: Exception) {
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                     println("[DependencyDownloader] Native classifier failed: $path, trying original")
                     try {
-                        downloadFileWithRetry(originalUrl, nativeFile, sha1.ifEmpty { null }, 2) { progress, _ ->
+                        transfer.downloadFileWithRetry(originalUrl, nativeFile, sha1.ifEmpty { null }, 2) { progress, _ ->
                             val natProgress = (index.toFloat() + progress) / missingNatives.size
                             onProgress(RepairProgress(
                                 RepairStage.DOWNLOADING_LIBRARIES,
@@ -661,6 +674,8 @@ class DependencyDownloader(private val context: Context) {
 
             println("[DependencyDownloader] Native classifiers: $successCount/${missingNatives.size} downloaded successfully")
             successCount > 0
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             println("[DependencyDownloader] Error downloading native classifiers: ${e.message}")
             false
@@ -688,10 +703,12 @@ class DependencyDownloader(private val context: Context) {
                 indexFile.parentFile?.mkdirs()
                 val mirroredAssetIndexUrl = GameConfig.replaceWithMirror(assetIndexUrl)
                 try {
-                    downloadFileWithRetry(mirroredAssetIndexUrl, indexFile, null, 2) { _, _ -> }
-                } catch (e: Exception) {
+                    transfer.downloadFileWithRetry(mirroredAssetIndexUrl, indexFile, null, 2) { _, _ -> }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                     try {
-                        downloadFileWithRetry(assetIndexUrl, indexFile, null, 2) { _, _ -> }
+                        transfer.downloadFileWithRetry(assetIndexUrl, indexFile, null, 2) { _, _ -> }
                     } catch (_: Exception) {}
                 }
             }
@@ -730,12 +747,16 @@ class DependencyDownloader(private val context: Context) {
                                 // assets 官方 CDN 国内实测远优于镜像（镜像现为 302 跳转节点池），官方优先
                                 val originalAssetUrl = "https://resources.download.minecraft.net/$subDir/$hash"
                                 try {
-                                    downloadFile(originalAssetUrl, assetFile)
-                                } catch (e: Exception) {
+                                    transfer.downloadFile(originalAssetUrl, assetFile)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                                     val assetUrl = GameConfig.getAssetDownloadUrl(hash, 0)
-                                    downloadFile(assetUrl, assetFile)
+                                    transfer.downloadFile(assetUrl, assetFile)
                                 }
-                            } catch (e: Exception) {
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                                 println("[DependencyDownloader] Failed to download asset $name: ${e.message}")
                             }
 
@@ -758,6 +779,8 @@ class DependencyDownloader(private val context: Context) {
             }
 
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -842,7 +865,9 @@ class DependencyDownloader(private val context: Context) {
                             println("[DependencyDownloader] extractNatives: SKIPPED $nativePath (no .so files inside)")
                             skippedCount++
                         }
-                    } catch (e: Exception) {
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                         println("[DependencyDownloader] extractNatives: ERROR extracting $nativePath: ${e.message}")
                     }
                 } else {
@@ -865,102 +890,12 @@ class DependencyDownloader(private val context: Context) {
             
             android.util.Log.d("DependencyDownloader", "Extracted natives: $extractedCount extracted, $skippedCount skipped, $notFoundCount not found, ${finalSoFiles.size} .so files total")
             
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             println("[DependencyDownloader] extractNatives ERROR: ${e.message}")
             e.printStackTrace()
         }
     }
 
-    private fun downloadFileWithProgress(
-        url: String,
-        targetFile: File,
-        expectedSha1: String?,
-        expectedSize: Long,
-        onProgress: (Float, String) -> Unit
-    ) {
-        targetFile.parentFile?.mkdirs()
-
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 30000
-            conn.readTimeout = 60000
-
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                throw Exception("HTTP ${conn.responseCode}")
-            }
-
-            val totalSize = if (expectedSize > 0) expectedSize else conn.contentLengthLong
-            var downloaded = 0L
-
-            conn.inputStream.use { input ->
-                FileOutputStream(targetFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        downloaded += bytesRead
-
-                        if (totalSize > 0) {
-                            val progress = downloaded.toFloat() / totalSize.toFloat()
-                            val sizeStr = "${DependencyUtils.formatSize(downloaded)}/${DependencyUtils.formatSize(totalSize)}"
-                            onProgress(progress, "下载中 $sizeStr")
-                        }
-                    }
-                }
-            }
-
-            if (expectedSha1 != null) {
-                val actualSha1 = HashUtils.sha1File(targetFile)
-                if (actualSha1 != expectedSha1.lowercase()) {
-                    targetFile.delete()
-                    throw Exception("SHA1校验失败: ${targetFile.name}")
-                }
-            }
-        } finally {
-            conn.disconnect()
-        }
-    }
-
-    private fun downloadFileWithRetry(
-        url: String,
-        targetFile: File,
-        expectedSha1: String?,
-        maxRetries: Int,
-        onProgress: (Float, String) -> Unit
-    ) {
-        var lastException: Exception? = null
-        for (attempt in 1..maxRetries) {
-            try {
-                downloadFileWithProgress(url, targetFile, expectedSha1, 0L, onProgress)
-                return
-            } catch (e: Exception) {
-                lastException = e
-                if (attempt < maxRetries) Thread.sleep(1000L * attempt)
-            }
-        }
-        throw lastException ?: Exception("Download failed after $maxRetries attempts")
-    }
-
-    private fun downloadFile(url: String, targetFile: File) {
-        targetFile.parentFile?.mkdirs()
-
-        val conn = URL(url).openConnection() as HttpURLConnection
-        try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
-                throw Exception("HTTP ${conn.responseCode}")
-            }
-
-            conn.inputStream.use { input ->
-                FileOutputStream(targetFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-        } finally {
-            conn.disconnect()
-        }
-    }
 }

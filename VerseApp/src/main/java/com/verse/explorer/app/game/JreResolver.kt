@@ -1,7 +1,7 @@
 package com.verse.explorer.app.game
 
 import android.content.Context
-import com.verse.explorer.app.domain.model.launch.GameLaunchParams
+import com.verse.explorer.core.launch.LaunchRequest
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.java.JavaRuntimeManager
 import java.io.File
@@ -23,7 +23,7 @@ class JreResolver(
         private const val TAG = "GameLaunchOrchestrator"
     }
 
-    suspend fun resolveJavaHome(params: GameLaunchParams, gameDir: File): String {
+    suspend fun resolveJavaHome(params: LaunchRequest, gameDir: File): String {
         // 本次启动真正需要的 Java 大版本：参数未指定时按版本清单推断
         val requiredVersion = if (params.javaVersion > 0) params.javaVersion
             else javaDetector.getRequiredJavaVersion(params.versionId, gameDir)

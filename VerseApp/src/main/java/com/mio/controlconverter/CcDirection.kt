@@ -220,7 +220,7 @@ object CcDirection {
         return arr
     }
 
-    // --- ZL 摇杆 -> FCL 方向控件（反向） ---
+    // ZL 摇杆 -> FCL 方向控件（反向）
 
     /** ZL JoystickData -> FCL ControlDirection 的 baseInfo。 */
     fun makeDirectionBaseInfoFromZl(joystick: JsonObject, layerVisibility: String?): JsonObject {

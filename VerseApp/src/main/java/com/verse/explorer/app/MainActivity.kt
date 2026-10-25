@@ -25,6 +25,7 @@ import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.VerseExplorerTheme
+import com.verse.explorer.app.permissions.observeAppPermissionRequests
 
 class MainActivity : ComponentActivity() {
 
@@ -53,6 +54,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        observeAppPermissionRequests()
 
         // 冷启动（分享点开应用未运行）：处理 ACTION_SEND 整合包
         handleShareIntent(intent) { uri -> shareImportUri.value = uri }

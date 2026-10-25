@@ -135,16 +135,4 @@ class ResourceViewModel(
         )
     }
 
-    companion object {
-        private val instances = HashMap<String, ResourceViewModel>()
-
-        /**
-         * 按资源类型共享实例：模组/整合包/材质包/光影各自保留搜索结果与筛选条件，
-         * 页签切换后不再重新请求列表，切回即显示已有内容。
-         */
-        fun shared(application: Application, projectType: String): ResourceViewModel =
-            synchronized(instances) {
-                instances.getOrPut(projectType) { ResourceViewModel(application, projectType) }
-            }
-    }
 }

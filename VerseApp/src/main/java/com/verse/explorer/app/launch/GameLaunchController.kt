@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.verse.explorer.app.VerseApplication
+import com.verse.explorer.app.appContainer
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.VersionSettingsRepository
 import com.verse.explorer.app.device.VulkanCheckManager
@@ -18,6 +19,7 @@ import com.verse.explorer.core.java.JavaRuntime
 import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.java.JavaVersion
 import com.verse.explorer.core.version.VersionManager
+import com.verse.explorer.core.launch.LaunchRequest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,21 +49,22 @@ data class LaunchState(
 class GameLaunchController(private val context: Context) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val settingsRepo = SettingsRepository
-    private val gameDir = GameConfig.getGameDir(context)
-    private val versionManager = VersionManager(gameDir)
+    private var gameDir = GameConfig.getGameDir(context)
+    private val versionManager get() = VersionManager(gameDir)
 
     private val _launchState = MutableStateFlow(LaunchState())
     val launchState: StateFlow<LaunchState> = _launchState.asStateFlow()
 
-    fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
+    @Synchronized fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
         if (_launchState.value.isLaunching) return
 
+        _launchState.value = LaunchState(
+            phase = LaunchPhase.PREPARING,
+            isLaunching = true,
+            message = "正在准备启动..."
+        )
         scope.launch {
-            _launchState.value = LaunchState(
-                phase = LaunchPhase.PREPARING,
-                isLaunching = true,
-                message = "正在准备启动..."
-            )
+            gameDir = GameConfig.getGameDir(context)
             VerseLogger.info("开始启动游戏流程", "LaunchController")
 
             try {
@@ -71,23 +74,15 @@ class GameLaunchController(private val context: Context) {
                 val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
                 val verIndependent = !verSettings.usesGlobal
 
-                val maxMemory = if (verIndependent && !verSettings.autoMemory && verSettings.maxMemory > 0) {
-                    verSettings.maxMemory
-                } else {
-                    resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory())
-                }
-                val minMemory = if (verIndependent && !verSettings.autoMemory && verSettings.minMemory > 0) {
-                    verSettings.minMemory
-                } else {
-                    settingsRepo.getMinMemory()
-                }
+                val resolved = com.verse.explorer.core.launch.EffectiveLaunchSettings(
+                    resolveLaunchMaxMemory(settingsRepo.getMaxMemory(), settingsRepo.getMinMemory()),
+                    settingsRepo.getMinMemory(), settingsRepo.getRenderer(), settingsRepo.getCustomJvmArgs()
+                ).withVersion(verSettings)
+                val maxMemory = resolved.maxMemory
+                val minMemory = resolved.minMemory
                 val gcType = settingsRepo.getGcType()
-                val renderer = resolveRendererForVersion(
-                    resolveMinecraftVersionForJudgement(version.id),
-                    if (verIndependent && verSettings.renderer.isNotBlank()) verSettings.renderer
-                    else settingsRepo.getRenderer()
-                )
-                val customJvmArgs = if (verIndependent) verSettings.javaArgs else settingsRepo.getCustomJvmArgs()
+                val renderer = resolveRendererForVersion(resolveMinecraftVersionForJudgement(version.id), resolved.renderer)
+                val customJvmArgs = resolved.jvmArgs
                 val launchMethod = settingsRepo.getLaunchMethod()
                 VerseLogger.info(
                     "Java:$javaVersion Mem:${maxMemory}M GC:$gcType Renderer:$renderer " +
@@ -105,39 +100,37 @@ class GameLaunchController(private val context: Context) {
                     message = "正在启动 Minecraft..."
                 )
 
-                val intent = Intent(context, GameActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra("javaHome", javaHome.absolutePath)
-                    putExtra("javaVersion", javaVersion)
-                    putExtra("versionId", version.id)
-                    putExtra("gameDir", gameDir.absolutePath)
-                    putExtra("assetsDir", GameConfig.getAssetsDir(gameDir).absolutePath)
-                    putExtra("librariesDir", GameConfig.getLibrariesDir(gameDir).absolutePath)
-                    putExtra("nativesDir", GameConfig.getNativesDir(gameDir).absolutePath)
-                    putExtra("maxMemory", maxMemory)
-                    putExtra("minMemory", minMemory)
-                    putExtra("gcType", gcType)
-                    putExtra("customJvmArgs", customJvmArgs)
-                    putExtra("width", settingsRepo.getGameWidth())
-                    putExtra("height", settingsRepo.getGameHeight())
-                    putExtra("renderer", renderer)
-                    putExtra("launchMethod", launchMethod)
-                    putExtra("username", account.username)
-                    putExtra("TERRACOTTA_PLAYER", account.username)
-                    putExtra("uuid", account.uuid)
-                    putExtra("accessToken", account.accessToken)
-                    putExtra("userType", when (account.type.name) {
+                val request = LaunchRequest(
+                    versionId = version.id,
+                    gameDirPath = gameDir.absolutePath,
+                    javaHome = javaHome.absolutePath,
+                    javaVersion = javaVersion,
+                    maxMemory = maxMemory,
+                    minMemory = minMemory,
+                    gcType = gcType,
+                    customJvmArgs = customJvmArgs,
+                    gameWidth = settingsRepo.getGameWidth(),
+                    gameHeight = settingsRepo.getGameHeight(),
+                    renderer = renderer,
+                    launchMethod = launchMethod,
+                    username = account.username,
+                    uuid = account.uuid,
+                    accessToken = account.accessToken,
+                    userType = when (account.type.name) {
                         "MICROSOFT" -> "msa"
                         "MOJANG" -> "mojang"
                         else -> "mojang"
-                    })
-                    // 外置登录：把验证服务器 API 根透传给启动链，供 authlib-injector 注入
-                    putExtra(
-                        "authlibServerUrl",
-                        if (account.type.name == "AUTHLIB") account.serverUrl else null
-                    )
+                    },
+                    authlibServerUrl = if (account.type.name == "AUTHLIB") account.serverUrl else null,
+                    isMultiplayer = multiplayerArgs != null
+                )
+                val intent = LaunchIntentCodec.create(context, request).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra("assetsDir", GameConfig.getAssetsDir(gameDir).absolutePath)
+                    putExtra("librariesDir", GameConfig.getLibrariesDir(gameDir).absolutePath)
+                    putExtra("nativesDir", GameConfig.getNativesDir(gameDir).absolutePath)
+                    putExtra("TERRACOTTA_PLAYER", account.username)
                     if (multiplayerArgs != null) {
-                        putExtra("multiplayerMode", true)
                         multiplayerArgs.forEach { (k, v) -> putExtra(k, v) }
                     }
                 }
@@ -210,7 +203,7 @@ class GameLaunchController(private val context: Context) {
 
         val targetVersionId = versionId ?: settingsRepo.getCustomSetting("last_version")
 
-        // ========== 账户验证 ==========
+        // 账户验证
         steps.add(LaunchStep("账户验证", "进行中...", "person"))
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, "正在检查账户状态...")
         delay(200)
@@ -245,7 +238,7 @@ class GameLaunchController(private val context: Context) {
         cachedAccount = account
         emitState(LaunchPhase.ACCOUNT_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== 版本解析 ==========
+        // 版本解析
         stepIdx++
         steps.add(LaunchStep("版本解析", "进行中...", "download"))
         emitState(LaunchPhase.VERSION_CHECK, steps, stepIdx, "正在解析版本信息...")
@@ -266,7 +259,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.VERSION_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== Java 检查 ==========
+        // Java 检查
         stepIdx++
         steps.add(LaunchStep("Java 检查", "进行中...", "code"))
         emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, "正在检查 Java 运行时...")
@@ -310,16 +303,7 @@ class GameLaunchController(private val context: Context) {
                     8 -> "java8"; 21 -> "java21"; 25 -> "java25"
                     else -> "java17"
                 }
-                val result = JavaRuntimeManager.installJre(context, javaKey) { progress ->
-                    val status = when {
-                        progress.status.name == "COMPLETED" -> "安装完成"
-                        progress.status.name.contains("FAILED", ignoreCase = true) -> "安装失败: ${progress.message}"
-                        else -> "解压中..."
-                    }
-                    steps[stepIdx] = LaunchStep("Java 检查", status, if (status == "安装完成") "check" else "download")
-                    emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, progress.message)
-                }
-
+                val result = context.appContainer.runtimeInstalls.install(javaKey).await()
                 if (result.isSuccess) {
                     val newRuntimes = JavaRuntimeManager.getInstalledRuntimes(context)
                     bestRuntime = selectBestRuntime(newRuntimes, recommendedJava.majorVersion)
@@ -336,7 +320,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.JAVA_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== 文件检查 (仅警告，不阻断) ==========
+        // 文件检查 (仅警告，不阻断)
         stepIdx++
         steps.add(LaunchStep("文件检查", "进行中...", "folder"))
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在验证游戏文件...")
@@ -375,7 +359,7 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
-        // ========== Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）==========
+        // Vulkan 检查（26.2+ 带 Vulkan 渲染后端的版本）
         // 启动前判定设备 Vulkan 能力是否满足该版本依赖，缺失项警告后允许继续；
         // 同时刷新 needsVulkanShim 门控（仅设备缺口可被 vkshim 补齐时才启用包装层）
         if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(cachedVersion.id)) {
@@ -439,7 +423,7 @@ class GameLaunchController(private val context: Context) {
             emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
         }
 
-        // ========== 检查汇总 ==========
+        // 检查汇总
         if (criticalErrors.isNotEmpty()) {
             _launchState.value = _launchState.value.copy(
                 phase = LaunchPhase.FAILED,
@@ -453,12 +437,12 @@ class GameLaunchController(private val context: Context) {
             return null
         }
 
-        // ========== 有警告但继续启动 ==========
+        // 有警告但继续启动
         if (warnings.isNotEmpty()) {
             VerseLogger.warn("启动时有文件警告: ${warnings.joinToString(", ")}", "LaunchController")
         }
 
-        // ========== 准备启动 ==========
+        // 准备启动
         stepIdx++
         steps.add(LaunchStep("构建参数", "进行中...", "settings"))
         emitState(LaunchPhase.BUILD_ARGS, steps, stepIdx, "正在生成启动参数...")

@@ -188,11 +188,11 @@ object VulkanCheckManager {
         val mcVersion = normalizeMcVersion(gameVersion)
         val path = if (useTurnip) driverPath.orEmpty() else ""
         val record = loadRecord(context)?.takeIf { last ->
-            //检测器版本、驱动状态一致时设备能力不变，直接按已支持的版本范围判定
+            // 检测器版本、驱动状态一致时设备能力不变，直接按已支持的版本范围判定
             last.version == VulkanRequirements.VULKAN_REQUIREMENTS_VERSION &&
                     last.useTurnip == useTurnip && last.driverPath == path
         } ?: run {
-            //无与当前驱动状态一致的记录，shim 门控回到安全侧（不启用）
+            // 无与当前驱动状态一致的记录，shim 门控回到安全侧（不启用）
             needsVulkanShim = false
             return VulkanEnsureResult.NEED_CHECK
         }

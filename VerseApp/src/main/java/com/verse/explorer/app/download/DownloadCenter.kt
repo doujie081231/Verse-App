@@ -304,14 +304,12 @@ object DownloadCenter {
     /** Android 13+ 未授予通知权限时，借下载开始的时机发起一次授权请求（每次运行至多一次） */
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || permissionRequested) return
-        val activity = VerseApplication.instance.currentActivity ?: return
-        if (ActivityCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS)
+        val application = VerseApplication.instance
+        if (ActivityCompat.checkSelfPermission(application, android.Manifest.permission.POST_NOTIFICATIONS)
             == PackageManager.PERMISSION_GRANTED
         ) return
         permissionRequested = true
-        ActivityCompat.requestPermissions(
-            activity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002
-        )
+        application.container.permissions.requestNotifications()
     }
 
     private fun showStartedToast(context: Context, title: String) {

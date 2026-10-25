@@ -33,13 +33,9 @@ object MirrorSourceManager {
         "https://maven.quiltmc.org" to "https://bmclapi2.bangbang93.com/maven"
     )
 
-    // MCBBS 镜像已移除：download.mcbbs.net 域名失效，DNS 解析实测挂起 11 秒，
-    // 每个命中它的文件都要白等一轮系统 DNS 超时（镜像回退链 = [BMCLAPI, 官方]）
+    // 仅维护配置中可用的镜像；镜像请求失败时仍需保留官方源作为回退。
 
-    // BMCLAPI 的 /maven/ 对部分旧版官方库未收录（实测 gson-2.8.9 / asm-9.6 等返回 403），
-    // 未收录的库只能退官方源直连，手机网络下极慢 → 库阶段整批卡住。
-    // 阿里云 Maven（代理 Central）与 BMCLAPI 收录互补：官方 libraries 域名的库
-    // 全部发布在 Central，403 时由阿里云补位（实测 gson/asm/icu4j/guava 均秒回）。
+    // 阿里云 Maven 补充 BMCLAPI 未收录的依赖；请求顺序由所选下载源决定。
     private val LIBRARIES_TO_ALIYUN = mapOf(
         "https://libraries.minecraft.net" to "https://maven.aliyun.com/repository/public"
     )

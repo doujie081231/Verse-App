@@ -21,10 +21,11 @@ import java.io.IOException
  */
 class ResourceRepository(
     private val context: Context,
-    private val useMirror: Boolean = true
+    private val useMirror: Boolean = true,
+    private val snapshot: com.verse.explorer.core.install.InstallationSnapshot? = null
 ) {
 
-    private val smartClient = SmartDownloadClient(context = context)
+    private val smartClient = if (snapshot != null) SmartDownloadClient(source = snapshot.downloadSource) else SmartDownloadClient(context = context)
 
     /**
      * 双源搜索。
@@ -211,7 +212,7 @@ class ResourceRepository(
             return@withContext Result.failure(Exception("下载链接为空，该资源可能暂时不可用"))
         }
 
-        val gameDir = GameConfig.getGameDir(context)
+        val gameDir = snapshot?.paths?.root ?: GameConfig.getGameDir(context)
         val destDir = when (projectType) {
             "resourcepack" -> File(gameDir, "resourcepacks")
             "shader" -> File(gameDir, "shaderpacks")
@@ -312,11 +313,11 @@ class ResourceRepository(
 
             val safeName = (primaryFile.filename.ifBlank { "${version.id}.jar" })
                 .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
-            val gameDir = GameConfig.getGameDir(context)
+            val gameDir = snapshot?.paths?.root ?: GameConfig.getGameDir(context)
 
             val cacheDir = File(context.cacheDir, "assets")
             cacheDir.mkdirs()
-            val cacheFile = File(cacheDir, primaryFile.sha1.ifBlank { safeName })
+            val cacheFile = File(cacheDir, "${java.util.UUID.randomUUID()}-${primaryFile.sha1.ifBlank { safeName }}")
 
             try {
                 // 版本内复用：任一版本的对应文件夹里
