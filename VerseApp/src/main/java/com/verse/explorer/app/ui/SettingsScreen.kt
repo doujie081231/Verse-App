@@ -344,6 +344,14 @@ fun SettingsScreen(navController: NavHostController) {
                             ) { on ->
                                 ignoreNotch = on
                                 DisplayNotch.updateIgnoreNotch(on)
+                                // 立即对当前窗口生效，不依赖 MainActivity 的 LaunchedEffect 重建
+                                (context as? androidx.activity.ComponentActivity)?.let { activity ->
+                                    com.verse.explorer.app.applyWindowDisplayMode(
+                                        activity,
+                                        VersePersonalization.launcherFullScreen,
+                                        on
+                                    )
+                                }
                             }
                             // VerseX 渲染器暂不可用：功能开发中，开关置灰禁用（保留设置存储）
                             Row(

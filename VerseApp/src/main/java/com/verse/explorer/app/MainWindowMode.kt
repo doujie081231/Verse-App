@@ -12,6 +12,10 @@ import androidx.core.view.WindowCompat
  *  - 忽略刘海只控制内容是否延伸进刘海/挖孔区域，与全屏开关互不影响。
  */
 internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boolean, ignoreNotch: Boolean) {
+    com.verse.explorer.app.ui.VerseLogger.debug(
+        "applyWindowDisplayMode fullScreen=$fullScreen ignoreNotch=$ignoreNotch",
+        "Window"
+    )
     val window = activity.window
     if (fullScreen) {
         window.setFlags(
@@ -51,15 +55,15 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
     setDisplayCutoutMode(activity, extendToCutout = ignoreNotch)
 }
 
-/** 刘海显示模式：延伸=ALWAYS（API 30+ 全朝向）/SHORT_EDGES；避让=NEVER */
+/**
+ * 刘海显示模式：延伸=SHORT_EDGES（API 28+ 横屏左右/竖屏上下短边），避让=NEVER。
+ * 部分 OEM（华为/荣耀等）只实现 SHORT_EDGES，对 ALWAYS 不生效，横屏侧挖孔仍会内缩；
+ * 统一使用 SHORT_EDGES 可覆盖这些机型。
+ */
 private fun setDisplayCutoutMode(activity: ComponentActivity, extendToCutout: Boolean) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
         val mode = if (extendToCutout) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            } else {
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-            }
+            WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         } else {
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
         }
@@ -69,6 +73,8 @@ private fun setDisplayCutoutMode(activity: ComponentActivity, extendToCutout: Bo
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
             activity.window.attributes = params
+            // 属性变更后强制重新布局，部分机型不会主动重算 displayCutout inset
+            activity.window.decorView.requestLayout()
         }
     }
 }
