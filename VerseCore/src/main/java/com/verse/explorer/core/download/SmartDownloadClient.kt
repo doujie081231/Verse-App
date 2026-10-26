@@ -66,6 +66,9 @@ class SmartDownloadClient(
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .connectionPool(sharedConnectionPool)
+            // 下载链路固定 HTTP/1.1：部分镜像/CDN 的 h2 协商会失败，
+            // 表现为 "Required SETTINGS preface not received"（更新包下载的真实故障）
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
             // OkHttp 默认每 host 仅 5 个并发连接：分块下载 8 块/多源竞速都会被
             // 每 host 队列卡住，必须显式放开
             .dispatcher(okhttp3.Dispatcher().apply {
@@ -221,6 +224,7 @@ class SmartDownloadClient(
             if (isCancelled()) throw CancelledException()
 
             if (result) {
+                var sha1Verified = false
                 if (expectedSha1 != null) {
                     val actualSha1 = calculateSHA1(targetFile)
                     if (!actualSha1.equals(expectedSha1, ignoreCase = true)) {
@@ -232,10 +236,14 @@ class SmartDownloadClient(
                         targetFile.delete()
                         return@withContext Result.failure(Exception("SHA1 校验失败: ${targetFile.name}"))
                     }
+                    sha1Verified = true
                 }
 
-                // 损坏则删除并抛错，由上层重试（mod/库/客户端 jar 均受益）
-                if (targetFile.name.endsWith(".jar") && !FileUtils.isValidJar(targetFile)) {
+                // 损坏则删除并抛错，由上层重试（mod/库/客户端 jar 均受益）。
+                // 例外：SHA-1 已与清单一致时以清单为准——官方对部分库下发 22 字节占位 jar
+                // （如 1.12.2 的 lwjgl-platform-2.9.4-nightly-20150209.jar），它本来就不是
+                // 合法 zip，按损坏处理会让这类版本永远装不上
+                if (!sha1Verified && targetFile.name.endsWith(".jar") && !FileUtils.isValidJar(targetFile)) {
                     Log.e(TAG, "JAR corrupted after download: ${targetFile.name}")
                     com.verse.explorer.core.log.DownloadLog.write("download", "JAR 损坏: ${targetFile.name}")
                     targetFile.delete()

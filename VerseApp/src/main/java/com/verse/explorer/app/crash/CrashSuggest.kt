@@ -128,6 +128,10 @@ object CrashSuggest {
                     "发现 Mod 循环依赖问题，请检查 Mod 的依赖关系。\n某些 Mod 可能相互依赖，导致无法加载。"
                 CrashReason.SecurityException ->
                     "发现安全异常，请检查 Java 安全设置。\n可能是 Java 安全策略限制了某些操作。"
+                CrashReason.ModNeedsGlibc ->
+                    "检测到仅支持桌面 Linux（glibc）的模组：日志里出现 libc.so.6 加载失败。\n" +
+                        "Android 使用 bionic C 库，没有 glibc，这类模组（如 Voxy 及其本地加速库）无法在手机上运行。\n" +
+                        "请从整合包/模组文件夹中删除该模组后重新启动。"
                 CrashReason.NativeLinkError -> {
                     val needPathCheck = additional.firstOrNull()
                         ?.let { it != "请检查游戏路径是否包含中文字符" } ?: false
@@ -314,5 +318,6 @@ object CrashSuggest {
         CrashReason.NoAnalysisFiles -> 54
         CrashReason.StackKeywordFound -> 55
         CrashReason.StackModNameFound -> 56
+        CrashReason.ModNeedsGlibc -> 57
     }
 }

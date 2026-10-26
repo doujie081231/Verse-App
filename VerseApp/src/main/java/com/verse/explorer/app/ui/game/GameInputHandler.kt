@@ -228,6 +228,12 @@ class GameInputHandler(
                     MotionEvent.BUTTON_TERTIARY -> sendKeyEvent(MOUSE_MIDDLE, press)
                 }
             }
+            // 只有 DOWN/UP 事件的鼠标：用 buttonState 与上次状态差分补报按键
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP -> {
+                val buttons = event.buttonState
+                applyButtonDiff(lastMouseButtonState xor buttons, buttons)
+                lastMouseButtonState = buttons
+            }
             MotionEvent.ACTION_SCROLL -> {
                 val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 for (i in 0 until kotlin.math.abs(vScroll.toInt())) {
@@ -239,49 +245,27 @@ class GameInputHandler(
     }
 
     fun handleCapturedPointer(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_MOVE) {
-            var tX = event.x
-            var tY = event.y
-            val historySize = event.historySize
-            for (i in 0 until historySize) {
-                tX += event.getHistoricalX(i)
-                tY += event.getHistoricalY(i)
-            }
-            tX *= MenuSetting.mouseSensitivity.toFloat()
-            tY *= MenuSetting.mouseSensitivity.toFloat()
-            val deltaX = tX.toInt()
-            val deltaY = tY.toInt()
-            if (!isGrabbing) {
-                val targetX = cursorX + deltaX * MenuSetting.mouseSensitivityCursor.toFloat()
-                val targetY = cursorY + deltaY * MenuSetting.mouseSensitivityCursor.toFloat()
-                setPointer(
-                    targetX.coerceIn(0f, screenWidth.toFloat()),
-                    targetY.coerceIn(0f, screenHeight.toFloat())
-                )
+        // 捕获态下 x/y 本身就是相对增量；部分驱动还会同时给出相对轴，优先取相对轴
+        if (event.actionMasked == MotionEvent.ACTION_MOVE ||
+            event.actionMasked == MotionEvent.ACTION_HOVER_MOVE
+        ) {
+            val rel = relativeAxes(event)
+            if (rel != null) {
+                applyMouseDelta(rel.first, rel.second)
             } else {
-                // 抓取态用相对增量，避免覆盖陀螺仪已经累加的光标位移
-                val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
-                org.lwjgl.glfw.CallbackBridge.sendCursorDelta(tX * scale, tY * scale)
-                pointerX += tX
-                pointerY += tY
+                var tX = event.x
+                var tY = event.y
+                for (i in 0 until event.historySize) {
+                    tX += event.getHistoricalX(i)
+                    tY += event.getHistoricalY(i)
+                }
+                applyMouseDelta(tX, tY)
             }
         }
         return handleExternalMouseEvent(event)
     }
 
-    /** 物理鼠标按键位掩码（与 ZL2 pointerInteropFilter 一致，按 buttonState 差分上报） */
-    private var lastMouseButtonState = 0
-
-    /**
-     * 物理鼠标事件：不依赖「实体鼠标控制」开关，始终按 buttonState 差分上报左/右/中键，
-     * 并处理 hover 与滚轮。参考 ZL2 TouchInput 的 pointerInteropFilter 实现。
-     */
-    fun handlePhysicalMouseEvent(event: MotionEvent): Boolean {
-        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
-
-        val buttons = event.buttonState
-        val changed = lastMouseButtonState xor buttons
-
+    private fun applyButtonDiff(changed: Int, buttons: Int) {
         fun dispatch(button: Int) {
             if (changed and button != 0) {
                 val pressed = buttons and button != 0
@@ -295,12 +279,27 @@ class GameInputHandler(
         dispatch(MotionEvent.BUTTON_PRIMARY)
         dispatch(MotionEvent.BUTTON_SECONDARY)
         dispatch(MotionEvent.BUTTON_TERTIARY)
+    }
+
+    /** 物理鼠标按键位掩码（按 buttonState 差分上报左/右/中键） */
+    private var lastMouseButtonState = 0
+
+    /**
+     * 物理鼠标事件：不依赖「实体鼠标控制」开关，始终按 buttonState 差分上报左/右/中键，
+     * 并处理移动（hover/拖动）与滚轮。
+     */
+    fun handlePhysicalMouseEvent(event: MotionEvent): Boolean {
+        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+
+        val buttons = event.buttonState
+        val changed = lastMouseButtonState xor buttons
+        applyButtonDiff(changed, buttons)
         lastMouseButtonState = buttons
 
         when (event.actionMasked) {
-            MotionEvent.ACTION_HOVER_MOVE -> {
-                if (!isGrabbing) setPointer(event.rawX, event.rawY)
-            }
+            // 未建立指针捕获时的实体鼠标移动（含未按键的 hover、按住拖动）：
+            // 这类事件不会进捕获监听，必须在这里按位移处理，否则进游戏后鼠标完全不动
+            MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> handlePhysicalMouseMove(event)
             MotionEvent.ACTION_SCROLL -> {
                 val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
                 for (i in 0 until kotlin.math.abs(vScroll.toInt())) {
@@ -309,6 +308,79 @@ class GameInputHandler(
             }
         }
         return true
+    }
+
+    /** 上次处理过的实体鼠标位置（无相对轴时用相邻位置差算位移） */
+    private var lastPhysicalMouseX = Float.NaN
+    private var lastPhysicalMouseY = Float.NaN
+
+    /** 读取事件自带的相对位移（含历史采样点）；无相对轴返回 null */
+    private fun relativeAxes(event: MotionEvent): Pair<Float, Float>? {
+        var dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+        var dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+        for (i in 0 until event.historySize) {
+            dx += event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_X, i)
+            dy += event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_Y, i)
+        }
+        return if (dx != 0f || dy != 0f) dx to dy else null
+    }
+
+    /**
+     * 实体鼠标位移：
+     *  - 相对轴 AXIS_RELATIVE_X/Y 有值时直接作为本次增量（指针捕获/多数外置鼠标驱动都是这种）；
+     *  - 没有相对轴时退回绝对坐标：GUI 态直接定位光标，抓取态与上一位置求差得到增量。
+     */
+    private fun handlePhysicalMouseMove(event: MotionEvent) {
+        val rel = relativeAxes(event)
+        if (rel != null) {
+            lastPhysicalMouseX = Float.NaN
+            lastPhysicalMouseY = Float.NaN
+            applyMouseDelta(rel.first, rel.second)
+            return
+        }
+        val x = event.x
+        val y = event.y
+        if (!isGrabbing) {
+            // GUI 态：绝对坐标直接定位光标
+            setPointer(x.coerceIn(0f, screenWidth.toFloat()), y.coerceIn(0f, screenHeight.toFloat()))
+            lastPhysicalMouseX = x
+            lastPhysicalMouseY = y
+            return
+        }
+        if (lastPhysicalMouseX.isNaN()) {
+            lastPhysicalMouseX = x
+            lastPhysicalMouseY = y
+            return
+        }
+        val dx = x - lastPhysicalMouseX
+        val dy = y - lastPhysicalMouseY
+        lastPhysicalMouseX = x
+        lastPhysicalMouseY = y
+        applyMouseDelta(dx, dy)
+    }
+
+    /**
+     * 把原始位移交给游戏：
+     *  - GUI 态移动逻辑光标（按 GUI 灵敏度）；
+     *  - 抓取态按增量送进游戏（避免覆盖陀螺仪已累加的光标位移）。
+     */
+    private fun applyMouseDelta(rawDx: Float, rawDy: Float) {
+        val sensitivity = MenuSetting.mouseSensitivity.toFloat()
+        val dx = rawDx * sensitivity
+        val dy = rawDy * sensitivity
+        if (!isGrabbing) {
+            val targetX = cursorX + dx * MenuSetting.mouseSensitivityCursor.toFloat()
+            val targetY = cursorY + dy * MenuSetting.mouseSensitivityCursor.toFloat()
+            setPointer(
+                targetX.coerceIn(0f, screenWidth.toFloat()),
+                targetY.coerceIn(0f, screenHeight.toFloat())
+            )
+        } else {
+            val scale = bridgeProvider()?.getScaleFactor()?.toFloat() ?: 1f
+            org.lwjgl.glfw.CallbackBridge.sendCursorDelta(dx * scale, dy * scale)
+            pointerX += dx
+            pointerY += dy
+        }
     }
 
     /** GameMenu.setOnGenericMotionListener 的移植：物理鼠标 hover/按钮/滚轮 */

@@ -45,6 +45,14 @@ object Crit3 {
         // 崩溃报告分析
         if (logCrash != null) {
             val lc = logCrash
+            // 仅支持桌面 Linux（glibc）的模组：Android 是 bionic，
+            // dlopen("libc.so.6") 必然抛 UnsatisfiedLinkError（如 Voxy）
+            if (lc.contains("libc.so.6") &&
+                (lc.contains("UnsatisfiedLinkError") || lc.contains("Failed to dynamically load library"))
+            ) {
+                CrashUtils.appendReason(reasons, CrashReason.ModNeedsGlibc, null)
+            }
+
             // 特定方块导致崩溃
             if (lc.contains("\tBlock location: World: ")) {
                 val block = CrashUtils.regexSeekGroup(lc, "\\tBlock: Block\\{([^}]+)", 1) ?: ""

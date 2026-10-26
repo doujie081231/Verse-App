@@ -30,6 +30,9 @@ object UpdateDownloader {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // 更新包走 Gitee/GitHub 直链，部分网络下 h2 协商失败
+        //（Required SETTINGS preface not received），固定 HTTP/1.1
+        .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
         .build()
 
     /** 当前进行中的请求（下载或大小探测）；取消下载即中断它 */

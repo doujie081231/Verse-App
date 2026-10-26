@@ -152,6 +152,15 @@ fun InstalledVersionsScreen(navController: NavHostController) {
             else -> {
                 activeDirPath = GameConfig.activeDirPath(context)
                 viewModel.loadLocalVersions()
+                // 目录结构校验：启动器按 <目录>/versions/<版本> 读取版本，
+                // 选错层级（如选了 versions 的上一层或游戏根目录）时明确提示，而不是静默显示 0 个版本
+                val versionsDir = java.io.File(path, "versions")
+                when {
+                    !versionsDir.isDirectory ->
+                        toast(context, "该文件夹下没有 versions 目录，请选择 .minecraft 目录")
+                    versionsDir.listFiles()?.any { it.isDirectory } != true ->
+                        toast(context, "该目录下还没有已安装的版本")
+                }
             }
         }
     }

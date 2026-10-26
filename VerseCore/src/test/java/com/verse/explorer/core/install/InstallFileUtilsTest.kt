@@ -95,4 +95,18 @@ class InstallFileUtilsTest {
         val so = File(temp.root, "libfoo.so").apply { writeBytes(ByteArray(4096)) }
         assertFalse(InstallFileUtils.libraryNeedsDownload(so, null, -1))
     }
+
+    @Test
+    fun placeholderJarWithMatchingSha1_noDownload() {
+        // 官方对个别库下发 22 字节占位 jar（1.12.2 的 lwjgl-platform-2.9.4-nightly-20150209.jar），
+        // 它不是合法 zip 但内容与清单完全一致 —— 不能因为「小于 1KB」反复重下
+        val placeholder = File(temp.root, "placeholder.jar").apply { writeBytes(ByteArray(22)) }
+        val sha1 = InstallFileUtils.calculateSHA1(placeholder)
+        assertFalse(InstallFileUtils.libraryNeedsDownload(placeholder, sha1, 22))
+        assertFalse(InstallFileUtils.libraryNeedsDownload(placeholder, sha1, -1))
+        // 摘要不符时仍要求重下
+        assertTrue(InstallFileUtils.libraryNeedsDownload(placeholder, "0".repeat(40), 22))
+        // 清单声明大小不符（下载被截断）仍要求重下
+        assertTrue(InstallFileUtils.libraryNeedsDownload(placeholder, sha1, 1047168))
+    }
 }

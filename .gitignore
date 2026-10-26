@@ -85,3 +85,7 @@ AI交接文档.md
 /.github/
 FclCore/VERSE-CHANGES.md
 VerseApp/DESIGN.md
+
+# 内部计划/交接类文档（不入公开仓库）
+/docs/superpowers/
+发布流程.md

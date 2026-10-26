@@ -66,4 +66,5 @@ enum class CrashReason(val cn: String) {
     NoAnalysisFiles("没有可用的分析文件"),
     TextureTooLarge("材质过大或显卡配置不足"),
     OptiFineCannotLoadWorld("OptiFine导致无法加载世界"),
+    ModNeedsGlibc("Mod需要Linux glibc"),
 }

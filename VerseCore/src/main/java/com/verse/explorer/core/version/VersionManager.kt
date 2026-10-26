@@ -144,26 +144,24 @@ class VersionManager(private val gameDir: File) {
             if (versionDir.name.endsWith(REMOVED_SUFFIX)) {
                 return@mapNotNull null
             }
-            val jsonFile = File(versionDir, "${versionDir.name}.json")
-            if (!jsonFile.exists()) {
+            // 版本描述文件：优先 `<id>.json`；目录里只有一个 json 时用它兜底
+            // （从其它启动器拷来的版本目录常出现 json 名与目录名不一致，
+            //  按名跳过会让整份游戏目录识别不到版本）
+            val jsonFile = File(versionDir, "${versionDir.name}.json").takeIf { it.isFile }
+                ?: versionDir.listFiles { f -> f.isFile && f.name.endsWith(".json", ignoreCase = true) }
+                    ?.singleOrNull()
+            if (jsonFile == null) {
                 Log.d("VersionManager", "No JSON file for ${versionDir.name}, skipping")
-                return@mapNotNull null
-            }
-
-            // PC端风格: 检查JAR - 可能在当前目录或父版本目录中
-            val jarFile = File(versionDir, "${versionDir.name}.jar")
-            val hasJar = jarFile.exists() || hasInheritedJar(versionDir.name, jsonFile, versionsDir)
-
-            if (!hasJar) {
-                Log.d("VersionManager", "No JAR for ${versionDir.name}, skipping")
                 return@mapNotNull null
             }
 
             try {
                 val jsonText = jsonFile.readText()
                 val version = gson.fromJson(jsonText, MinecraftVersion::class.java)
-                Log.d("VersionManager", "Loaded local version: ${version.id} (${version.type})")
-                version.copy(loaderHint = detectLoaderFromJson(jsonText))
+                // 目录名才是版本 id（json 内的 id 可能与目录名不一致）
+                val normalized = if (version.id == versionDir.name) version else version.copy(id = versionDir.name)
+                Log.d("VersionManager", "Loaded local version: ${normalized.id} (${normalized.type})")
+                normalized.copy(loaderHint = detectLoaderFromJson(jsonText))
             } catch (e: Exception) {
                 Log.w("VersionManager", "Failed to parse ${jsonFile.name}: ${e.message}")
                 null
@@ -236,21 +234,6 @@ class VersionManager(private val gameDir: File) {
             t.contains("optifine") -> "optifine"
             t.contains("minecraftforge") || t.contains("liteloader") -> "forge"
             else -> null
-        }
-    }
-
-    private fun hasInheritedJar(versionId: String, jsonFile: File, versionsDir: File): Boolean {
-        try {
-            val jsonText = jsonFile.readText()
-            val jsonObj = JsonParser.parseString(jsonText).asJsonObject
-            val parentId = jsonObj.get("jar")?.asString
-                ?: jsonObj.get("inheritsFrom")?.asString
-                ?: return false
-            val parentDir = File(versionsDir, parentId)
-            val parentJar = File(parentDir, "$parentId.jar")
-            return parentJar.exists() && parentJar.length() > 1024
-        } catch (_: Exception) {
-            return false
         }
     }
 
