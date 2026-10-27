@@ -88,11 +88,21 @@ public class ControlButton extends TextView implements ControlInterface {
         setText(properties.name);
     }
 
+    /** 控件边缘描边画笔（「显示控件边缘」开关） */
+    private final Paint mBoundaryPaint = new Paint();
+
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (mIsToggled || (!mProperties.isToggle && isActivated()))
             canvas.drawRoundRect(0, 0, getWidth(), getHeight(), mComputedRadius, mComputedRadius, mRectPaint);
+        if (mControlLayout.getShowViewBoundaries()) {
+            mBoundaryPaint.setStyle(Paint.Style.STROKE);
+            mBoundaryPaint.setStrokeWidth(TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP, 1f, getResources().getDisplayMetrics()));
+            mBoundaryPaint.setColor(Color.argb(160, 255, 255, 255));
+            canvas.drawRoundRect(0, 0, getWidth(), getHeight(), mComputedRadius, mComputedRadius, mBoundaryPaint);
+        }
     }
 
 

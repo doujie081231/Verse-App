@@ -157,8 +157,23 @@ public class ModrinthCompletionTask extends Task<Void> {
         // But continue other downloads.
         if (notFound.get())
             throw new ModpackCompletionException(new FileNotFoundException());
-        if (!allNameKnown.get() || !isDependenciesSucceeded())
+        if (!allNameKnown.get())
             throw new ModpackCompletionException();
+        if (!isDependenciesSucceeded()) {
+            // 不再抛空消息：把失败的文件名列出来，否则用户只看到 "ModpackCompletionException: null"，
+            // 既无法判断是哪个文件，也无从重试
+            List<String> failed = new ArrayList<>();
+            for (Task<?> task : dependencies) {
+                if (task.getException() == null) continue;
+                if (task instanceof FileDownloadTask) {
+                    failed.add(((FileDownloadTask) task).getFile().getName());
+                }
+                if (failed.size() >= 5) break;
+            }
+            throw new ModpackCompletionException(failed.isEmpty()
+                    ? "整合包文件下载失败"
+                    : "整合包部分文件下载失败: " + String.join("、", failed));
+        }
     }
 
     /**
@@ -175,8 +190,9 @@ public class ModrinthCompletionTask extends Task<Void> {
         public void execute() throws Exception {
             try {
                 super.execute();
-            } catch (DownloadException e) {
-                // FetchTask 会把 404 包在 DownloadException 里抛出，需要沿因果链判断
+            } catch (Exception e) {
+                // 下载任务抛出的是 IOException / ChecksumMismatchException，404 表现为 FileNotFoundException，
+                // 这里沿因果链判断；命中 404 才跳过，其他失败照常让整合包安装失败
                 if (isNotFound(e)) {
                     Logging.LOG.log(Level.WARNING, "Modpack file not found on all sources, skipped: " + getFile(), e);
                 } else {

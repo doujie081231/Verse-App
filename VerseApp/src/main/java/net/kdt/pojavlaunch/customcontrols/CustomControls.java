@@ -16,16 +16,21 @@ public class CustomControls {
 	public List<ControlData> mControlDataList;
 	public List<ControlDrawerData> mDrawerDataList;
 	public List<ControlJoystickData> mJoystickDataList;
-	/** 控件组数据（仓库布局的 viewGroups；旧版布局为 null，视为全部常驻） */
-	public transient List<ControlGroupData> mControlGroups;
+	/**
+	 * 控件组数据（仓库布局的 viewGroups；旧版布局为 null，视为全部常驻）。
+	 * 必须随布局一起持久化：转换后的布局会写回磁盘，组信息一旦丢失，
+	 * 后续加载会把所有组的控件当成常驻，切换控件组（选择布局）的按钮就彻底失效。
+	 * 组内的按钮/摇杆成员不落盘（transient），加载后按 groupId 重建，避免重复存储控件数据。
+	 */
+	public List<ControlGroupData> mControlGroups;
 
 	/** 单个控件组：一组按钮/摇杆共用显示状态，由绑定按钮点击切换 */
 	public static class ControlGroupData {
 		public String id;
 		public String name;
 		public boolean visible = true;
-		public final List<ControlData> buttons = new ArrayList<>();
-		public final List<ControlJoystickData> joysticks = new ArrayList<>();
+		public transient final List<ControlData> buttons = new ArrayList<>();
+		public transient final List<ControlJoystickData> joysticks = new ArrayList<>();
 	}
 	public CustomControls() {
 		this(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
@@ -74,6 +79,38 @@ public class CustomControls {
 	}
 
 	
+	/**
+	 * 加载后按 {@link ControlData#groupId} 重建控件组成员。
+	 * 成员表不落盘，必须在使用（渲染/切换控件组）之前重建。
+	 */
+	public void rebuildControlGroups() {
+		if (mControlGroups == null) return;
+		for (ControlGroupData group : mControlGroups) {
+			group.buttons.clear();
+			group.joysticks.clear();
+		}
+		if (mControlDataList != null) {
+			for (ControlData data : mControlDataList) {
+				ControlGroupData group = findGroup(data == null ? null : data.groupId);
+				if (group != null) group.buttons.add(data);
+			}
+		}
+		if (mJoystickDataList != null) {
+			for (ControlJoystickData joystick : mJoystickDataList) {
+				ControlGroupData group = findGroup(joystick == null ? null : joystick.groupId);
+				if (group != null) group.joysticks.add(joystick);
+			}
+		}
+	}
+
+	private ControlGroupData findGroup(String groupId) {
+		if (groupId == null || groupId.isEmpty()) return null;
+		for (ControlGroupData group : mControlGroups) {
+			if (groupId.equals(group.id)) return group;
+		}
+		return null;
+	}
+
 	public void save(String path) throws IOException {
 		//Current version is the V3.2 so the version as to be marked as 8 !
 		version = 8;

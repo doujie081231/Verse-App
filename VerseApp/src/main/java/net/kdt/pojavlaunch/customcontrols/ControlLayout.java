@@ -50,6 +50,8 @@ public class ControlLayout extends FrameLayout {
 	/* Cache to buttons for performance purposes */
 	private List<ControlInterface> mButtons;
 	private boolean mModifiable = false;
+	/** 是否绘制控件边缘：与编辑模式相互独立（编辑模式开关不应被它带上/带下） */
+	private boolean mShowViewBoundaries = false;
 	private boolean mIsModified;
 	private boolean mControlVisible = false;
 
@@ -112,7 +114,8 @@ public class ControlLayout extends FrameLayout {
 		if (controlLayout == null) return;
 
 		mLayout = controlLayout;
-		
+		// 兜底：任何来源的布局在渲染前都按 groupId 重建控件组成员
+		mLayout.rebuildControlGroups();
 
 		List<CustomControls.ControlGroupData> groups = controlLayout.mControlGroups;
 		if (groups != null) {
@@ -388,6 +391,18 @@ public class ControlLayout extends FrameLayout {
 
 	public boolean getModifiable(){
 		return mModifiable;
+	}
+
+	/** 显示/隐藏控件边缘（只影响描边绘制，不改变编辑模式） */
+	public void setShowViewBoundaries(boolean show) {
+		mShowViewBoundaries = show;
+		for (ControlInterface button : getButtonChildren()) {
+			button.getControlView().invalidate();
+		}
+	}
+
+	public boolean getShowViewBoundaries() {
+		return mShowViewBoundaries;
 	}
 
 	public void setModified(boolean isModified) {

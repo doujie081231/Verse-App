@@ -331,8 +331,12 @@ class InGameControlOverlay(
             ).show()
             VerseLogger.info("控制面板：编辑模式=$on", "Control")
         })
-        content.addView(rows.switchRow("显示控件边缘", false) { on ->
-            activity.controlLayout?.setModifiable(on)
+        content.addView(rows.switchRow(
+            "显示控件边缘",
+            activity.controlLayout?.getShowViewBoundaries() == true
+        ) { on ->
+            // 只控制描边显示，不能动编辑模式：否则关掉边缘会把编辑模式一起关掉（真机反馈「亮一下就灭」）
+            activity.controlLayout?.setShowViewBoundaries(on)
             VerseLogger.info("控制面板：显示控件边缘=$on", "Control")
         })
         content.addView(rows.switchRow("隐藏所有控件", false) { on ->

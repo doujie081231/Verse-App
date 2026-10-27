@@ -38,6 +38,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.Collection;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -244,8 +245,22 @@ public final class CurseCompletionTask extends Task<Void> {
     public void postExecute() throws Exception {
         // Let this task fail if the curse manifest has not been completed.
         // But continue other downloads.
-        if (!allNameKnown.get() || !isDependenciesSucceeded())
+        if (!allNameKnown.get())
             throw new ModpackCompletionException();
+        if (!isDependenciesSucceeded()) {
+            // 失败信息带上文件名：空消息会让用户只看到 "ModpackCompletionException: null"
+            List<String> failed = new ArrayList<>();
+            for (Task<?> task : dependencies) {
+                if (task.getException() == null) continue;
+                if (task instanceof FileDownloadTask) {
+                    failed.add(((FileDownloadTask) task).getFile().getName());
+                }
+                if (failed.size() >= 5) break;
+            }
+            throw new ModpackCompletionException(failed.isEmpty()
+                    ? "整合包文件下载失败"
+                    : "整合包部分文件下载失败: " + String.join("、", failed));
+        }
     }
 
     /** 源端 404 的文件直接跳过（单个模组缺失不终止整个整合包安装） */
@@ -258,7 +273,8 @@ public final class CurseCompletionTask extends Task<Void> {
         public void execute() throws Exception {
             try {
                 super.execute();
-            } catch (DownloadException e) {
+            } catch (Exception e) {
+                // 下载任务抛 IOException（404 为 FileNotFoundException），沿因果链判断后跳过
                 if (isNotFound(e)) {
                     Logging.LOG.log(Level.WARNING, "Modpack file not found on all sources, skipped: " + getFile(), e);
                 } else {

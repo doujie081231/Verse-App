@@ -46,9 +46,6 @@ object HomeGridStore {
 
     /** 保存布局快照 */
     fun save(context: Context, cards: List<GridCard>, columns: Int) {
-        // 坏布局不入库：固定功能卡片被摆成同一排（正常是纵向三层）时拒绝写入，
-        // 否则异常测量产生的布局会被持久化，重启后依旧是一排（真机反馈 1.2.3）。
-        if (isSystemRowDegenerate(cards)) return
         val snapshot = HomeGridSnapshot(
             columns = columns,
             cards = cards.map { card ->
@@ -66,13 +63,4 @@ object HomeGridStore {
         prefs.edit().putString(KEY_LAYOUT, gson.toJson(snapshot)).apply()
     }
 
-    /** 固定功能卡片（头像/当前版本/启动）是否被排到互相重叠的行上——正常排布必然纵向分离 */
-    private fun isSystemRowDegenerate(cards: List<GridCard>): Boolean {
-        val ids = HomeLayoutGuard.SYSTEM_CARD_IDS
-        val bands = ids.mapNotNull { id ->
-            cards.firstOrNull { it.id == id }?.layout?.let { HomeLayoutGuard.RowBand(it.y, it.bottom) }
-        }
-        if (bands.size != ids.size) return false
-        return HomeLayoutGuard.systemRowsOverlap(bands)
-    }
 }

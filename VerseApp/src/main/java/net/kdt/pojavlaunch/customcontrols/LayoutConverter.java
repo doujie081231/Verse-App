@@ -55,7 +55,10 @@ public class LayoutConverter {
                     return convertV6_7Layout(layoutJobj);
                 }
                 else if (version == 8) {
-                    return Tools.GLOBAL_GSON.fromJson(jsonLayoutData, CustomControls.class);
+                    CustomControls v8 = Tools.GLOBAL_GSON.fromJson(jsonLayoutData, CustomControls.class);
+                    // 控件组成员不落盘：加载后按 groupId 重建，否则切换控件组的按钮失效
+                    if (v8 != null) v8.rebuildControlGroups();
+                    return v8;
                 }
             }
             return null;
