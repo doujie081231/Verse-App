@@ -372,8 +372,7 @@ class GameLaunchOrchestrator(
             VerseLogger.error("[8/9 JVM启动] loadLibrary(versejvm) 失败: $t", TAG)
         }
         // 诊断日志目录：提前计算（与下方 initializeHooks 无关，供 native 日志使用）
-        val externalBase = activity.getExternalFilesDir(null)
-        val diagDir = if (externalBase != null) File(File(externalBase, "VerseExplorerX"), "logs") else null
+        val diagDir = LaunchLogPolicy.diagDir(activity.getExternalFilesDir(null))
         if (diagDir != null) diagDir.mkdirs()
         // 执行 bytehook_init(BYTEHOOK_MODE_AUTOMATIC) → create_sdl_hooks（SDL_InitSubSystem
         // launcher 集成/窗口复用/EGL 兼容/Vulkan loader 一致性）+ create_sdl_dlopen_hooks
@@ -391,16 +390,18 @@ class GameLaunchOrchestrator(
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv("VERSE_NATIVES_DIR", nativesDir.absolutePath)
             // native FLOGI 日志：外部可访问路径，Android 10+ 的 /sdcard 根目录不可写，
             // 必须用应用专属外部目录（getExternalFilesDir）。
+            val logDir = LaunchLogPolicy.baseLogDir(diagDir, gameDir)
+            val nativeLogs = LaunchLogPolicy.nativeLogs(logDir)
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetLogPath(
-                File(diagDir ?: File(gameDir, "logs"), "verse_native.log").absolutePath
+                nativeLogs.native.absolutePath
             )
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeRedirectStdio(
-                File(diagDir ?: File(gameDir, "logs"), "verse_jvm_out.log").absolutePath
+                nativeLogs.jvmOut.absolutePath
             )
             // glfw_hook（EGL/窗口创建/渲染库加载）的文件日志：崩溃现场最后操作点
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                 "VERSE_GLFW_LOG_PATH",
-                File(diagDir ?: File(gameDir, "logs"), "verse_glfw.log").absolutePath
+                nativeLogs.glfw.absolutePath
             )
             // MC 26.3 SDL 渲染路径：RenderPearl 校验 LWJGL 的 GL provider 与
             // SDL_GL_GetProcAddress 返回的 glGetError 是否同一实现。LWJGL 侧经
@@ -411,7 +412,7 @@ class GameLaunchOrchestrator(
             // versesdl 的 bytehook_init 返回 ALREADY_CALLED(4) 时继续装 hook（不锁死）。
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                 "VERSE_SDL_LOG_PATH",
-                File(diagDir ?: File(gameDir, "logs"), "verse_sdl.log").absolutePath
+                nativeLogs.sdl.absolutePath
             )
             com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                 "VERSE_APP_LIB_DIR",
@@ -426,33 +427,41 @@ class GameLaunchOrchestrator(
             // RenderPearl 的 Vulkan 后端（26.2+）要求 VK_EXT_vertex_attribute_divisor：
             // LWJGL/SDL 的 Vulkan 加载统一包装到 libvkshim.so（VULKAN_PTR）合成该扩展。
             // 仅 arm64-v8a 真机路径启用（模拟器 x86_64 / OpenGL 后端不受影响）。
-            if (params.mcVersionMajor >= 26 &&
-                android.os.Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
+            val vulkanEnv = LaunchDevicePolicy.vulkanEnvironment(
+                mcVersionMajor = params.mcVersionMajor,
+                supported64BitAbis = android.os.Build.SUPPORTED_64_BIT_ABIS.toList(),
+                vkDriverSystem = if (!verSettings.usesGlobal) verSettings.vkDriverSystem
+                else SettingsRepository.getVkDriverSystem(),
+                needsVulkanShim = com.verse.explorer.app.device.VulkanCheckManager.needsVulkanShim,
+                pipelineCache = SettingsRepository.getVersexPipelineCache(),
+                nativeLibraryDir = activity.applicationInfo.nativeLibraryDir
+            )
+            if (vulkanEnv != null) {
                 // "1"=系统驱动；"0"=Turnip，versesdl 加载链经 liblinkerhook 把 loader 的驱动
                 // 加载请求转向 DRIVER_PATH/libvulkan_freedreno.so（不适用设备探测失败自动回落）
-                val vkDriverSystem = if (!verSettings.usesGlobal) verSettings.vkDriverSystem
-                else SettingsRepository.getVkDriverSystem()
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
-                    "VULKAN_DRIVER_SYSTEM", if (vkDriverSystem) "1" else "0"
+                    "VULKAN_DRIVER_SYSTEM", if (vulkanEnv.driverSystem) "1" else "0"
                 )
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
-                    "DRIVER_PATH", activity.applicationInfo.nativeLibraryDir
+                    "DRIVER_PATH", vulkanEnv.driverPath
                 )
                 // 补齐——divisor 合成或 fillModeNonSolid 降级模拟——时才启用包装层；
                 // 无条件开启会让缺口不可补的设备（驱动 <1.2）在游戏内加载 Vulkan 句柄时崩溃）
-                val shimEnabled = com.verse.explorer.app.device.VulkanCheckManager.needsVulkanShim
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
-                    "VKSHIM_ENABLE", if (shimEnabled) "1" else "0"
+                    "VKSHIM_ENABLE", if (vulkanEnv.shimEnabled) "1" else "0"
                 )
-                VerseLogger.info("[8/9 JVM启动] VKSHIM_ENABLE=${if (shimEnabled) "1" else "0"}（needsVulkanShim=$shimEnabled）", TAG)
+                VerseLogger.info(
+                    "[8/9 JVM启动] VKSHIM_ENABLE=${if (vulkanEnv.shimEnabled) "1" else "0"}" +
+                        "（needsVulkanShim=${vulkanEnv.shimEnabled}）",
+                    TAG
+                )
                 // VerseX 渲染器（设置页「VerseX 渲染器/Pipeline 缓存」）：M1 为 pipeline 对象级缓存，
                 // 经环境变量传给 vkshim（默认开，VERSERX_PIPELINE_CACHE=0 关闭）
-                val vsxPipelineCache = com.verse.explorer.core.data.SettingsRepository.getVersexPipelineCache()
                 com.verse.explorer.jvmlauncher.JvmLauncherAPI.nativeSetenv(
                     "VERSERX_PIPELINE_CACHE",
-                    if (vsxPipelineCache) "1" else "0"
+                    if (vulkanEnv.pipelineCache) "1" else "0"
                 )
-                if (shimEnabled) {
+                if (vulkanEnv.shimEnabled) {
                     try {
                         org.libsdl.app.SDL.nativeEnableVulkanShim()
                         VerseLogger.info("[8/9 JVM启动] vkshim Vulkan 包装层已启用（VULKAN_PTR 指向 libvkshim.so）", TAG)
@@ -462,8 +471,10 @@ class GameLaunchOrchestrator(
                 } else {
                     VerseLogger.info("[8/9 JVM启动] vkshim 包装层未启用（设备缺口不可补或无缺口）", TAG)
                 }
+            } else {
+                VerseLogger.info("[8/9 JVM启动] 非 arm64/26.x：跳过 Vulkan 环境注入", TAG)
             }
-            VerseLogger.info("[8/9 JVM启动] native 日志: ${(diagDir ?: File(gameDir, "logs")).absolutePath}", TAG)
+            VerseLogger.info("[8/9 JVM启动] native 日志: ${logDir.absolutePath}", TAG)
         } catch (t: Throwable) {
             VerseLogger.error("[8/9 JVM启动] native 配置失败: $t", TAG)
         }
@@ -573,12 +584,15 @@ class GameLaunchOrchestrator(
             } else null
             val info = LoaderTypeResolver.resolve(versionJson, params.versionId)
 
-            val isolated = verSettings.usesGlobal || verSettings.isolateGameDir
-            val modsDir = if (isolated) {
-                File(File(File(params.gameDirPath), "versions"), "${params.versionId}/mods")
-            } else {
-                File(params.gameDirPath, "mods")
-            }
+            val isolated = LaunchDirectoryPolicy.isIsolated(
+                verSettings.usesGlobal,
+                verSettings.isolateGameDir
+            )
+            val modsDir = LaunchDirectoryPolicy.modsDir(
+                File(params.gameDirPath),
+                params.versionId,
+                isolated
+            )
 
             val report = com.verse.explorer.core.mod.ModCompatibilityChecker.check(
                 modsDir, info.baseVersionId, info.loaderType, params.javaVersion
@@ -622,19 +636,7 @@ class GameLaunchOrchestrator(
         )
     }
 
-    private fun parseUuid(raw: String): UUID {
-        val compact = raw.replace("-", "")
-        if (compact.length != 32) {
-            return UUID.nameUUIDFromBytes(raw.toByteArray())
-        }
-        return UUID.fromString(
-            compact.substring(0, 8) + "-" +
-            compact.substring(8, 12) + "-" +
-            compact.substring(12, 16) + "-" +
-            compact.substring(16, 20) + "-" +
-            compact.substring(20)
-        )
-    }
+    private fun parseUuid(raw: String): UUID = LaunchUuidPolicy.parse(raw)
 
     private fun buildLaunchOptions(
         params: GameLaunchParams,
@@ -644,31 +646,32 @@ class GameLaunchOrchestrator(
         // 强制分辨率（版本级设置）：直接用设定宽高，不按百分比规则换算。
         // setWidth((int)(screenWidth * scaleFactor)) —— 缩放三同步的另外两处：
         // execute 前 setScaleFactor + setDefaultBufferSize/pushEventWindow（见第 9 步）。
-        val forceRes = !verSettings.usesGlobal && verSettings.forceResolution &&
-            verSettings.width > 0 && verSettings.height > 0
         val resolvedSize = MenuSetting.resolveRenderSize(surfaceWidth, surfaceHeight)
-        val effectiveWidth = if (forceRes) {
-            verSettings.width
-        } else if (surfaceWidth > 0) {
-            resolvedSize.first
-        } else {
-            params.gameWidth
-        }
-        val effectiveHeight = if (forceRes) {
-            verSettings.height
-        } else if (surfaceHeight > 0) {
-            resolvedSize.second
-        } else {
-            params.gameHeight
-        }
+        val (effectiveWidth, effectiveHeight) = LaunchSizePolicy.resolve(
+            LaunchSizePolicy.Input(
+                usesGlobal = verSettings.usesGlobal,
+                forceResolution = verSettings.forceResolution,
+                forceWidth = verSettings.width,
+                forceHeight = verSettings.height,
+                surfaceWidth = surfaceWidth,
+                surfaceHeight = surfaceHeight,
+                scaledWidth = resolvedSize.first,
+                scaledHeight = resolvedSize.second,
+                fallbackWidth = params.gameWidth,
+                fallbackHeight = params.gameHeight
+            )
+        )
         // 版本隔离：开启时运行目录指向版本文件夹（与 getRunDirectory 一致），
         // 关闭时回到游戏根目录
-        val isolated = verSettings.usesGlobal || verSettings.isolateGameDir
-        val runDir = if (isolated) {
-            File(File(File(params.gameDirPath), "versions"), params.versionId).apply { mkdirs() }
-        } else {
-            File(params.gameDirPath).apply { mkdirs() }
-        }
+        val isolated = LaunchDirectoryPolicy.isIsolated(
+            verSettings.usesGlobal,
+            verSettings.isolateGameDir
+        )
+        val runDir = LaunchDirectoryPolicy.runDir(
+            File(params.gameDirPath),
+            params.versionId,
+            isolated
+        ).apply { mkdirs() }
         val debugLog = if (!verSettings.usesGlobal) verSettings.debugLog else SettingsRepository.getDebugLog()
         return LaunchOptions.Builder()
             .setGameDir(runDir)

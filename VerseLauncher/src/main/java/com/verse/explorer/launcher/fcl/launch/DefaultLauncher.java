@@ -41,7 +41,6 @@ import com.verse.explorer.launcher.fcl.io.FileUtils;
 import com.verse.explorer.launcher.fcl.io.IOUtils;
 import com.verse.explorer.launcher.fcl.util.CommandBuilder;
 import com.verse.explorer.launcher.fcl.util.FCLPath;
-import com.verse.explorer.launcher.fcl.util.ServerAddress;
 import com.verse.explorer.launcher.fcl.util.StringUtils;
 import com.verse.explorer.launcher.fcl.util.versioning.GameVersionNumber;
 
@@ -53,11 +52,8 @@ import java.io.OutputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 
 import java.util.List;
 import java.util.Locale;
@@ -103,18 +99,11 @@ public class DefaultLauncher extends Launcher {
     }
 
     public void setLwjglVersion(String lwjglVersion) {
-        try {
-            if (GameVersionNumber.compare(lwjglVersion, "3.3.3") < 0) {
-                this.useLwjglX = true;
-            }
-            if (GameVersionNumber.compare(lwjglVersion, "3.4.1") >= 0) {
-                this.lwjglVersion = "3.4.1";
-            } else {
-                this.lwjglVersion = "3.3.3";
-            }
-        } catch (Throwable t) {
-            this.lwjglVersion = "3.3.3";
+        LwjglVersionPolicy.Selection selection = LwjglVersionPolicy.select(lwjglVersion);
+        if (selection.getUseLwjglX()) {
+            this.useLwjglX = true;
         }
+        this.lwjglVersion = selection.getVersion();
     }
 
     private String getLwjglDir() {
@@ -351,16 +340,10 @@ public class DefaultLauncher extends Launcher {
         String address = options.getServerIp();
         if (StringUtils.isNotBlank(address)) {
             try {
-                ServerAddress parsed = ServerAddress.parse(address);
-                if (GameVersionNumber.compare(repository.getGameVersion(version).orElse("0.0"), "1.20") < 0) {
-                    res.add("--server");
-                    res.add(parsed.getHost());
-                    res.add("--port");
-                    res.add(parsed.getPort() >= 0 ? String.valueOf(parsed.getPort()) : "25565");
-                } else {
-                    res.add("--quickPlayMultiplayer");
-                    res.add(parsed.getPort() < 0 ? address + ":25565" : address);
-                }
+                res.addAll(FclServerArgumentPolicy.resolve(
+                        repository.getGameVersion(version).orElse("0.0"),
+                        address
+                ));
             } catch (IllegalArgumentException e) {
                 Log.w("DefaultLauncher", "Invalid server address: " + address + "\n" + e);
             }
@@ -495,17 +478,7 @@ public class DefaultLauncher extends Launcher {
      */
     private void replaceJnaWithLocal(Set<String> classpath) {
         File localJna = new File(FCLPath.JNA_PATH, "jna.jar");
-        if (!localJna.exists()) return;
-        Set<String> temp = new LinkedHashSet<>();
-        for (String entry : classpath) {
-            if (entry.contains("net/java/dev/jna/jna/")) {
-                temp.add(localJna.getAbsolutePath());
-            } else {
-                temp.add(entry);
-            }
-        }
-        classpath.clear();
-        classpath.addAll(temp);
+        FclClasspathPolicy.replaceJna(classpath, localJna);
     }
 
     /**
@@ -526,9 +499,10 @@ public class DefaultLauncher extends Launcher {
     private void replaceLwjglWithLocal(Set<String> classpath) {
         File lwjglDir = new File(getLwjglDir());
         if (!lwjglDir.isDirectory()) return;
-        File[] localLwjglJars = lwjglDir.listFiles((dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 0);
+        File[] localLwjglJars = lwjglDir.listFiles(
+                (dir, name) -> name.endsWith(".jar") && new File(dir, name).length() > 0
+        );
         if (localLwjglJars == null || localLwjglJars.length == 0) return;
-        Arrays.sort(localLwjglJars, Comparator.comparing(File::getName));
         // 现代加载器（Forge/NeoForge 1.20.5+ / 26.x，mainClass 为 *bootstrap*）会把整个
         // classpath 当作模块路径解析：lwjgl-lwjglx.jar（LWJGL2 兼容层，模块 org.lwjgl.lwjglx）
         // 与 lwjgl-*-merged.jar（模块 org.lwjgl）都导出 org.lwjgl 包 → 分包冲突
@@ -536,23 +510,11 @@ public class DefaultLauncher extends Launcher {
         // 现代版本是 LWJGL3，直接剔除 lwjglx 避免模块解析冲突。
         boolean modernModuleLoader = version.getMainClass() != null
                 && version.getMainClass().toLowerCase(Locale.ROOT).contains("bootstrap");
-        Set<String> temp = new LinkedHashSet<>();
-        for (File jar : localLwjglJars) {
-            if (modernModuleLoader && jar.getName().contains("lwjglx")) {
-                continue;
-            }
-            temp.add(jar.getAbsolutePath());
-        }
-        for (String entry : classpath) {
-            if (entry.contains("/org/lwjgl/")
-                    || entry.contains("/jinput/")
-                    || entry.contains("lwjgl_util")) {
-                continue;
-            }
-            temp.add(entry);
-        }
-        classpath.clear();
-        classpath.addAll(temp);
+        FclClasspathPolicy.replaceLwjgl(
+                classpath,
+                java.util.Arrays.asList(localLwjglJars),
+                modernModuleLoader
+        );
     }
 
     private boolean isUsingLog4j() {

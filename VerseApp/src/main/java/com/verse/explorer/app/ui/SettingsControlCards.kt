@@ -495,6 +495,7 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 MenuSetting.isPerformanceMode = on
                 persist(MenuSetting.Key.PERFORMANCE_MODE)
             }
+            // 快捷栏触控层尺寸：0 关闭，>0 为占屏幕的百分比（宽度按屏宽、高度按屏高）
             PcSliderRow(
                 label = "物品栏缩放 - 宽度",
                 value = itemBarWidth,
@@ -504,6 +505,7 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 itemBarWidth = v
                 MenuSetting.itemBarWidth = v
                 persist(MenuSetting.Key.ITEM_BAR_WIDTH)
+                com.verse.explorer.app.ui.game.HotbarOverlayView.requestFeedback()
             }
             PcSliderRow(
                 label = "物品栏缩放 - 高度",
@@ -514,7 +516,13 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 itemBarHeight = v
                 MenuSetting.itemBarHeight = v
                 persist(MenuSetting.Key.ITEM_BAR_HEIGHT)
+                com.verse.explorer.app.ui.game.HotbarOverlayView.requestFeedback()
             }
+            Text(
+                "设为 0 关闭（不拦截自定义布局）；设为任意百分比后，游戏里点按或左右滑动快捷栏即可切换物品栏槽位，双击同一格交换主副手",
+                fontSize = 11.sp,
+                color = VerseColors.PcTextMuted
+            )
             PcSliderRow(
                 label = "光标偏移",
                 value = cursorOffset,

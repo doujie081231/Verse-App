@@ -263,8 +263,12 @@ private fun newVersionCardLayout(state: CardGridState, columns: Int): CardRect {
 }
 
 /**
- * 修复退化布局：首帧异常窗口宽度会把全部卡片钳制到左列并持久化，
- * 加载后若检测到「所有卡片都贴左列」（且不止一张卡），把固定功能卡片重新居中。
+ * 修复退化布局：
+ * 1. 首帧异常窗口宽度会把全部卡片钳制到左列并持久化 → 固定功能卡片重新居中；
+ * 2. 固定功能卡片（头像 / 当前版本 / 启动）被持久化成「同一排」——
+ *    正常排布必须是纵向三块（账户 → 版本 → 启动），行区间一旦互相重叠，
+ *    说明快照来自异常测量（真机反馈：主页所有 UI 排成一排，重启依旧是持久化的坏布局），
+ *    按设计布局整体还原。
  */
 private fun repairDegenerateLayout(state: CardGridState, columns: Int) {
     // 版本卡片曾因记录先于播种到达而落在 (0,0)：系统卡已居中时，把这类版本卡移到系统块下方
@@ -281,6 +285,14 @@ private fun repairDegenerateLayout(state: CardGridState, columns: Int) {
             }
     }
     if (state.cards.size < 2) return
+    val systemIds = HomeLayoutGuard.SYSTEM_CARD_IDS
+    val bands = systemIds.mapNotNull { id ->
+        state.cards.firstOrNull { it.id == id }?.layout?.let { HomeLayoutGuard.RowBand(it.y, it.bottom) }
+    }
+    if (bands.size == systemIds.size && HomeLayoutGuard.systemRowsOverlap(bands)) {
+        state.applyLayouts(systemCardLayouts(columns, state.visibleRowCount()))
+        return
+    }
     if (state.cards.any { it.layout.x != 0 }) return
     state.applyLayouts(systemCardLayouts(columns, state.visibleRowCount()))
 }

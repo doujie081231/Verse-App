@@ -450,10 +450,12 @@ class InGameControlOverlay(
         })
         content.addView(rows.seekbarRow("物品栏缩放 - 宽度", 0, 100, MenuSetting.itemBarWidth, "%") { v ->
             MenuSetting.itemBarWidth = v
+            HotbarOverlayView.requestFeedback()
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_WIDTH)
         })
         content.addView(rows.seekbarRow("物品栏缩放 - 高度", 0, 100, MenuSetting.itemBarHeight, "%") { v ->
             MenuSetting.itemBarHeight = v
+            HotbarOverlayView.requestFeedback()
             MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_HEIGHT)
         })
         content.addView(rows.seekbarRow("光标偏移", -150, 150, MenuSetting.cursorOffset.toInt(), "") { v ->

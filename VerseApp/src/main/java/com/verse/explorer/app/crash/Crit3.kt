@@ -6,6 +6,10 @@ package com.verse.explorer.app.crash
 
 object Crit3 {
 
+    /** 渲染器缺失的 LWJGL GL 原生函数（org.lwjgl.opengl.GLxxC.nglXxx） */
+    private val RENDERER_GL_FUNCTION =
+        Regex("org\\.lwjgl\\.opengl\\.GL\\d+C?\\.ngl\\w+")
+
     // 三级分析
     fun analyze(logs: PreparedLogs): LinkedHashMap<CrashReason, List<String>> {
         // 内部使用 MutableList 以匹配 CrashUtils.appendReason(MutableMap<CrashReason, MutableList<String>>) 的签名
@@ -51,6 +55,16 @@ object Crit3 {
                 (lc.contains("UnsatisfiedLinkError") || lc.contains("Failed to dynamically load library"))
             ) {
                 CrashUtils.appendReason(reasons, CrashReason.ModNeedsGlibc, null)
+            }
+
+            // 渲染器未实现游戏需要的 GL 函数：崩溃报告形如
+            // java.lang.UnsatisfiedLinkError: 'void org.lwjgl.opengl.GL32C.nglDeleteSync(long)'
+            // 这类缺失由渲染器插件（MobileGlues / ANGLE 等 GL 兼容层）决定，不是游戏本身
+            if (lc.contains("UnsatisfiedLinkError") && RENDERER_GL_FUNCTION.containsMatchIn(lc)) {
+                val fn = CrashUtils.regexSeekGroup(
+                    lc, "(org\\.lwjgl\\.opengl\\.GL\\d+C?\\.ngl\\w+)", 1
+                ) ?: ""
+                CrashUtils.appendReason(reasons, CrashReason.RendererMissingGlFunction, listOf(fn))
             }
 
             // 特定方块导致崩溃

@@ -121,7 +121,9 @@ public class ControlButton extends TextView implements ControlInterface {
         switch (event.getActionMasked()){
             case MotionEvent.ACTION_MOVE:
                 //Send the event to be taken as a mouse action
-                if(getProperties().passThruEnabled && CallbackBridge.isGrabbing()){
+                //  仅转发「按下本按钮」的那根手指：其他手指只是滑动经过，转发会把
+                //  过路触摸当成游戏触摸（视角跳/闪）；控件只应持有自己按下的那根手指
+                if(getProperties().passThruEnabled && CallbackBridge.isGrabbing() && mDownPointerId != -1){
                     View gameSurface = getControlLayoutParent().getGameSurface();
                     if(gameSurface != null) gameSurface.dispatchTouchEvent(event);
                 }

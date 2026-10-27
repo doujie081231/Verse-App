@@ -67,4 +67,5 @@ enum class CrashReason(val cn: String) {
     TextureTooLarge("材质过大或显卡配置不足"),
     OptiFineCannotLoadWorld("OptiFine导致无法加载世界"),
     ModNeedsGlibc("Mod需要Linux glibc"),
+    RendererMissingGlFunction("渲染器缺少游戏需要的图形函数"),
 }

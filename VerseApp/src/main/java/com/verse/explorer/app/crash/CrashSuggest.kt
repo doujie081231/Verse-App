@@ -132,6 +132,13 @@ object CrashSuggest {
                     "检测到仅支持桌面 Linux（glibc）的模组：日志里出现 libc.so.6 加载失败。\n" +
                         "Android 使用 bionic C 库，没有 glibc，这类模组（如 Voxy 及其本地加速库）无法在手机上运行。\n" +
                         "请从整合包/模组文件夹中删除该模组后重新启动。"
+                CrashReason.RendererMissingGlFunction -> {
+                    val fn = additional.firstOrNull().orEmpty()
+                    "渲染器没有实现游戏需要的图形函数" +
+                        (if (fn.isNotBlank()) "（$fn）" else "") + "，游戏在渲染初始化阶段崩溃。\n" +
+                        "这属于渲染器插件（如 MobileGlues / ANGLE 等 GL 兼容层）与手机显卡驱动的匹配问题，不是游戏或整合包本身的问题。\n" +
+                        "请到 设置 → 渲染器 升级到最新渲染器插件，或切换到其他渲染器后再启动。"
+                }
                 CrashReason.NativeLinkError -> {
                     val needPathCheck = additional.firstOrNull()
                         ?.let { it != "请检查游戏路径是否包含中文字符" } ?: false
@@ -319,5 +326,6 @@ object CrashSuggest {
         CrashReason.StackKeywordFound -> 55
         CrashReason.StackModNameFound -> 56
         CrashReason.ModNeedsGlibc -> 57
+        CrashReason.RendererMissingGlFunction -> 58
     }
 }

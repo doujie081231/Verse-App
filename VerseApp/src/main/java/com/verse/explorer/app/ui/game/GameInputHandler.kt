@@ -407,6 +407,15 @@ class GameInputHandler(
         }
     }
 
+    /**
+     * 让下一帧 MOVE 重新取基线、不产生位移。
+     * 手指完全落在虚拟按钮 / 快捷栏上时游戏触控收不到事件，此时不清基线，
+     * 手指离开按钮的瞬间会按「跨越整段时间的位移」算 delta → 视角猛跳（画面像闪了一下）。
+     */
+    fun invalidateGrabBaseline() {
+        if (isGrabbing) shouldBeDown = false
+    }
+
     /** 触摸诊断日志（仅 logcat，MOVE 采样节流防刷输入线程） */
     private fun diagEvent(event: MotionEvent, skipIds: Set<Int>, mainIndex: Int) {
         val action = when (event.actionMasked) {
@@ -482,6 +491,11 @@ class GameInputHandler(
     private fun handleGrabbedTouch(event: MotionEvent, mainIndex: Int) {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) return
         if (MenuSetting.isDisableLeftTouch && event.getX(mainIndex) <= screenWidth / 2f) {
+            // 屏蔽期间基线必须跟着手指走：之前只 return 不更新基线，手指从按钮区回到右半屏的
+            // 第一帧会算出「整段跨屏位移」，视角一次猛跳（真机反馈的滑到按键就闪一下）。
+            downX = event.getX(mainIndex)
+            downY = event.getY(mainIndex)
+            lastGrabbedMoveTime = System.currentTimeMillis()
             VerseLogger.debug("gLeftSkip x=${event.getX(mainIndex).toInt()} main=$mainIndex", "TouchDiag")
             return
         }

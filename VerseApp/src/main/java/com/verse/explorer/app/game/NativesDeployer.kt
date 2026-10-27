@@ -126,8 +126,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
                 return 0
             }
 
-            val packagedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull { it in packagedAbis } ?: "arm64-v8a"
+            val targetAbi = NativesAbiPolicy.resolve(Build.SUPPORTED_ABIS?.toList().orEmpty())
 
             // libfreetype.so、libshaderc.so），这些库基于 Android bionic 编译，可直接加载。
             // 此方法会跳过 libglfw.so（由 org.lwjgl.glfw.CallbackBridge 软件模拟，无需原生库）。
@@ -179,7 +178,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
 
         var extractSuccess = false
 
-        val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") } ?: "arm64-v8a"
+        val targetAbi = NativesAbiPolicy.resolve(Build.SUPPORTED_ABIS?.toList().orEmpty())
 
         if (!alreadyExists) {
             // 注意：classpath 中的 MC jna jar 会被 DefaultLauncher 替换为本机 jna.jar，保证 Java 层与 native 版本一致。
@@ -188,29 +187,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
                     val jnaJar = File(jnaRuntimeDir, "jna.jar")
                     if (jnaJar.exists()) {
                         JarFile(jnaJar).use { jar ->
-                            val jnaEntries = when (targetAbi) {
-                                "arm64-v8a" -> listOf(
-                                    "com/sun/jna/android-aarch64/libjnidispatch.so",
-                                    "com/sun/jna/linux-aarch64/libjnidispatch.so"
-                                )
-                                "armeabi-v7a" -> listOf(
-                                    "com/sun/jna/android-arm/libjnidispatch.so",
-                                    "com/sun/jna/linux-arm/libjnidispatch.so"
-                                )
-                                "x86_64" -> listOf(
-                                    "com/sun/jna/android-x86-64/libjnidispatch.so",
-                                    "com/sun/jna/linux-x86-64/libjnidispatch.so",
-                                    "com/sun/jna/linux-amd64/libjnidispatch.so"
-                                )
-                                "x86" -> listOf(
-                                    "com/sun/jna/android-x86/libjnidispatch.so",
-                                    "com/sun/jna/linux-x86/libjnidispatch.so"
-                                )
-                                else -> listOf(
-                                    "com/sun/jna/android-aarch64/libjnidispatch.so",
-                                    "com/sun/jna/linux-aarch64/libjnidispatch.so"
-                                )
-                            }
+                            val jnaEntries = NativesAbiPolicy.jnaEntries(targetAbi)
                             for (name in jnaEntries) {
                                 val entry = jar.getJarEntry(name) ?: continue
                                 jar.getInputStream(entry).use { input ->
@@ -512,8 +489,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
      * -Dorg.lwjgl.librarypath 指向的原生库与打包 jar 配对且架构匹配。
      */
     private fun ensureLwjglNativesForDevice(versionDir: String): Int {
-        val packagedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-        val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull { it in packagedAbis } ?: "arm64-v8a"
+        val targetAbi = NativesAbiPolicy.resolve(Build.SUPPORTED_ABIS?.toList().orEmpty())
         if (targetAbi == "arm64-v8a") return 0
 
         val nativesDir = File(File(FCLPath.LWJGL_DIR, versionDir), "natives/$targetAbi")
@@ -547,8 +523,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
 
     fun deployLwjglToExternalStorage(gameDir: File) {
         try {
-            val packagedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            val targetAbi = Build.SUPPORTED_ABIS?.firstOrNull { it in packagedAbis } ?: "arm64-v8a"
+            val targetAbi = NativesAbiPolicy.resolve(Build.SUPPORTED_ABIS?.toList().orEmpty())
             val lwjglArch = when (targetAbi) {
                 "arm64-v8a" -> "arm64"
                 "armeabi-v7a" -> "arm32"

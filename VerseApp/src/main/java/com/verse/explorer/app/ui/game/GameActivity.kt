@@ -142,6 +142,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     internal var inGameControl: InGameControlOverlay? = null
 
+    /** 快捷栏触控层：物品栏缩放滑条 > 0 时生效（见 HotbarOverlayView） */
+    private var hotbarOverlay: HotbarOverlayView? = null
+
     /**
      * SDL 的方向请求一律忽略、始终锁定横屏。
      *
@@ -545,15 +548,25 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 overlayReceivedFirstDown = false
             }
             diagDispatch(ev, buttonPointerIds, buttonPointerIds)
-            if (buttonPointerIds.size < ev.pointerCount) {
+            // 快捷栏触控层：虚拟按钮优先，其余落在快捷栏矩形内的指针由它接管（点按/滑动切槽位）。
+            // 接管的指针既不进游戏触控（否则会同时转视角），也不参与双指下滑手势。
+            val hotbarPointerIds = hotbarOverlay?.handleTouch(ev, buttonPointerIds) ?: emptySet()
+            val consumedIds = if (hotbarPointerIds.isEmpty()) buttonPointerIds
+                else buttonPointerIds + hotbarPointerIds
+            if (consumedIds.size < ev.pointerCount) {
                 if (inputHandler.isGrabbing() && MenuSetting.isDisableLeftTouch) {
                     val mainIndex = (0 until ev.pointerCount)
-                        .firstOrNull { ev.getPointerId(it) !in buttonPointerIds } ?: 0
+                        .firstOrNull { ev.getPointerId(it) !in consumedIds } ?: 0
                     if (ev.getX(mainIndex) <= resources.displayMetrics.widthPixels / 2f) {
+                        inputHandler.invalidateGrabBaseline()
                         return true
                     }
                 }
-                inputHandler.handleTouchEvent(ev, buttonPointerIds)
+                inputHandler.handleTouchEvent(ev, consumedIds)
+            } else {
+                // 全部指针都被虚拟按钮/快捷栏接管：游戏触控这一段没有事件，基线必须失效，
+                // 否则手指离开按钮的第一帧按整段位移算 delta → 视角猛跳
+                inputHandler.invalidateGrabBaseline()
             }
             return true
         }
@@ -932,6 +945,11 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val overlay = FrameLayout(this)
             overlay.addView(surface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(touchpad, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            // 快捷栏（物品栏）触控层：叠在游戏画面之上、虚拟按钮之下——
+            // 与自定义布局的按钮重叠时按钮优先，其余区域点按/滑动切换快捷栏槽位
+            val hotbar = HotbarOverlayView(this)
+            hotbarOverlay = hotbar
+            overlay.addView(hotbar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(layout, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(logWin, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,

@@ -96,13 +96,24 @@ class MainActivity : ComponentActivity() {
             }
             VerseExplorerTheme {
                 Surface(
-                    // 刘海区域完全交给窗口的 layoutInDisplayCutoutMode（MainWindowMode 中设置）处理：
-                    // 不忽略刘海时窗口模式为 NEVER，系统自动避让；忽略时窗口延伸到挖孔区。
-                    // 这里不再叠加 displayCutout 内边距，否则关闭忽略刘海时会被二次内缩，
-                    // 主页网格宽度/高度变化后卡片被重排到顶部。
                     modifier = Modifier.fillMaxSize(),
                     color = Color.Black
                 ) {
+                    // 刘海避让：targetSdk 35 起系统强制 edge-to-edge，layoutInDisplayCutoutMode
+                    // 会被系统覆盖成延伸模式（Android 15 起强制 edge-to-edge），
+                    // 只在窗口层设置 NEVER 已经不再生效 —— 关闭「忽略刘海」后画面依旧铺满挖孔区。
+                    // 因此改为在内容容器上让出 displayCutout 安全区：
+                    //   · 忽略刘海 → 不加内边距，画面铺满；
+                    //   · 不忽略   → 加 displayCutout 内边距，内容整体避让。
+                    // 系统若在低版本上仍执行了窗口避让，此时 inset 为 0，不会二次内缩。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (DisplayNotch.ignoreNotch) Modifier
+                                else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
+                            )
+                    ) {
                     val showEula = !eulaAgreed.value
                     val showPermission = eulaAgreed.value && !permissionGranted.value
                     val showSetup = eulaAgreed.value && permissionGranted.value && stateChecked.value && !setupComplete.value
@@ -137,7 +148,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onDisagree = { finish() }
                         )
-                        return@Surface
+                        return@Box
                     }
 
                     if (showPermission) {
@@ -146,7 +157,7 @@ class MainActivity : ComponentActivity() {
                             onRecheck = { permissionGranted.value = hasStoragePermission(this@MainActivity) },
                             onCancel = { finish() }
                         )
-                        return@Surface
+                        return@Box
                     }
 
                     if (showSetup) {
@@ -156,7 +167,7 @@ class MainActivity : ComponentActivity() {
                                 jreReady.value = true
                             }
                         )
-                        return@Surface
+                        return@Box
                     }
 
                     // 加载中 — 等待运行时状态检查完成
@@ -169,7 +180,7 @@ class MainActivity : ComponentActivity() {
                                 Text("正在检查运行环境...", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
                             }
                         }
-                        return@Surface
+                        return@Box
                     }
 
                     // 主界面
@@ -184,6 +195,7 @@ class MainActivity : ComponentActivity() {
                         shareImportUri = shareImportUri.value,
                         onShareImportHandled = { shareImportUri.value = null }
                     )
+                    }
                 }
             }
         }
