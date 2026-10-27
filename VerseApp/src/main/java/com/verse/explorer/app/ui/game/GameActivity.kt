@@ -30,6 +30,9 @@ import java.util.concurrent.CountDownLatch
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.graphics.toArgb
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.verse.explorer.app.R
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.core.data.version.VersionJsonResolver
@@ -791,26 +794,26 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     private var simulatedKeyboardDialog: android.app.Dialog? = null
 
-    /** 打开模拟键盘（布局与 ZL2 一致，补全 F1-F12 等功能键与符号键） */
+    /** 打开模拟键盘：纯 View 面板（补全 F1-F12 / 符号 / 方向键，可按住组合） */
     fun showSimulatedKeyboard() {
         if (simulatedKeyboardDialog?.isShowing == true) return
         val dialog = android.app.Dialog(this, android.R.style.Theme_Translucent_NoTitleBar_Fullscreen)
-        val view = androidx.compose.ui.platform.ComposeView(this).apply {
-            setContent {
-                SimulatedKeyboard(
-                    onKey = { code, pressed -> inputHandler.sendVirtualKey(code, pressed) },
-                    onDismiss = { dialog.dismiss() }
-                )
-            }
-        }
+        val view = createSimulatedKeyboardView(
+            context = this,
+            onKey = { code, pressed -> inputHandler.sendVirtualKey(code, pressed) },
+            onClose = { runCatching { dialog.dismiss() } }
+        )
         dialog.setContentView(view)
         dialog.window?.setLayout(
             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
             android.view.ViewGroup.LayoutParams.MATCH_PARENT
         )
         dialog.setOnDismissListener { simulatedKeyboardDialog = null }
-        dialog.show()
-        simulatedKeyboardDialog = dialog
+        runCatching { dialog.show() }.onFailure {
+            VerseLogger.error("模拟键盘打开失败: ${it.message}", "Control")
+            simulatedKeyboardDialog = null
+        }
+        simulatedKeyboardDialog = dialog.takeIf { it.isShowing }
     }
 
     fun onGraphicOutput() {

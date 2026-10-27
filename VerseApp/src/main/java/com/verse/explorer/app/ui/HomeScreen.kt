@@ -33,7 +33,6 @@ import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcLaunchOverlay
 import com.verse.explorer.app.ui.home.HomeHubState
-import com.verse.explorer.app.ui.home.HomeSystemHub
 import com.verse.explorer.app.ui.home.HomeVersionActions
 import com.verse.explorer.app.ui.home.LocalHomeHub
 import com.verse.explorer.app.ui.home.LocalHomeVersionActions
@@ -51,8 +50,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * 主页：账户 / 当前版本 / 启动入口是网格上方的固定区域（不参与卡片布局），
- * 下方网格只承载用户固定的版本卡片，可拖动与缩放。
+ * 头像、版本选择与启动入口均为可控卡片，可拖动换位；
+ * 头像支持放大缩小，版本选择与启动按钮尺寸固定。
  */
 @Composable
 fun HomeScreen(
@@ -337,10 +336,6 @@ private fun HomePageContent(
             .padding(horizontal = 24.dp, vertical = 10.dp)
             .onSizeChanged { screenBoundsHeightPx = it.height.toFloat() }
     ) {
-        // 账户 / 当前版本 / 启动入口是固定区域，排在网格之上：
-        // 位置由页面布局决定，不会被网格快照影响
-        HomeSystemHub()
-        Spacer(Modifier.height(16.dp))
         VerseHomeGrid(
             state = gridState,
             outerScrollState = homeScrollState,

@@ -64,6 +64,33 @@ fun VersionDetailScreen(
     var showMobileDataConfirm by remember { mutableStateOf(false) }
     var pendingInstallName by remember { mutableStateOf<String?>(null) }
 
+    /** 安装结果弹窗：完成弹「版本安装完成」，失败弹错误提示（每轮安装只弹一次） */
+    var installResultShown by remember(versionId) { mutableStateOf(false) }
+    var installResult by remember { mutableStateOf<InstallResultUi?>(null) }
+
+    LaunchedEffect(installState.versionId, installState.isInstalling, installState.isCompleted, installState.isFailed) {
+        if (installState.versionId != versionId) return@LaunchedEffect
+        val name = installState.installName.ifBlank { versionId }
+        when {
+            installState.isInstalling -> {
+                // 新一轮安装开始：允许本轮结束后再次弹出结果
+                installResultShown = false
+            }
+            installState.isCompleted && !installResultShown -> {
+                installResultShown = true
+                installResult = InstallResultUi(success = true, versionName = name, message = null)
+            }
+            installState.isFailed && !installResultShown -> {
+                installResultShown = true
+                installResult = InstallResultUi(
+                    success = false,
+                    versionName = name,
+                    message = installState.error?.takeIf { it.isNotBlank() }
+                )
+            }
+        }
+    }
+
     /** 下发版本下载任务（命名确认或移动网络确认后调用） */
     fun beginInstall(name: String) {
         viewModel.installVersion(
@@ -396,6 +423,91 @@ fun VersionDetailScreen(
         }
     }
 
+    // 安装结果弹窗：成功给出明确完成提示，失败给出可读的错误原因与重试入口
+    installResult?.let { result ->
+        Dialog(onDismissRequest = {
+            installResult = null
+            // 失败结果关闭后清掉状态，避免回到本页时重复弹出
+            if (!result.success) viewModel.resetInstallState()
+        }) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = VerseColors.PcBgSecondary
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (result.success) Icons.Filled.CheckCircle else Icons.Filled.Error,
+                            contentDescription = null,
+                            tint = if (result.success) VerseColors.PcGreen else VerseColors.PcRed,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = if (result.success) "版本安装完成" else "安装失败",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (result.success) VerseColors.PcGreen else VerseColors.PcRed
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (result.success) {
+                        Text(
+                            text = "「${result.versionName}」已安装完成，可以返回主页开始游戏。",
+                            fontSize = 13.sp,
+                            color = VerseColors.PcTextPrimary
+                        )
+                    } else {
+                        Text(
+                            text = "「${result.versionName}」安装没有完成。",
+                            fontSize = 13.sp,
+                            color = VerseColors.PcTextPrimary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = result.message ?: "未知错误，请检查网络后重试",
+                            fontSize = 12.sp,
+                            color = VerseColors.PcRed
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        if (!result.success) {
+                            OutlinedButton(
+                                onClick = {
+                                    installResult = null
+                                    viewModel.resetInstallState()
+                                    beginInstall(confirmedInstallName ?: versionId)
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("重试", fontSize = 13.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Button(
+                            onClick = {
+                                installResult = null
+                                // 失败结果关闭后清掉状态，避免回到本页时重复弹出
+                                if (!result.success) viewModel.resetInstallState()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = VerseColors.PcAccent,
+                                contentColor = VerseColors.PcAccentText
+                            )
+                        ) {
+                            Text(if (result.success) "完成" else "关闭", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if (showNamingDialog) {
         VersionNamingDialog(
             gameVersion = versionId,
@@ -461,3 +573,10 @@ fun getVersionTypeLabel(type: String): String {
         else -> "正式版"
     }
 }
+
+/** 安装结果弹窗数据 */
+private data class InstallResultUi(
+    val success: Boolean,
+    val versionName: String,
+    val message: String?
+)
