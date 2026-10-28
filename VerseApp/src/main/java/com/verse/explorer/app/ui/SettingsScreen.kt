@@ -902,6 +902,29 @@ fun SettingsScreen(navController: NavHostController) {
                     }
 
                     item {
+                        PcCard(title = "主页布局") {
+                            Text(
+                                "主页卡片支持长按拖动与缩放，位置会自动保存；排乱了可以在这里恢复默认布局",
+                                fontSize = 12.sp,
+                                color = VerseColors.PcTextMuted
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            PcButton(
+                                text = "重置主页布局",
+                                onClick = {
+                                    com.verse.explorer.app.ui.home.HomeGridStore.requestReset(context)
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "主页布局已重置为默认",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                variant = PcButtonVariant.OUTLINE
+                            )
+                        }
+                    }
+
+                    item {
                         PcCard(title = "背景设置") {
                             Text(
                                 "背景风格",

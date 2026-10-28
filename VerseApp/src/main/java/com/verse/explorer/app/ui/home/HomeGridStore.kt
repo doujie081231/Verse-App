@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import com.verse.explorer.cardgrid.state.GridCard
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 
 /** 单张主页卡片的持久化数据 */
 data class HomeCardSnapshot(
@@ -34,6 +36,10 @@ object HomeGridStore {
 
     private val gson = Gson()
 
+    /** 「重置主页布局」信号：设置页触发，主页收到后清空卡片并按默认布局重新播种 */
+    private val _resetEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val resetEvents: SharedFlow<Unit> = _resetEvents
+
     /** 读取布局快照，无有效数据时返回 null */
     fun load(context: Context): HomeGridSnapshot? {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -42,6 +48,18 @@ object HomeGridStore {
         return runCatching {
             gson.fromJson(json, HomeGridSnapshot::class.java)
         }.getOrNull()?.takeIf { it.cards.isNotEmpty() }
+    }
+
+    /** 清空布局快照 */
+    fun clear(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove(KEY_LAYOUT).apply()
+    }
+
+    /** 重置主页布局：清空快照并通知主页重新播种 */
+    fun requestReset(context: Context) {
+        clear(context)
+        _resetEvents.tryEmit(Unit)
     }
 
     /** 保存布局快照 */

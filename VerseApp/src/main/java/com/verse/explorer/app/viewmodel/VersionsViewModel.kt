@@ -39,7 +39,9 @@ data class InstallState(
     val error: String? = null,
     val speed: Long = 0L,
     val downloaded: Long = 0L,
-    val totalBytes: Long = 0L
+    val totalBytes: Long = 0L,
+    /** 安装结果（完成/失败）是否已经提示过：只提示一次，重新进入页面不再弹 */
+    val resultNotified: Boolean = false
 )
 
 class VersionsViewModel(application: Application) : AndroidViewModel(application) {
@@ -285,6 +287,16 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
 
     fun resetInstallState() {
         _installState.value = InstallState()
+    }
+
+    /**
+     * 标记安装结果已提示：结果弹窗只出现一次，
+     * 否则重新进入安装页会立刻再弹一次（真机反馈「错误方式显示弹窗」）。
+     */
+    fun markInstallResultNotified() {
+        val state = _installState.value
+        if (state.resultNotified) return
+        _installState.value = state.copy(resultNotified = true)
     }
 
     fun versionIdConflicts(name: String): Boolean {

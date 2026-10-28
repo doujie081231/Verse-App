@@ -73,12 +73,31 @@ fun VerseHomeGrid(
         state.onScreenBounds(screenBoundsHeightPx)
     }
 
-    // 播种持久化的用户卡片布局；有快照时按存储列数折算恢复
-    var seededFirstLayout by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        val snapshot = HomeGridStore.load(context)
-        if (snapshot != null) {
-            val seeds: List<CardSeed> = snapshot.cards.map { entry ->
+    // 播种持久化的布局：只有「快照存在」或「首次使用」两种情况之一会播种，
+    // 且整页生命周期内只播种一次——两次并行播种会互相覆盖，
+    // 表现就是重进软件后用户拖好的位置又回到初始布局。
+    var seedGeneration by remember { mutableStateOf(0) }
+    var seeded by remember { mutableStateOf(false) }
+    var snapshot by remember { mutableStateOf<HomeGridSnapshot?>(null) }
+    var snapshotLoaded by remember { mutableStateOf(false) }
+
+    // 每次（重新）播种代次变化时读一次快照
+    LaunchedEffect(seedGeneration) {
+        snapshot = HomeGridStore.load(context)
+        snapshotLoaded = true
+    }
+
+    LaunchedEffect(seedGeneration, snapshotLoaded, snapshot, state.geometry.columns, state.screenBoundsPx) {
+        if (!snapshotLoaded || seeded) return@LaunchedEffect
+        val columns = state.geometry.columns
+        // 几何默认值为 4 列/20dp，视为尚未完成实际测量
+        if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
+
+        val snap = snapshot
+        val seeds: List<CardSeed>
+        if (snap != null) {
+            // 有快照：按存储列数折算恢复（含用户拖动过的固定功能卡片位置）
+            seeds = snap.cards.map { entry ->
                 CardSeed(
                     id = entry.id,
                     typeId = entry.type,
@@ -91,54 +110,39 @@ fun VerseHomeGrid(
                     )
                 )
             }
-            state.seed(
-                types = HomeCards.userCardTypes,
-                seeds = seeds,
-                storedColumns = snapshot.columns
-            )
-            ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
-            ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
-            ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
-            seededFirstLayout = true
+        } else {
+            // 首次使用：等待可视高度上报后，居中排布 头像 → 版本选择 → 启动按钮
+            val visibleRows = state.visibleRowCount()
+            if (visibleRows <= 0) return@LaunchedEffect
+            seeds = systemCardSeeds(columns, visibleRows)
         }
-    }
-
-    // 首次使用（无快照）：等待真实列数与可视高度测量完成后，居中排布 头像 → 版本选择 → 启动按钮
-    LaunchedEffect(state.geometry.columns, state.screenBoundsPx) {
-        if (seededFirstLayout) return@LaunchedEffect
-        val columns = state.geometry.columns
-        // 几何默认值为 4 列/20dp，视为尚未完成实际测量
-        if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
-        // 可视高度未上报时先不播种，避免按未测得的高度把固定卡片放到不居中的位置
-        val visibleRows = state.visibleRowCount()
-        if (visibleRows <= 0) return@LaunchedEffect
-        val seeds = systemCardSeeds(columns, visibleRows)
-        state.seed(types = HomeCards.userCardTypes, seeds = seeds, storedColumns = 0)
+        state.seed(
+            types = HomeCards.userCardTypes,
+            seeds = seeds,
+            storedColumns = snap?.columns ?: 0
+        )
         ensureSystemCard(state, HomeCards.accountCardType(), "system_account")
         ensureSystemCard(state, HomeCards.currentVersionCardType(), "system_current_version")
         ensureSystemCard(state, HomeCards.launchCardType(), "system_launch")
-        seededFirstLayout = true
+        seeded = true
     }
 
-    // 屏幕尺寸变化（网格列数改变）时，引擎会按阅读顺序把所有卡片重新打包，固定功能卡片会被
-    // 打到最顶部——这正是「改变屏幕尺寸后三块挤到最上面」的来源。这里只在列数真正变化时
-    // 把三块固定卡片按设计布局重新居中；用户固定的版本卡片保持引擎的重排结果，不改动。
-    var lastColumns by remember { mutableStateOf(0) }
-    LaunchedEffect(state.geometry.columns, seededFirstLayout) {
-        if (!seededFirstLayout) return@LaunchedEffect
-        val columns = state.geometry.columns
-        // 几何默认值（4 列/20dp）视为尚未完成实际测量
-        if (columns <= MIN_GRID_COLUMNS && state.cellPx == 20f) return@LaunchedEffect
-        val previous = lastColumns
-        lastColumns = columns
-        if (previous == 0 || previous == columns) return@LaunchedEffect
-        state.applyLayouts(systemCardLayouts(columns, state.visibleRowCount()))
+    // 「重置主页布局」：清空快照与当前卡片，按默认布局重新播种
+    LaunchedEffect(Unit) {
+        HomeGridStore.resetEvents.collect {
+            HomeGridStore.clear(context)
+            state.cards.map { it.id }.forEach { id -> state.removeCard(id) }
+            seeded = false
+            snapshot = null
+            snapshotLoaded = false
+            seedGeneration++
+        }
     }
 
-    // 布局结算后持久化
+    // 布局结算后持久化：播种完成前不写库，否则首次测量的默认布局会覆盖用户快照
     LaunchedEffect(Unit) {
         state.onLayoutCommitted = {
-            HomeGridStore.save(context, state.cards, state.geometry.columns)
+            if (seeded) HomeGridStore.save(context, state.cards, state.geometry.columns)
         }
     }
 
@@ -151,8 +155,8 @@ fun VerseHomeGrid(
 
     // 与版本卡片记录保持同步：记录已删除的版本卡片撤出网格，记录存在而网格缺卡时补齐。
     // 等首次布局播种完成后再同步，避免记录先到而把新卡片落到左上角（0,0）。
-    LaunchedEffect(seededFirstLayout) {
-        if (!seededFirstLayout) return@LaunchedEffect
+    LaunchedEffect(seeded) {
+        if (!seeded) return@LaunchedEffect
         VersionCardManager.cards.collect { states ->
             if (!VersionCardManager.isInitialized()) return@collect
             val recordIds = states.map { it.record.cardId }.toSet()

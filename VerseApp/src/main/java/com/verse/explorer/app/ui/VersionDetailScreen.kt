@@ -64,24 +64,29 @@ fun VersionDetailScreen(
     var showMobileDataConfirm by remember { mutableStateOf(false) }
     var pendingInstallName by remember { mutableStateOf<String?>(null) }
 
-    /** 安装结果弹窗：完成弹「版本安装完成」，失败弹错误提示（每轮安装只弹一次） */
-    var installResultShown by remember(versionId) { mutableStateOf(false) }
+    /**
+     * 安装结果弹窗：完成弹「版本安装完成」，失败弹错误提示。
+     * 「已提示」记在共享 ViewModel 里——只按本地状态判断的话，重新进入安装页会立刻再弹一次。
+     */
     var installResult by remember { mutableStateOf<InstallResultUi?>(null) }
 
-    LaunchedEffect(installState.versionId, installState.isInstalling, installState.isCompleted, installState.isFailed) {
+    LaunchedEffect(
+        installState.versionId,
+        installState.isInstalling,
+        installState.isCompleted,
+        installState.isFailed,
+        installState.resultNotified
+    ) {
         if (installState.versionId != versionId) return@LaunchedEffect
+        if (installState.resultNotified) return@LaunchedEffect
         val name = installState.installName.ifBlank { versionId }
         when {
-            installState.isInstalling -> {
-                // 新一轮安装开始：允许本轮结束后再次弹出结果
-                installResultShown = false
-            }
-            installState.isCompleted && !installResultShown -> {
-                installResultShown = true
+            installState.isCompleted -> {
+                viewModel.markInstallResultNotified()
                 installResult = InstallResultUi(success = true, versionName = name, message = null)
             }
-            installState.isFailed && !installResultShown -> {
-                installResultShown = true
+            installState.isFailed -> {
+                viewModel.markInstallResultNotified()
                 installResult = InstallResultUi(
                     success = false,
                     versionName = name,
