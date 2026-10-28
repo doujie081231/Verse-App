@@ -17,8 +17,11 @@ object UpdateChecker {
     /** 官网版本更新配置接口 */
     private const val ENDPOINT = "https://verselauncher.cn/api/app-update"
 
-    /** 兜底下载地址（夸克网盘） */
-    const val DEFAULT_DOWNLOAD_URL = "https://pan.quark.cn/s/1dc3bc96e683"
+    /** GitHub Release 页面：手机浏览器打开即可看到整包与分卷（应用内不再下载） */
+    const val GITHUB_RELEASES_URL = "https://github.com/doujie081231/Verse-App/releases/latest"
+
+    /** 网盘下载入口（夸克，国内网络更稳） */
+    const val PAN_DOWNLOAD_URL = "https://pan.quark.cn/s/1dc3bc96e683"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -30,7 +33,6 @@ object UpdateChecker {
         val versionName: String,
         val releaseDate: String,
         val forceUpdate: Boolean,
-        val downloadUrl: String,
         val changelog: List<String>
     )
 
@@ -59,7 +61,6 @@ object UpdateChecker {
                     versionName = config.optString("versionName", ""),
                     releaseDate = config.optString("releaseDate", ""),
                     forceUpdate = config.optBoolean("forceUpdate", false),
-                    downloadUrl = config.optString("downloadUrl").ifBlank { DEFAULT_DOWNLOAD_URL },
                     changelog = changelog
                 )
             }

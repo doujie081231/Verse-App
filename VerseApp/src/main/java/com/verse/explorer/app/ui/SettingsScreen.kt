@@ -1249,18 +1249,22 @@ fun SettingsScreen(navController: NavHostController) {
                 versionName = "v${info.versionName}",
                 releaseDate = info.releaseDate,
                 items = info.changelog,
-                part1Urls = com.verse.explorer.app.data.UpdateSources.part1Urls(info.versionName),
                 onIgnore = { aboutUpdateInfo = null },
-                onGoUpdate = {
+                onOpenGitHub = {
                     runCatching {
-                        context.startActivity(
-                            android.content.Intent(
-                                android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(info.downloadUrl)
-                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        com.verse.explorer.app.util.IntentHelper.openUrl(
+                            context,
+                            com.verse.explorer.app.data.UpdateChecker.GITHUB_RELEASES_URL
                         )
                     }
-                    aboutUpdateInfo = null
+                },
+                onOpenPan = {
+                    runCatching {
+                        com.verse.explorer.app.util.IntentHelper.openUrl(
+                            context,
+                            com.verse.explorer.app.data.UpdateChecker.PAN_DOWNLOAD_URL
+                        )
+                    }
                 }
             )
         }

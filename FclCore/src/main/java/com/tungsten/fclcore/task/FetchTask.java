@@ -76,6 +76,22 @@ public abstract class FetchTask<T> extends Task<T> {
 
     protected abstract Context getContext(URLConnection conn, boolean checkETag) throws IOException;
 
+    /**
+     * 多连接分段下载：可并行下载的段数，<=1 表示维持单连接。
+     * 由子类按「文件大小 + 服务端是否支持 Range」决定（参考 PCL 的多线程下载）。
+     */
+    protected int getSegmentCount(URLConnection conn, long contentLength) {
+        return 1;
+    }
+
+    /**
+     * 多连接分段下载实现。返回 true 表示已完成并落盘；
+     * 返回 false 表示不支持/失败，调用方会回退单连接（临时文件由实现方清理）。
+     */
+    protected boolean downloadInSegments(URLConnection conn, long contentLength, int segments, boolean checkETag) throws IOException {
+        return false;
+    }
+
     @Override
     public void execute() throws Exception {
         Exception exception = null;
@@ -131,6 +147,14 @@ public abstract class FetchTask<T> extends Task<T> {
                     }
 
                     long contentLength = conn.getContentLength();
+                    // 支持 Range 时走多连接分段下载（单连接在小带宽链路上跑不满），
+                    // 失败/服务端忽略 Range 则回退到下面的单连接流程
+                    if (contentLength > 0) {
+                        int segments = getSegmentCount(conn, contentLength);
+                        if (segments > 1 && downloadInSegments(conn, contentLength, segments, checkETag)) {
+                            return;
+                        }
+                    }
                     try (Context context = getContext(conn, checkETag); InputStream stream = conn.getInputStream()) {
                         int lastDownloaded = 0, downloaded = 0;
                         byte[] buffer = new byte[IOUtils.DEFAULT_BUFFER_SIZE];
@@ -195,7 +219,7 @@ public abstract class FetchTask<T> extends Task<T> {
         }, 0, 1000);
     }
 
-    private static void updateDownloadSpeed(int speed) {
+    protected static void updateDownloadSpeed(int speed) {
         downloadSpeed.addAndGet(speed);
     }
 

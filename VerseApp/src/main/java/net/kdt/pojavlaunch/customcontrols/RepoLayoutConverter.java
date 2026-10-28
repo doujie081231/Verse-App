@@ -99,6 +99,22 @@ public final class RepoLayoutConverter {
             }
             out.mControlGroups = groupList;
         }
+        // 导入统计写进日志：布局「点不动 / 面板打不开」时，后台能一眼看出是组/绑定没解析出来
+        try {
+            int pressBind = 0;
+            int clickBind = 0;
+            for (ControlData d : out.mControlDataList) {
+                if (d.pressBindViewGroups != null) pressBind++;
+                if (d.bindViewGroups != null) clickBind++;
+            }
+            com.verse.explorer.app.ui.VerseLogger.INSTANCE.info(
+                    "仓库布局导入: groups=" + (out.mControlGroups == null ? 0 : out.mControlGroups.size())
+                            + ", buttons=" + out.mControlDataList.size()
+                            + ", 按下切组=" + pressBind
+                            + ", 点击切组=" + clickBind,
+                    "Control");
+        } catch (Throwable ignored) {
+        }
         return out;
     }
 
@@ -130,21 +146,14 @@ public final class RepoLayoutConverter {
                     keycodes.add(ControlData.SPECIALBTN_KEYBOARD);
                 }
                 if (truthy(press.get("autoKeep")) && !keycodes.isEmpty()) d.isToggle = true;
+                // 按下即切换控件组：仓库布局的切换键几乎都把绑定放在 pressEvent 上
+                // （clickEvent 是空的），只读 clickEvent 会让整套多控件组布局失效
+                d.pressBindViewGroups = readBindGroups(press);
             }
             if (truthy(event.get("swipable"))) d.isSwipeable = true;
             // 点击切换控件组：clickEvent.bindViewGroup 为要切换显示状态的组 id 列表
             JsonObject clickEvent = asObj(event.get("clickEvent"));
-            if (clickEvent != null) {
-                JsonArray bindGroups = asArray(clickEvent.get("bindViewGroup"));
-                if (bindGroups != null) {
-                    for (JsonElement idElement : bindGroups) {
-                        String bindId = asString(idElement, "");
-                        if (bindId.isEmpty()) continue;
-                        if (d.bindViewGroups == null) d.bindViewGroups = new ArrayList<>();
-                        d.bindViewGroups.add(bindId);
-                    }
-                }
-            }
+            if (clickEvent != null) d.bindViewGroups = readBindGroups(clickEvent);
             if (!keycodes.isEmpty()) {
                 // d.keycodes 已由 ControlData 构造函数固定为 4 个槽位（空槽为 GLFW_KEY_UNKNOWN）。
                 // 这里只覆盖前若干槽、保留槽位长度，避免导入后按键槽位被截短，导致编辑面板
@@ -217,6 +226,18 @@ public final class RepoLayoutConverter {
     }
 
     // ===== 键码换算（扫描码 → GLFW；鼠标/滚轮 → SPECIALBTN_*） =====
+
+    /** 读取事件上的 bindViewGroup（要切换显示状态的控件组 id 列表），无绑定时返回 null */
+    static ArrayList<String> readBindGroups(JsonObject event) {
+        JsonArray bindGroups = asArray(event.get("bindViewGroup"));
+        if (bindGroups == null || bindGroups.size() == 0) return null;
+        ArrayList<String> ids = new ArrayList<>();
+        for (JsonElement idElement : bindGroups) {
+            String bindId = asString(idElement, "");
+            if (!bindId.isEmpty()) ids.add(bindId);
+        }
+        return ids.isEmpty() ? null : ids;
+    }
 
     private static int mapKeycode(int fclCode) {
         if (fclCode < 0) return Integer.MIN_VALUE;

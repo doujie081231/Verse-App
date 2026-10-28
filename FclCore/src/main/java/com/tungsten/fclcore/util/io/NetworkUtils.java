@@ -114,8 +114,10 @@ public final class NetworkUtils {
             // Docs: https://alist.nn.ci/zh/guide/drivers/baidu.html
             connection.setRequestProperty("User-Agent", "pan.baidu.com");
         } else {
-            // Default
-            connection.setRequestProperty("User-Agent", "FCL/" + FCLApp.getAppContext().getString(R.string.app_version));
+            // Default：宿主未 attach（JVM 单测等）时不必中断，退回占位版本号
+            android.content.Context ctx = FCLApp.getAppContextOrNull();
+            connection.setRequestProperty("User-Agent",
+                    "FCL/" + (ctx == null ? "unknown" : ctx.getString(R.string.app_version)));
         }
         connection.setUseCaches(false);
         connection.setConnectTimeout(TIME_OUT);

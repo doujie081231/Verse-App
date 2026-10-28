@@ -19,89 +19,38 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.core.content.FileProvider
-import com.verse.explorer.app.data.UpdateDownloader
 import com.verse.explorer.app.ui.theme.VerseColors
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
-import java.util.Locale
 
 /**
- * 检测到新版本时的提示弹窗（参考 FCL UpdateDialog）：
- * 展示版本号、发布日期与更新内容；「立即更新」在启动器内下载 APK
- * （Gitee 主源 + GitHub 备源，进度/取消），完成后经 FileProvider 调起系统安装器；
- * 失败回退网盘/浏览器链接。
+ * 检测到新版本时的提示弹窗。
+ *
+ * 应用内不再下载 APK（整包 180MB，自带下载器既占带宽，又常被系统杀后台导致装不上）；
+ * 只展示更新内容，并给出两个手动下载入口：
+ *  - GitHub Release 页面（手机浏览器打开即可下载）
+ *  - 网盘（夸克，国内网络更稳）
  */
 @Composable
 fun UpdateDialog(
     versionName: String,
     releaseDate: String,
     items: List<String>,
-    part1Urls: List<String>,
     onIgnore: () -> Unit,
-    onGoUpdate: () -> Unit
+    onOpenGitHub: () -> Unit,
+    onOpenPan: () -> Unit
 ) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    // 下载状态：null = 未在下载；非 null = 进行中（downloaded/total/speed）
-    var progress by remember { mutableStateOf<Triple<Long, Long, Long>?>(null) }
-    var errorText by remember { mutableStateOf<String?>(null) }
-    var finishing by remember { mutableStateOf(false) }
-
-    fun installApk() {
-        val apk = UpdateDownloader.apkFile(context)
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
-        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    }
-
-    fun startDownload() {
-        errorText = null
-        progress = Triple(0L, -1L, 0L)
-        scope.launch {
-            try {
-                UpdateDownloader.download(context, part1Urls) { d, t, s ->
-                    progress = Triple(d, t, s)
-                }
-                progress = null
-                installApk()
-            } catch (e: CancellationException) {
-                // 用户取消或协程取消：回到按钮态，不打扰
-                progress = null
-            } catch (e: Exception) {
-                progress = null
-                errorText = e.message ?: "下载失败"
-            }
-        }
-    }
-
-    Dialog(onDismissRequest = {
-        // 下载中不允许点外部关闭（避免误触后台仍占网速）
-        if (progress == null && !finishing) onIgnore()
-    }) {
+    Dialog(onDismissRequest = onIgnore) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 440.dp)
+                .heightIn(max = 460.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(VerseColors.PcBgActive)
                 .padding(20.dp)
@@ -113,7 +62,7 @@ fun UpdateDialog(
                         .clip(CircleShape)
                         .background(VerseColors.PcAccent)
                 )
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(Modifier.width(10.dp))
                 Column {
                     Text(
                         text = "检测到版本更新 $versionName",
@@ -130,7 +79,7 @@ fun UpdateDialog(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(Modifier.height(14.dp))
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -153,7 +102,7 @@ fun UpdateDialog(
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = item,
                                 color = VerseColors.PcTextSecondary,
@@ -163,143 +112,73 @@ fun UpdateDialog(
                         }
                     }
                 }
-
-                // 下载进度区（下载中显示）
-                progress?.let { (downloaded, total, speed) ->
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val ratio = if (total > 0) (downloaded.toFloat() / total).coerceIn(0f, 1f) else 0f
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(VerseColors.PcBgTertiary)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(ratio)
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp))
-                                .background(VerseColors.PcAccent)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = buildString {
-                            append("已下载 ${formatBytes(downloaded)}")
-                            if (total > 0) append(" / ${formatBytes(total)}")
-                            append(" · ${formatBytes(speed)}/s")
-                        },
-                        color = VerseColors.PcTextMuted,
-                        fontSize = 11.sp
-                    )
-                }
-
-                errorText?.let { err ->
-                    Text(
-                        text = "下载失败：$err",
-                        color = Color(0xFFE57373),
-                        fontSize = 12.sp
-                    )
-                }
             }
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "启动器已取消应用内下载，请选择下面的方式手动下载安装包，覆盖安装即可",
+                color = VerseColors.PcTextMuted,
+                fontSize = 11.sp,
+                lineHeight = 16.sp
+            )
+            Spacer(Modifier.height(12.dp))
 
-            val downloading = progress != null
-            if (downloading) {
-                // 下载中：只提供「取消」
+            // 主入口：GitHub Release 页面
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(VerseColors.PcAccent)
+                    .padding(vertical = 12.dp)
+                    .clickable { onOpenGitHub() },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "打开 GitHub 下载页",
+                    color = if (isAccentLight()) Color.Black else Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .clip(RoundedCornerShape(12.dp))
                         .background(VerseColors.PcBgTertiary)
                         .padding(vertical = 12.dp)
-                        .clickable {
-                            UpdateDownloader.cancel()
-                        },
+                        .clickable { onOpenPan() },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "取消下载",
+                        text = "网盘下载",
                         color = VerseColors.PcTextSecondary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(VerseColors.PcBgTertiary)
-                            .padding(vertical = 12.dp)
-                            .clickable { onIgnore() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (errorText != null) "关闭" else "忽略",
-                            color = VerseColors.PcTextSecondary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    if (errorText != null) {
-                        // 失败兜底：浏览器/网盘下载（与 FCL 一致）
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(VerseColors.PcBgTertiary)
-                                .padding(vertical = 12.dp)
-                                .clickable { onGoUpdate() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "网盘下载",
-                                color = VerseColors.PcTextSecondary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(VerseColors.PcAccent)
-                            .padding(vertical = 12.dp)
-                            .clickable {
-                                if (part1Urls.isNotEmpty()) {
-                                    startDownload()
-                                } else {
-                                    // 无有效下载源：直接走网盘兜底
-                                    onGoUpdate()
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (errorText != null) "重试" else "立即更新",
-                            color = if (isAccentLight()) Color.Black else Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(VerseColors.PcBgTertiary)
+                        .padding(vertical = 12.dp)
+                        .clickable { onIgnore() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "稍后再说",
+                        color = VerseColors.PcTextSecondary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }
     }
 }
 
-private fun formatBytes(bytes: Long): String {
-    if (bytes < 0) return "未知"
-    if (bytes < 1024) return "${bytes}B"
-    val mb = bytes / 1024.0 / 1024.0
-    return if (mb >= 1024) String.format(Locale.US, "%.2fGB", mb / 1024)
-    else String.format(Locale.US, "%.1fMB", mb)
-}
-
+/** 强调色偏亮时按钮文字改用深色，保证对比度 */
 private fun isAccentLight(): Boolean {
     val c = VerseColors.PcAccent
     return (0.299 * c.red + 0.587 * c.green + 0.114 * c.blue) > 0.65

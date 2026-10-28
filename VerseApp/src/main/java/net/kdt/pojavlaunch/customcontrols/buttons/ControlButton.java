@@ -179,6 +179,12 @@ public class ControlButton extends TextView implements ControlInterface {
                     mDownTime = event.getEventTime();
                     mDownX = newX;
                     mDownY = newY;
+                    // 按下即切换控件组：仓库布局把切换键的绑定放在 pressEvent 上，
+                    // 只在抬手点击时处理会让这类布局的所有面板都打不开
+                    if (getProperties().pressBindViewGroups != null
+                            && !getProperties().pressBindViewGroups.isEmpty()) {
+                        mControlLayout.toggleControlGroups(getProperties().pressBindViewGroups);
+                    }
                     if(!getProperties().isToggle){
                         sendKeyPresses(true);
                     }

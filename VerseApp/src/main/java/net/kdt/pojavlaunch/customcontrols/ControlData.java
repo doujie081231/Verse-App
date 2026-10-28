@@ -61,6 +61,8 @@ public class ControlData {
     public String groupId;
     /** 点击本按钮后切换显示状态的控件组 id 列表（仓库布局的 clickEvent.bindViewGroup） */
     public List<String> bindViewGroups;
+    /** 按下即切换显示状态的控件组 id 列表（仓库布局的 pressEvent.bindViewGroup） */
+    public List<String> pressBindViewGroups;
     public float opacity;       //Alpha value from 0 to 1;
     public int bgColor;
     public int strokeColor;
@@ -158,6 +160,8 @@ public class ControlData {
         this.groupId = controlData.groupId;
         this.bindViewGroups = controlData.bindViewGroups == null
                 ? null : new ArrayList<>(controlData.bindViewGroups);
+        this.pressBindViewGroups = controlData.pressBindViewGroups == null
+                ? null : new ArrayList<>(controlData.pressBindViewGroups);
     }
 
     public static ControlData[] getSpecialButtons() {

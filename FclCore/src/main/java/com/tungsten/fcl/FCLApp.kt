@@ -19,4 +19,8 @@ object FCLApp {
     @JvmStatic
     fun getAppContext(): Context =
         sAppContext ?: throw IllegalStateException("FCLApp 未初始化（VerseApp 需在 Application.onCreate 调用 attach）")
+
+    /** 可空版本：仅用于「取不到也不该中断」的场景（如拼 User-Agent、JVM 单测） */
+    @JvmStatic
+    fun getAppContextOrNull(): Context? = sAppContext
 }

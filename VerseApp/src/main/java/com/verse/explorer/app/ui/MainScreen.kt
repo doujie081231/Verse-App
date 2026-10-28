@@ -24,7 +24,6 @@ import androidx.navigation.compose.rememberNavController
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.verse.explorer.app.data.UpdateChecker
-import com.verse.explorer.app.data.UpdateSources
 import com.verse.explorer.app.data.VersePersonalization
 import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.components.RoseLoader
@@ -137,22 +136,20 @@ fun MainScreen(
             versionName = "v${info.versionName}",
             releaseDate = info.releaseDate,
             items = info.changelog,
-            part1Urls = UpdateSources.part1Urls(info.versionName),
             onIgnore = {
                 context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
                     .edit().putInt("update_ignored_version", info.versionCode).apply()
                 updateInfo = null
             },
-            onGoUpdate = {
+            onOpenGitHub = {
                 runCatching {
-                    context.startActivity(
-                        android.content.Intent(
-                            android.content.Intent.ACTION_VIEW,
-                            Uri.parse(info.downloadUrl)
-                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
+                    com.verse.explorer.app.util.IntentHelper.openUrl(context, UpdateChecker.GITHUB_RELEASES_URL)
                 }
-                updateInfo = null
+            },
+            onOpenPan = {
+                runCatching {
+                    com.verse.explorer.app.util.IntentHelper.openUrl(context, UpdateChecker.PAN_DOWNLOAD_URL)
+                }
             }
         )
     }
