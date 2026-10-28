@@ -288,8 +288,17 @@ class GameInputHandler(
      * 物理鼠标事件：不依赖「实体鼠标控制」开关，始终按 buttonState 差分上报左/右/中键，
      * 并处理移动（hover/拖动）与滚轮。
      */
+    /**
+     * 鼠标来源判定：普通物理鼠标是 [InputDevice.SOURCE_MOUSE]，
+     * 指针捕获/部分外设上报的是 [InputDevice.SOURCE_MOUSE_RELATIVE]。
+     * 两者都必须按鼠标处理，否则相对位移类鼠标的移动会被当成触摸丢掉（视角不转）。
+     */
+    fun isMouseEvent(event: MotionEvent): Boolean =
+        event.isFromSource(InputDevice.SOURCE_MOUSE) ||
+            event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)
+
     fun handlePhysicalMouseEvent(event: MotionEvent): Boolean {
-        if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+        if (!isMouseEvent(event)) return false
 
         val buttons = event.buttonState
         val changed = lastMouseButtonState xor buttons

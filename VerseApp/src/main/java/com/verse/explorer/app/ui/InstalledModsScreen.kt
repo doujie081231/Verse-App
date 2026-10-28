@@ -11,6 +11,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
@@ -452,7 +454,14 @@ fun InstalledModsScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // 问题条数可能很多（真机反馈 26 条）：弹窗正文必须能滚动，
+                // 否则超出屏幕的内容既看不到也划不动
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     if (!result.hasConflict) {
                         Text(
                             "${result.mods.size} 个模组的 modid 唯一、必需前置齐全",
@@ -496,7 +505,12 @@ fun InstalledModsScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     result.updates.forEach { update ->
                         Text(
                             "${update.name}：${update.currentVersion} → ${update.newVersion}",

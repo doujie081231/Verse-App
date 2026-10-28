@@ -504,7 +504,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             }
             // 实体鼠标：按键/滚轮/hover 统一交给输入层处理（参考 ZL2 的鼠标事件分发，
             // 不再依赖「实体鼠标控制」开关；否则鼠标只能移动虚拟光标，左右键无效）
-            if (ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+            if (inputHandler.isMouseEvent(ev)) {
                 if (inputHandler.handlePhysicalMouseEvent(ev)) return true
             }
             // TouchController 模组：把游戏区触摸按比例转发给模组，由模组处理虚拟按键
@@ -946,6 +946,10 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val density = resources.displayMetrics.density
 
             val overlay = FrameLayout(this)
+            // 指针捕获只对「已获得焦点的可聚焦视图」生效：不设可聚焦/不请求焦点时
+            // requestPointerCapture 不会真正捕获，鼠标相对位移就收不到，视角无法转动
+            overlay.isFocusable = true
+            overlay.isFocusableInTouchMode = true
             overlay.addView(surface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             overlay.addView(touchpad, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             // 快捷栏（物品栏）触控层：叠在游戏画面之上、虚拟按钮之下——
@@ -970,6 +974,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             ))
             this.addContentView(overlay, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             touchOverlay = overlay
+            // 挂载后请求焦点，配合 onWindowFocusChanged 申请指针捕获（顺序与 FCL 一致）
+            overlay.requestFocus()
             // 挂载后再应用指针尺寸：addView 传入的 LayoutParams 会覆盖先前设置的值，
             // 若提前设置会导致 ImageView 按图片原始像素（大图）渲染成巨大光标
             applyCursorStyle()

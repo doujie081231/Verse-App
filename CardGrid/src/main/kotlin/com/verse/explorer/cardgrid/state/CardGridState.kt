@@ -242,28 +242,27 @@ class CardGridState internal constructor(
         // 历史上窗口首帧异常宽度曾把布局塌缩成多卡同堆原点的坏数据并被持久化；
         // 检测到堆叠特征时放弃按位恢复，改按阅读顺序重新打包位置（跨度保留）
         val collapsed = raw.size >= 2 && raw.count { it.x == 0 && it.y == 0 } >= 2
-        val layouts = if (pendingColumns == newColumns || pendingColumns <= 0) {
-            if (collapsed) {
-                GridEngine.reflow(
-                    cards = raw,
-                    oldColumns = newColumns,
-                    columns = newColumns
-                ) { rect ->
-                    typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
-                }
-            } else {
-                GridEngine.validate(raw, newColumns) { rect ->
-                    typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
-                }
-            }
-        } else {
-            GridEngine.reflow(
+        val limitsOf: (CardRect) -> CardLimits = { rect ->
+            typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
+        }
+        val layouts = when {
+            // 坏数据（多张卡堆在原点）无法按位恢复，只能按阅读顺序重新打包
+            collapsed -> GridEngine.reflow(
                 cards = raw,
-                oldColumns = pendingColumns,
-                columns = newColumns
-            ) { rect ->
-                typeById[typeIdById[rect.id]]?.limits ?: CardLimits.DEFAULT
-            }
+                oldColumns = newColumns,
+                columns = newColumns,
+                limits = limitsOf
+            )
+            // 存储列数与当前列数不同（例如切换「忽略刘海屏」后可用宽度变化）：
+            // 只按列数比例折算跨度，位置保持原样（越界钳制 + 就近避让）。
+            // 不能走 reflow——那会把每张卡重新放进从左上角开始的空位，
+            // 视觉上就是整个主页被挤到最上面，而且这份布局会被立刻写盘。
+            else -> respanAndSettle(
+                cards = raw,
+                fromColumns = if (pendingColumns > 0) pendingColumns else newColumns,
+                toColumns = newColumns,
+                limitsOf = limitsOf
+            )
         }.associateBy { it.id }
 
         val materialized = pending.mapNotNull { seed ->
@@ -748,6 +747,31 @@ class CardGridState internal constructor(
         lockedDirections.clear()
     }
 
+    /**
+     * 列数变化时的跨度折算 + 位置保持。
+     * 只按列数比例缩放跨度，位置沿用原坐标（越界钳制、重叠就近避让），
+     * 不像 [GridEngine.reflow] 那样从左上角按阅读顺序重新打包。
+     */
+    private fun respanAndSettle(
+        cards: List<CardRect>,
+        fromColumns: Int,
+        toColumns: Int,
+        limitsOf: (CardRect) -> CardLimits
+    ): List<CardRect> {
+        if (fromColumns <= 0 || fromColumns == toColumns) {
+            return GridEngine.validate(cards, toColumns, limitsOf)
+        }
+        val scale = toColumns.toFloat() / fromColumns
+        val respanned = cards.map { rect ->
+            val lim = limitsOf(rect).clampedFor(toColumns)
+            rect.copy(
+                width = (rect.width * scale).roundToInt().let(lim::clampWidth),
+                height = (rect.height * scale).roundToInt().let(lim::clampHeight)
+            )
+        }
+        return GridEngine.validate(respanned, toColumns, limitsOf)
+    }
+
     private fun reflowTo(newColumns: Int, oldColumns: Int) {
         //跨度自基准一次性折算，避免逐级取整把小幅增长吞噬成固定跨度
         val respanned = cards.map { card ->
@@ -764,10 +788,10 @@ class CardGridState internal constructor(
                 )
             }
         }
-        //跨度已折算完毕，oldColumns 传同值使重排只做位置打包
-        val layouts = GridEngine.reflow(
+        //位置保持：跨度已折算完毕，这里只做「越界钳制 + 就近避让」。
+        //按阅读顺序重新打包会把所有卡片压到最上面（尺寸变化/切换忽略刘海后的列数变化都会触发）
+        val layouts = GridEngine.validate(
             cards = respanned,
-            oldColumns = newColumns,
             columns = newColumns
         ) { rect -> cards.firstOrNull { it.id == rect.id }?.type?.limits ?: CardLimits.DEFAULT }
             .associateBy { it.id }
