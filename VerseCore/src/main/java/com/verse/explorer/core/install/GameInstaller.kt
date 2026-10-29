@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -376,17 +377,15 @@ class GameInstaller(private val context: Context) {
                     val assetId = assetIndex.get("id")?.asString ?: version.id
                     val assetUrl = assetIndex.get("url")?.asString
                     val assetSha1 = assetIndex.get("sha1")?.asString
+                    val assetSize = assetIndex.get("size")?.asLong ?: -1L
                     val assetFile = File(assetsDir, "indexes/$assetId.json")
 
-                    if (assetUrl != null && !assetFile.exists()) {
-                        assetFile.parentFile?.mkdirs()
-                        val result = smartClient.download(
-                            originalUrl = assetUrl,
-                            targetFile = assetFile,
-                            expectedSha1 = assetSha1,
-                            isCancelled = { cancelled }
-                        ) { progress ->
-                            val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
+                    // 已存在也要校验：下载被中断/取消会在目标路径留下半截 json，
+                    // 只判 exists() 会永久跳过重下，之后每次安装都在解析时报
+                    // Gson「Unterminated string ... $.objects...」而失败
+                    if (assetUrl != null && assetIndexBroken(assetFile, assetSha1, assetSize)) {
+                        assetFile.delete()
+                        downloadAssetIndex(smartClient, assetUrl, assetFile, assetSha1) { p, progress ->
                             progressCallback(InstallProgress(
                                 InstallStage.DOWNLOADING_ASSETS,
                                 "下载资源索引... (${MirrorSourceManager.getSourceLabel(MirrorSourceManager.getCurrentSource(context))})",
@@ -398,16 +397,14 @@ class GameInstaller(private val context: Context) {
                                 totalBytes = progress.total
                             ))
                         }
-                        if (result.isFailure) {
-                            Log.e("GameInstaller", "Asset index smart download failed: ${result.exceptionOrNull()?.message}")
-                            throw result.exceptionOrNull() ?: Exception("资源索引下载失败")
-                        }
                     }
 
                     if (assetFile.exists()) {
                         progressCallback(InstallProgress(InstallStage.DOWNLOADING_ASSETS, "解析资源列表...", 0.68f))
 
-                        val assetIndexData = gson.fromJson(assetFile.readText(), JsonObject::class.java)
+                        val assetIndexData = parseAssetIndexOrRedownload(
+                            assetFile, assetSha1, assetUrl, smartClient
+                        )
                         val objects = assetIndexData.get("objects")?.asJsonObject
 
                         if (objects != null) {
@@ -1076,5 +1073,74 @@ class GameInstaller(private val context: Context) {
 
             onProgress?.invoke((index + 1).toFloat() / missingLibs.size)
         }
+    }
+
+    // ===== 资源索引下载与校验 =====
+
+    /**
+     * 资源索引是否为坏文件（需要重新下载）：
+     * 不存在、长度与清单不符、或 sha1 不匹配都算坏。
+     * 只按 exists() 判断会把下载中断留下的半截 json 当成已完成。
+     */
+    private fun assetIndexBroken(file: File, sha1: String?, expectedSize: Long): Boolean {
+        if (!file.exists() || file.length() == 0L) return true
+        if (expectedSize > 0 && file.length() != expectedSize) return true
+        if (!sha1.isNullOrBlank()) {
+            val actual = runCatching { InstallFileUtils.calculateSHA1(file) }.getOrNull() ?: return true
+            return !actual.equals(sha1, ignoreCase = true)
+        }
+        return false
+    }
+
+    /** 下载资源索引（多源 + sha1 校验），失败给出可读原因 */
+    private suspend fun downloadAssetIndex(
+        smartClient: SmartDownloadClient,
+        url: String,
+        target: File,
+        sha1: String?,
+        onProgress: (Float, com.verse.explorer.core.download.SmartDownloadClient.Progress) -> Unit
+    ) {
+        target.parentFile?.mkdirs()
+        val result = smartClient.download(
+            originalUrl = url,
+            targetFile = target,
+            expectedSha1 = sha1,
+            isCancelled = { cancelled }
+        ) { progress ->
+            val p = if (progress.total > 0) progress.downloaded.toFloat() / progress.total else 0f
+            onProgress(p, progress)
+        }
+        if (result.isFailure) {
+            Log.e("GameInstaller", "Asset index smart download failed: ${result.exceptionOrNull()?.message}")
+            val reason = result.exceptionOrNull()?.message ?: "网络异常"
+            throw IOException("资源索引下载失败：$reason，请重试安装")
+        }
+    }
+
+    /**
+     * 解析资源索引；文件损坏时删掉重下一次再解析。
+     * 覆盖「sha1 校验通过但内容仍不可解析」等极端情况，避免用户反复重试都失败。
+     */
+    private suspend fun parseAssetIndexOrRedownload(
+        file: File,
+        sha1: String?,
+        url: String?,
+        smartClient: SmartDownloadClient
+    ): JsonObject {
+        runCatching { gson.fromJson(file.readText(), JsonObject::class.java) }
+            .onSuccess { if (it != null) return it }
+            .onFailure { Log.w("GameInstaller", "资源索引解析失败(${file.length()}B): ${it.message}") }
+
+        if (url.isNullOrBlank()) {
+            throw IOException("资源索引文件损坏（${file.length()}B）且没有下载地址，请删除 assets/indexes 后重试安装")
+        }
+        Log.w("GameInstaller", "资源索引损坏，删除后重新下载: ${file.absolutePath}")
+        file.delete()
+        downloadAssetIndex(smartClient, url, file, sha1) { _, _ -> }
+        return runCatching { gson.fromJson(file.readText(), JsonObject::class.java) }
+            .getOrElse {
+                file.delete()
+                throw IOException("资源索引下载后仍无法解析，请更换下载源或稍后重试（${it.message}）")
+            }
     }
 }

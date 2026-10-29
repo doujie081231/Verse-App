@@ -3,6 +3,7 @@ package com.verse.explorer.core.launch
 import android.content.Context
 import android.os.Build
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.install.InstallFileUtils
 import com.verse.explorer.core.config.isValidJsonResponse
 import com.verse.explorer.core.java.JavaRuntimeManager
 import com.verse.explorer.core.util.HashUtils
@@ -684,7 +685,17 @@ class DependencyDownloader(private val context: Context) {
             val assetIndexUrl = assetIndexInfo.get("url")?.asString ?: return@withContext false
 
             val indexFile = File(assetsDir, "indexes/$assetId.json")
-            if (!indexFile.exists()) {
+            val indexSha1 = assetIndexInfo.get("sha1")?.asString
+            val indexSize = assetIndexInfo.get("size")?.asLong ?: -1L
+            // 存在也要校验：下载中断会留下半截 json，之前只判 exists()，
+            // 之后每次进游戏都在这里解析失败（Gson Unterminated string）
+            val indexBroken = !indexFile.exists() || indexFile.length() == 0L ||
+                (indexSize > 0 && indexFile.length() != indexSize) ||
+                (!indexSha1.isNullOrBlank() &&
+                    !runCatching { InstallFileUtils.calculateSHA1(indexFile) }.getOrNull()
+                        .equals(indexSha1, ignoreCase = true))
+            if (indexBroken) {
+                indexFile.delete()
                 indexFile.parentFile?.mkdirs()
                 val mirroredAssetIndexUrl = GameConfig.replaceWithMirror(assetIndexUrl)
                 try {
@@ -698,7 +709,12 @@ class DependencyDownloader(private val context: Context) {
 
             if (!indexFile.exists()) return@withContext false
 
-            val indexJson = gson.fromJson(indexFile.readText(), JsonObject::class.java)
+            val indexJson = runCatching { gson.fromJson(indexFile.readText(), JsonObject::class.java) }
+                .getOrElse {
+                    // 内容仍不可解析：删掉让下次重新下载，不再让用户反复进游戏失败
+                    indexFile.delete()
+                    return@withContext false
+                }
             val objects = indexJson.getAsJsonObject("objects") ?: return@withContext true
             val entries = objects.entrySet().toList()
 
