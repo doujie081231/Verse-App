@@ -115,7 +115,7 @@ fun UpdateDialog(
             }
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "启动器已取消应用内下载，请选择下面的方式手动下载安装包，覆盖安装即可",
+                text = "更新链接将通过系统外部浏览器打开，请手动下载安装包后覆盖安装",
                 color = VerseColors.PcTextMuted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp
@@ -166,8 +166,9 @@ fun UpdateDialog(
                         .clickable { onIgnore() },
                     contentAlignment = Alignment.Center
                 ) {
+                    // 对齐 ZL2：忽略当前版本（启动检查不再提示，手动检查仍会弹出）
                     Text(
-                        text = "稍后再说",
+                        text = "忽略",
                         color = VerseColors.PcTextSecondary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold

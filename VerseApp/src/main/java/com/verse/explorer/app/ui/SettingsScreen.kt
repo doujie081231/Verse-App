@@ -1206,8 +1206,15 @@ fun SettingsScreen(navController: NavHostController) {
                                     onClick = {
                                         if (!checkingUpdate) {
                                             scope.launch {
+                                                // 迁移 ZL2 checkManually：手动检查只做短限速，
+                                                // 且不受「忽略版本」影响，检测到新版必定弹窗
+                                                if (UpdateChecker.isWithinRateLimit(context, UpdateChecker.MANUAL_INTERVAL_MS)) {
+                                                    Toast.makeText(context, "检查过于频繁，请稍后再试", Toast.LENGTH_SHORT).show()
+                                                    return@launch
+                                                }
                                                 checkingUpdate = true
                                                 val info = UpdateChecker.check()
+                                                UpdateChecker.updateLastCheckTime(context)
                                                 checkingUpdate = false
                                                 if (info != null) {
                                                     aboutUpdateInfo = info
@@ -1270,9 +1277,11 @@ fun SettingsScreen(navController: NavHostController) {
                 },
                 onOpenPan = {
                     runCatching {
+                        // 网盘链接优先用远端配置下发（ZL2 cloud_drive），未配置时回退默认夸克链接
                         com.verse.explorer.app.util.IntentHelper.openUrl(
                             context,
-                            com.verse.explorer.app.data.UpdateChecker.PAN_DOWNLOAD_URL
+                            info.cloudDriveUrl
+                                ?: com.verse.explorer.app.data.UpdateChecker.DEFAULT_CLOUD_DRIVE_URL
                         )
                     }
                 }

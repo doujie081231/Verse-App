@@ -122,13 +122,18 @@ fun MainScreen(
 
     val showSidebar = currentRoute in allSidebarRoutes
 
-    // 启动时自动检查更新：检测到新版本则弹窗提示；「忽略」后同一版本不再提示
+    // 启动时自动检查更新（迁移 ZL2 checkOnAppStart）：
+    // 1 小时限速，避免每次启动都请求；启动检查会跳过用户已忽略的版本
     val context = LocalContext.current
     var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
     LaunchedEffect(Unit) {
-        val info = UpdateChecker.check() ?: return@LaunchedEffect
-        val prefs = context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
-        if (prefs.getInt("update_ignored_version", 0) >= info.versionCode) return@LaunchedEffect
+        if (UpdateChecker.isWithinRateLimit(context, UpdateChecker.STARTUP_INTERVAL_MS)) {
+            return@LaunchedEffect
+        }
+        val info = UpdateChecker.check()
+        UpdateChecker.updateLastCheckTime(context)
+        if (info == null) return@LaunchedEffect
+        if (UpdateChecker.ignoredVersion(context) >= info.versionCode) return@LaunchedEffect
         updateInfo = info
     }
     updateInfo?.let { info ->
@@ -137,8 +142,7 @@ fun MainScreen(
             releaseDate = info.releaseDate,
             items = info.changelog,
             onIgnore = {
-                context.getSharedPreferences("launcher", Context.MODE_PRIVATE)
-                    .edit().putInt("update_ignored_version", info.versionCode).apply()
+                UpdateChecker.setIgnoredVersion(context, info.versionCode)
                 updateInfo = null
             },
             onOpenGitHub = {
@@ -148,7 +152,11 @@ fun MainScreen(
             },
             onOpenPan = {
                 runCatching {
-                    com.verse.explorer.app.util.IntentHelper.openUrl(context, UpdateChecker.PAN_DOWNLOAD_URL)
+                    // 网盘链接优先用远端配置下发（ZL2 cloud_drive），未配置时回退默认夸克链接
+                    com.verse.explorer.app.util.IntentHelper.openUrl(
+                        context,
+                        info.cloudDriveUrl ?: UpdateChecker.DEFAULT_CLOUD_DRIVE_URL
+                    )
                 }
             }
         )
