@@ -53,7 +53,9 @@ object UpdateChecker {
         val forceUpdate: Boolean,
         val changelog: List<String>,
         /** 远端下发的网盘链接（ZL2 cloud_drive）；未配置时为 null，调用方回退 [DEFAULT_CLOUD_DRIVE_URL] */
-        val cloudDriveUrl: String? = null
+        val cloudDriveUrl: String? = null,
+        /** 远端下发的安装包直链（config.downloadUrl）：浏览器点击即开始下载；未配置时回退 Release 页面 */
+        val downloadUrl: String? = null
     )
 
     /**
@@ -93,7 +95,8 @@ object UpdateChecker {
             releaseDate = releaseDate,
             forceUpdate = config.optBoolean("forceUpdate", false),
             changelog = changelog,
-            cloudDriveUrl = parseCloudDrive(config)
+            cloudDriveUrl = parseCloudDrive(config),
+            downloadUrl = config.optString("downloadUrl").takeIf { it.isNotBlank() }
         )
     }
 

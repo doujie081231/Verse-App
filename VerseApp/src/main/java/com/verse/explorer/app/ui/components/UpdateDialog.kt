@@ -122,7 +122,7 @@ fun UpdateDialog(
             )
             Spacer(Modifier.height(12.dp))
 
-            // 主入口：GitHub Release 页面
+            // 主入口：安装包直链（远端下发，浏览器点击即开始下载）；无直链时回退 Release 页面
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -133,7 +133,7 @@ fun UpdateDialog(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "打开 GitHub 下载页",
+                    text = "下载最新安装包",
                     color = if (isAccentLight()) Color.Black else Color.White,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold

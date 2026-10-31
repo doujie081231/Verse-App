@@ -1269,9 +1269,11 @@ fun SettingsScreen(navController: NavHostController) {
                 onIgnore = { aboutUpdateInfo = null },
                 onOpenGitHub = {
                     runCatching {
+                        // 只用远端下发的安装包直链（浏览器点击即开始下载），不打开 Release 页面
                         com.verse.explorer.app.util.IntentHelper.openUrl(
                             context,
-                            com.verse.explorer.app.data.UpdateChecker.GITHUB_RELEASES_URL
+                            info.downloadUrl
+                                ?: com.verse.explorer.app.data.UpdateChecker.DEFAULT_CLOUD_DRIVE_URL
                         )
                     }
                 },

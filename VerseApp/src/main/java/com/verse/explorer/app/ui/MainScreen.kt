@@ -147,7 +147,11 @@ fun MainScreen(
             },
             onOpenGitHub = {
                 runCatching {
-                    com.verse.explorer.app.util.IntentHelper.openUrl(context, UpdateChecker.GITHUB_RELEASES_URL)
+                    // 只用远端下发的安装包直链（浏览器点击即开始下载），不打开 Release 页面
+                    com.verse.explorer.app.util.IntentHelper.openUrl(
+                        context,
+                        info.downloadUrl ?: UpdateChecker.DEFAULT_CLOUD_DRIVE_URL
+                    )
                 }
             },
             onOpenPan = {
