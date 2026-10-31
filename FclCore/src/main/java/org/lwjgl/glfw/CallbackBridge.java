@@ -2,7 +2,6 @@ package org.lwjgl.glfw;
 
 import android.app.Activity;
 import android.content.ClipData;
-import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.util.DisplayMetrics;
@@ -269,26 +268,47 @@ public class CallbackBridge {
     // Called from JRE side
     @SuppressWarnings("unused")
     public static @Nullable String accessAndroidClipboard(int type, String copy) {
-        Activity activity = FCLApplication.getCurrentActivity();
-        ClipboardManager clipboard = (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
-        String result = null;
-        switch (type) {
-            case CLIPBOARD_COPY:
-                ClipData clip = ClipData.newPlainText("FCL Clipboard", copy);
-                clipboard.setPrimaryClip(clip);
-                break;
-            case CLIPBOARD_PASTE:
-                if (clipboard.hasPrimaryClip() && clipboard.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)) {
-                    result = clipboard.getPrimaryClip().getItemAt(0).getText().toString();
-                } else {
-                    result = "";
+        // 游戏侧会从任意线程（Thread-30 等）回调这里，且 Activity 在加载世界/切后台时可能已销毁。
+        // 旧实现直接 activity.getSystemService(...) → activity 为 null 时 NPE；
+        // clipboard.getPrimaryClipDescription()/getItemAt(0).getText() 同样可能为 null。
+        // 真机崩溃栈（反馈 c74db7c28c2e，1.2.7）：
+        //   java.lang.NullPointerException at org.lwjgl.glfw.CallbackBridge.accessAndroidClipboard
+        // 粘贴类调用失败时返回空串（游戏把空串当「没有内容」处理），其余返回 null。
+        boolean paste = type == CLIPBOARD_PASTE;
+        try {
+            Activity activity = FCLApplication.getCurrentActivity();
+            if (activity == null) return paste ? "" : null;
+            ClipboardManager clipboard =
+                    (ClipboardManager) activity.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) return paste ? "" : null;
+            switch (type) {
+                case CLIPBOARD_COPY: {
+                    ClipData clip = ClipData.newPlainText("Verse Clipboard", copy == null ? "" : copy);
+                    clipboard.setPrimaryClip(clip);
+                    return null;
                 }
-                break;
-            case CLIPBOARD_OPEN:
-                FCLBridge.openLink(copy);
-                break;
+                case CLIPBOARD_PASTE: {
+                    if (!clipboard.hasPrimaryClip()) return "";
+                    ClipData clip = clipboard.getPrimaryClip();
+                    if (clip == null || clip.getItemCount() == 0) return "";
+                    ClipData.Item item = clip.getItemAt(0);
+                    // 非纯文本剪贴板（图片/URI）getText() 为 null，用 coerceToText 兜底
+                    CharSequence text = item.getText();
+                    if (text == null) {
+                        text = item.coerceToText(activity);
+                    }
+                    return text == null ? "" : text.toString();
+                }
+                case CLIPBOARD_OPEN:
+                    FCLBridge.openLink(copy);
+                    return null;
+                default:
+                    return null;
+            }
+        } catch (Throwable t) {
+            // 后台线程读剪贴板在 Android 10+ 可能被系统拒绝，不能让它把游戏线程带崩
+            return paste ? "" : null;
         }
-        return result;
     }
 
 
