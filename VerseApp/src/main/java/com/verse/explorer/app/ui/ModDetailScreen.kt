@@ -64,6 +64,7 @@ import com.verse.explorer.core.install.modpack.ModpackInstaller
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository
+import com.verse.explorer.core.resource.McVersionGroups
 import com.verse.explorer.core.resource.ResourceVersion
 import com.verse.explorer.core.util.FileUtils
 import com.verse.explorer.core.version.MinecraftVersion
@@ -132,7 +133,9 @@ fun ModDetailScreen(
 
     var detailTab by remember { mutableStateOf("description") }
     var versionFilter by remember { mutableStateOf("") }
-    var versionTabMode by remember { mutableStateOf("exact") }
+    // 版本标签分组方式，对齐 PCL 的 GroupedDrop / GroupedOld（渐进退化，见 computeVersionTabs）
+    var versionGroupByDrop by remember { mutableStateOf(false) }
+    var versionGroupFoldOld by remember { mutableStateOf(false) }
     var versionTabKeys by remember { mutableStateOf<List<String>>(emptyList()) }
 
     // 下载状态：下载任务全部提交到下载中心（应用级协程，退出页面不中断），
@@ -214,26 +217,43 @@ fun ModDetailScreen(
     // 画廊大图
     var galleryView by remember { mutableStateOf<String?>(null) }
 
+    /**
+     * 构建「适用版本」标签 —— 完全对齐 PCL `PageDownloadCompDetail.Load_OnFinish`：
+     * 先用精确小版本分组，标签数仍 >= 9 时依次退化为
+     * 「按 Drop 桶」→「精确 + 折叠远古版」→「Drop + 折叠远古版」，
+     * 第一次得到少于 9 个标签就停下。
+     *
+     * 旧实现是「精确 > 9 就整体切到 major」，而 major 的 `versionToMajor()` 对 1.14 以前的版本
+     * 直接返回 null —— 这些版本既没有标签、过滤时也永远匹配不上，表现为「有些版本被漏掉」。
+     */
     fun computeVersionTabs(vers: List<ResourceVersion>) {
-        val exactMap = linkedMapOf<String, Int>()
-        val majorMap = linkedMapOf<String, Int>()
-        var hasSnapshot = false
-        vers.forEach { v ->
-            v.gameVersions.forEach { gv ->
-                if (gv.contains("w") || gv.contains("snapshot")) { hasSnapshot = true; return@forEach }
-                versionToExact(gv)?.let { exactMap[it] = (exactMap[it] ?: 0) + 1 }
-                versionToMajor(gv)?.let { majorMap[it] = (majorMap[it] ?: 0) + 1 }
-            }
+        val candidates = listOf(
+            false to false, // 精确小版本（1.20.1 / 1.20.4 各自一项）
+            true to false,  // 按 Drop 桶（1.20 / 26.2）
+            false to true,  // 精确 + 远古版折叠
+            true to true    // Drop + 远古版折叠
+        )
+        var groupedByDrop = false
+        var foldOld = false
+        var keys: List<String> = emptyList()
+        for ((byDrop, fold) in candidates) {
+            keys = vers.asSequence()
+                .flatMap { it.gameVersions.asSequence() }
+                .map { McVersionGroups.groupedName(it, byDrop, fold) }
+                .distinct()
+                .sortedWith(versionTabComparator())
+                .toList()
+            groupedByDrop = byDrop
+            foldOld = fold
+            if (keys.size < 9) break
         }
-        val mode = if (exactMap.size > 9) "major" else "exact"
-        val map = if (mode == "exact") exactMap else majorMap
-        val keys = map.keys.sortedWith(versionKeyComparator())
-        // 快照版放最前
-        val sorted = ArrayList<String>()
-        if (hasSnapshot) sorted.add("快照版")
-        sorted.addAll(keys)
-        versionTabMode = mode
-        versionTabKeys = sorted
+        versionGroupByDrop = groupedByDrop
+        versionGroupFoldOld = foldOld
+        versionTabKeys = keys
+        VerseLogger.info(
+            "版本标签: groupedByDrop=$groupedByDrop, foldOld=$foldOld, tabs=${keys.size} -> ${keys.take(12)}",
+            "ModDetail"
+        )
     }
 
     val fetchData = suspend {
@@ -703,18 +723,12 @@ fun ModDetailScreen(
     }
 
     // 按当前筛选标签过滤版本
-    val filteredVersions = remember(versions, versionFilter, versionTabMode) {
+    // 与标签同一套分组函数，保证「标签上有的版本一定过滤得出来」
+    val filteredVersions = remember(versions, versionFilter, versionGroupByDrop, versionGroupFoldOld) {
         if (versionFilter.isBlank()) versions
         else versions.filter { v ->
             v.gameVersions.any { gv ->
-                when (versionFilter) {
-                    "快照版" -> gv.contains("w") || gv.contains("snapshot")
-                    else -> {
-                        val exact = versionToExact(gv)
-                        val major = versionToMajor(gv)
-                        if (versionTabMode == "exact") exact == versionFilter else major == versionFilter
-                    }
-                }
+                McVersionGroups.groupedName(gv, versionGroupByDrop, versionGroupFoldOld) == versionFilter
             }
         }
     }

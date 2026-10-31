@@ -180,7 +180,11 @@ object CurseForgeApi {
             iconUrl = mod.logo?.url,
             author = ((mod.authors ?: emptyList()).firstOrNull()?.name) ?: "Unknown",
             versions = (mod.latestFilesIndexes ?: emptyList()).mapNotNull { it.gameVersion },
-            gameVersions = (mod.latestFilesIndexes ?: emptyList()).mapNotNull { it.gameVersion }.distinct(),
+            gameVersions = (mod.latestFilesIndexes ?: emptyList())
+                .mapNotNull { it.gameVersion }
+                .map { it.trim().lowercase() }
+                .filter { McVersionGroups.isFormatFit(it) }
+                .distinct(),
             loaders = (mod.latestFilesIndexes ?: emptyList()).mapNotNull { it.modLoader.let { l -> modLoaderLabel(l) } }.distinct(),
             source = "curseforge",
             projectType = projectType
@@ -211,7 +215,11 @@ object CurseForgeApi {
             followers = mod.followers ?: 0,
             categories = (mod.categories ?: emptyList()).mapNotNull { it.name },
             loaders = (mod.latestFilesIndexes ?: emptyList()).mapNotNull { it.modLoader.let { l -> modLoaderLabel(l) } }.distinct(),
-            gameVersions = (mod.latestFilesIndexes ?: emptyList()).mapNotNull { it.gameVersion }.distinct(),
+            gameVersions = (mod.latestFilesIndexes ?: emptyList())
+                .mapNotNull { it.gameVersion }
+                .map { it.trim().lowercase() }
+                .filter { McVersionGroups.isFormatFit(it) }
+                .distinct(),
             license = "",
             sourceUrl = "",
             dateCreated = mod.dateCreated ?: "",
@@ -245,8 +253,19 @@ object CurseForgeApi {
                 name = safeString(file.displayName, safeString(file.fileName)),
                 versionNumber = safeString(file.fileName?.substringBeforeLast('.')),
                 datePublished = file.fileDate ?: "",
-                gameVersions = (file.gameVersions ?: emptyList()).filter { it.matches(Regex("""\d+\.\d+""")) },
-                loaders = (file.gameVersions ?: emptyList()).filter { modLoaderLabelFromName(it) != null }.mapNotNull { modLoaderLabelFromName(it) }.distinct(),
+                // PCL 的做法：保留原始 gameVersions（其中混着 forge/fabric 这类加载器名），
+                // 只用 IsFormatFit 过滤出真正的版本号。旧实现用 `\d+\.\d+` 全匹配，
+                // 把 1.20.1 / 1.21.4 这些三段式版本整段删掉了 → 详情页版本分类缺项。
+                // 一个可识别版本都没有时给「未知版本」兜底（PCL 同样处理）：
+                // 否则这个文件在任何版本标签下都取不到，只能靠「全部」翻到
+                gameVersions = (file.gameVersions ?: emptyList())
+                    .map { it.trim().lowercase() }
+                    .filter { McVersionGroups.isFormatFit(it) }
+                    .distinct()
+                    .ifEmpty { listOf(McVersionGroups.UNKNOWN) },
+                loaders = (file.gameVersions ?: emptyList())
+                    .mapNotNull { modLoaderLabelFromName(it) }
+                    .distinct(),
                 releaseType = file.releaseType?.let { if (it == 1) "release" else "beta" } ?: "release",
                 downloads = 0L,
                 primaryFile = ResourceFile(

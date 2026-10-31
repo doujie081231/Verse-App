@@ -38,6 +38,7 @@ import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.VerseProgressBar
 import com.verse.explorer.app.ui.theme.VerseColors
+import com.verse.explorer.core.resource.McVersionGroups
 import com.verse.explorer.core.resource.ResourceVersion
 import com.verse.explorer.core.version.VersionType
 import io.noties.markwon.Markwon
@@ -247,33 +248,23 @@ internal fun MdSidebarDetailRow(key: String, value: String) {
 }
 
 
-internal fun versionToExact(ver: String): String? {
-    if (ver.isBlank()) return null
-    if (ver.contains("w") || ver.contains("snapshot")) return "快照版"
-    val base = ver.split("-")[0]
-    val m = Regex("""^(\d+\.\d+(?:\.\d+)?)""").find(base) ?: return null
-    return m.groupValues[1]
+/**
+ * 「适用版本」标签比较器：先数字版本（新的在前），再快照版，最后远古版/其他。
+ * 对齐 PCL 用 VersionComparer 对分组名排序后的视觉顺序。
+ */
+internal fun versionTabComparator(): Comparator<String> = Comparator { a, b ->
+    val ra = versionTabRank(a)
+    val rb = versionTabRank(b)
+    if (ra != rb) ra - rb else if (ra == 0) McVersionGroups.versionComparator().compare(a, b) else 0
 }
 
-internal fun versionToMajor(ver: String): String? {
-    if (ver.isBlank()) return null
-    if (ver.contains("w") || ver.contains("snapshot")) return null
-    val base = ver.split("-")[0]
-    val parts = base.split(".")
-    if (parts.size < 2) return null
-    val major = parts[0].toIntOrNull() ?: return null
-    val minor = parts[1].toIntOrNull() ?: return null
-    if (major == 1 && minor >= 14) return "1.$minor"
-    if (major >= 25) return "$major.$minor"
-    return null
+private fun versionTabRank(name: String): Int = when (name) {
+    McVersionGroups.SNAPSHOT -> 1
+    McVersionGroups.ANCIENT -> 2
+    McVersionGroups.OTHER -> 3
+    else -> 0
 }
 
-internal fun versionKeyComparator(): Comparator<String> = Comparator { a, b ->
-    val pa = a.split(".").map { it.toIntOrNull() ?: 0 }
-    val pb = b.split(".").map { it.toIntOrNull() ?: 0 }
-    if (pa[0] != pb[0]) pb[0] - pa[0]
-    else (pb.getOrNull(1) ?: 0) - (pa.getOrNull(1) ?: 0)
-}
 
 internal fun formatCount(count: Long): String = when {
     count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
@@ -337,9 +328,24 @@ internal fun VersionsDetailCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        version.gameVersions.take(2).forEach { ver ->
+                        // 与 PCL 一致：适用版本按从新到旧排序，只显示最新一个 + 其余数量，
+                        // 否则 API 原始顺序会给出「1.16.5、1.20.1」这种看起来毫无意义的组合
+                        val sortedGameVersions = remember(version.gameVersions) {
+                            McVersionGroups.sortDescending(version.gameVersions)
+                        }
+                        sortedGameVersions.firstOrNull()?.let { newest ->
                             Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
-                                Text(ver, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                                Text(newest, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
+                            }
+                        }
+                        if (sortedGameVersions.size > 1) {
+                            Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
+                                Text(
+                                    "等 ${sortedGameVersions.size} 个版本",
+                                    color = VerseColors.PcTextMuted,
+                                    fontSize = 9.sp,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
                             }
                         }
                         version.loaders.take(2).forEach { loader ->

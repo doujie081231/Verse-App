@@ -167,7 +167,10 @@ class ResourceRepository(
                         name = v.name ?: "",
                         versionNumber = v.versionNumber ?: "",
                         datePublished = v.datePublished ?: "",
-                        gameVersions = v.gameVersions.orEmpty(),
+                        // 与 CurseForge 一致：没有可识别版本时兜底「未知版本」，避免在标签过滤里消失
+                        gameVersions = v.gameVersions.orEmpty().ifEmpty {
+                            listOf(McVersionGroups.UNKNOWN)
+                        },
                         loaders = v.loaders.orEmpty(),
                         releaseType = v.versionType ?: "release",
                         downloads = v.downloads.toLong(),
