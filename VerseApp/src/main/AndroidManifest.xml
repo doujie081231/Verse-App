@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 开机后重新排定版本更新检查（AlarmManager 定时在重启后被清空） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -159,12 +161,18 @@
             android:foregroundServiceType="dataSync"
             android:process=":jvm" />
 
-        <!-- 下载中心前台服务：仅承载进度通知与进程优先级，任务全部结束后自停 -->
-        <service
-            android:name=".download.DownloadService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+        <!-- 版本更新后台检查：定时唤醒请求官网配置，有新版本发通知 -->
+        <receiver
+            android:name=".update.UpdateCheckReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".update.UpdateBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name=".documents.GameFolderProvider"

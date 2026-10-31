@@ -557,12 +557,7 @@ fun SettingsScreen(navController: NavHostController) {
                                 value = withContext(Dispatchers.IO) {
                                     RendererPluginManager.load(context, force = true)
                                     RendererManager.availableRenderers(context)
-                                }.map { cfg ->
-                                    val label = if (cfg.pluginPackage.isNotEmpty()) {
-                                        "${cfg.displayName}（插件）"
-                                    } else cfg.displayName
-                                    cfg.id to label
-                                }
+                                }.map { cfg -> cfg.id to cfg.displayLabel() }
                             }
                             LaunchedEffect(rendererOptions) {
                                 if (rendererOptions.isNotEmpty() && rendererOptions.none { it.first == renderer }) {
@@ -879,6 +874,21 @@ fun SettingsScreen(navController: NavHostController) {
 
                     item {
                         PcCard(title = "界面效果") {
+                            // 下载进度条动画：右侧常驻实时预览，点开展开全部样式
+                            com.verse.explorer.app.ui.components.ProgressStylePicker()
+                            // 页面切换动画：样式 + 速度倍率（下一次导航生效）
+                            PcDropdownRow(
+                                "页面切换动画",
+                                VersePersonalization.pageAnimStyle,
+                                PageAnimOptions
+                            ) { VersePersonalization.applyPageAnimStyle(it) }
+                            PcDropdownRow(
+                                "页面切换速度",
+                                PageAnimSpeedOptions.firstOrNull {
+                                    it.first.toFloat() == VersePersonalization.pageAnimSpeed
+                                }?.first ?: "1",
+                                PageAnimSpeedOptions
+                            ) { VersePersonalization.applyPageAnimSpeed(it.toFloat()) }
                             PcSwitchRow(
                                 "侧边栏液态玻璃",
                                 "悬浮导航按钮与展开面板的液态玻璃折射效果（Android 13+ 生效）",

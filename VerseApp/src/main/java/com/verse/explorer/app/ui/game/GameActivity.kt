@@ -208,6 +208,14 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             VerseLogger.info("  username=$username, userType=$userType", "GameActivity")
             VerseLogger.info("  customJvmArgs=$customJvmArgs", "GameActivity")
 
+            // 真实 MC 版本号：版本 id 是整合包名（"Fabulously Optimized"）时解析不出 26.x，
+            // 会让 Vulkan 环境注入等按版本门控的逻辑全部失效
+            val mcVersion = if (versionId != null && gameDirPath != null) {
+                com.verse.explorer.app.game.McVersionResolver.resolve(
+                    java.io.File(gameDirPath), versionId
+                )
+            } else null
+
             if (versionId == null || gameDirPath == null) {
                 Toast.makeText(this, "启动参数错误", Toast.LENGTH_LONG).show()
                 finish()
@@ -308,7 +316,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                     isMultiplayer = isMultiplayer,
                     accessToken = accessToken,
                     userType = userType,
-                    authlibServerUrl = authlibServerUrl
+                    authlibServerUrl = authlibServerUrl,
+                    mcVersion = mcVersion
                 )
             )
 
@@ -753,7 +762,36 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         orchestrator.handleGameExit(code)
     }
 
+    /**
+     * 手柄按键走 GLFW direct gamepad 通道：游戏 glfwInit 成功开启后由 native 回调
+     * CallbackBridge.onDirectInputEnable 置位 sGamepadDirectInput，此时把按键写进
+     * 手柄共享缓冲交给游戏原生识别，不再当作键盘事件下发（否则同一次按下会被
+     * 键盘与手柄两条路各处理一遍）。
+     * 未开启时返回 false，保持原有键盘映射路径不变。
+     */
+    private fun consumeGamepadKey(event: android.view.KeyEvent): Boolean {
+        if (!org.lwjgl.glfw.CallbackBridge.sGamepadDirectInput) return false
+        val src = event.source
+        val fromGamepad = (src and android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD ||
+            (src and android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK
+        if (!fromGamepad) return false
+        com.tungsten.fcl.game.sdl.handleGamepadKeyEvent(event)
+        return true
+    }
+
+    /** 手柄摇杆/扳机/十字键轴：同样是 GLFW direct gamepad 通道，开启后交给游戏原生处理 */
+    private fun consumeGamepadMotion(event: android.view.MotionEvent): Boolean {
+        if (!org.lwjgl.glfw.CallbackBridge.sGamepadDirectInput) return false
+        if ((event.source and android.view.InputDevice.SOURCE_JOYSTICK) != android.view.InputDevice.SOURCE_JOYSTICK) {
+            return false
+        }
+        if (event.action != android.view.MotionEvent.ACTION_MOVE) return false
+        com.tungsten.fcl.game.sdl.handleGamepadMotionEvent(event)
+        return true
+    }
+
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event != null && consumeGamepadKey(event)) return true
         if (inputHandler.onKeyDown(keyCode, event)) return true
         // 游戏内返回键 = 给游戏发一对 ESC（呼出暂停菜单），不退出界面；
         // 软键盘开启时返回键交给字符输入视图收起键盘
@@ -767,6 +805,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     }
 
     override fun onKeyUp(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        if (event != null && consumeGamepadKey(event)) return true
         if (inputHandler.onKeyUp(keyCode, event)) return true
         if (keyCode == android.view.KeyEvent.KEYCODE_BACK && touchCharInput?.isEnabled != true) return true
         return super.onKeyUp(keyCode, event)
@@ -774,6 +813,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
 
     /** 外接键鼠兜底：物理鼠标 hover/按钮/滚轮在 Activity 层统一接入，避免被视图拦截 */
     override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
+        if (consumeGamepadMotion(event)) return true
         if (inputHandler.handleGenericMotion(event)) return true
         return super.dispatchGenericMotionEvent(event)
     }
@@ -1046,6 +1086,21 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             orchestrator.onSurfaceCreated(s, surfaceTexture)
             orchestrator.onSurfaceChanged(width, height)
         }
+        // 尺寸与 SDL 窗口宽高必须在 prepareSurface 之前落地：prepareSurface 内部会
+        // externalInitialize → SDLSurface.surfaceChanged，SDL 侧用它作为窗口尺寸；
+        // 此时若 CallbackBridge.windowWidth/Height 仍为 0，SDL 会按 0x0 建窗口与 GL surface。
+        // 与 FCL JVMActivity.onSurfaceTextureAvailable 同序（先 setDefaultBufferSize +
+        // windowWidth/Height，再 prepareSurface）。
+        val resolvedSize = MenuSetting.resolveRenderSize(width, height)
+        var sdlWidth = resolvedSize.first
+        var sdlHeight = resolvedSize.second
+        if (FCLBridge.FORCE_RESOLUTION) {
+            sdlWidth = FCLBridge.FORCE_RESOLUTION_WIDTH
+            sdlHeight = FCLBridge.FORCE_RESOLUTION_HEIGHT
+        }
+        surfaceTexture.setDefaultBufferSize(sdlWidth, sdlHeight)
+        org.lwjgl.glfw.CallbackBridge.windowWidth = sdlWidth
+        org.lwjgl.glfw.CallbackBridge.windowHeight = sdlHeight
         // MC 26.3+ 走 SDL 渲染路径：Surface 就绪即注册到 SdlBridge，
         // 供游戏 JVM 内 notifyLauncher(ACTION_INIT_LAUNCHER_INTEGRATION) 完成 SDL3 绑定。
         // (ViewGroup) textureView.getParent()）：SDLActivity.externalInitialize 把它

@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
@@ -52,6 +53,22 @@ import java.util.stream.Stream;
  * Complete the CurseForge version.
  */
 public final class CurseCompletionTask extends Task<Void> {
+
+    /**
+     * 解析下载地址的并发度。
+     *
+     * CurseForge 整合包的 manifest 只有 projectID/fileID，文件名和直链必须逐个请求
+     * api.curseforge.com 才能拿到；还要再查一次 classId 决定放进
+     * mods / resourcepacks / shaderpacks。原来这两轮都跑在
+     * ForkJoinPool.commonPool（并行度 = 核心数 - 1，手机只有 7 条），
+     * 200+ 个模组 × 每次 1~8 秒，实测要一两分钟 —— 表现就是「卡在下载整合包模组」，
+     * 这段时间界面上只有几十 KB/s（那是接口返回的 JSON，不是模组文件）。
+     * ZL2 的 ModDownloader 用 Semaphore(64) 并发解析，这里完全对齐取 64。
+     */
+    private static final int RESOLVE_PARALLELISM = 64;
+
+    /** projectID -> classId（同一项目的多个文件不再重复请求接口） */
+    private final Map<Integer, Integer> classIdCache = new ConcurrentHashMap<>();
 
     private final DefaultDependencyManager dependency;
     private final DefaultGameRepository repository;
@@ -116,12 +133,18 @@ public final class CurseCompletionTask extends Task<Void> {
 
         File root = repository.getVersionRoot(version);
 
+        // 让界面能看出这一步在做什么（阶段行副标题取任务名）
+        setName("解析模组下载地址 " + manifest.getFiles().size() + " 个");
+
         // 解析文件下载信息时同步记录 SHA-1，供整合包模组文件校验
         Map<String, FileDownloadTask.IntegrityCheck> checks = new ConcurrentHashMap<>();
 
         // Because in China, Curse is too difficult to visit,
         // if failed, ignore it and retry next time.
-        CurseManifest newManifest = manifest.setFiles(
+        ForkJoinPool resolvePool = new ForkJoinPool(RESOLVE_PARALLELISM);
+        CurseManifest newManifest;
+        try {
+            newManifest = resolvePool.submit(() -> manifest.setFiles(
                 manifest.getFiles().parallelStream()
                         .map(file -> {
                             updateProgress(finished.incrementAndGet(), manifest.getFiles().size());
@@ -145,13 +168,18 @@ public final class CurseCompletionTask extends Task<Void> {
                                 return file;
                             }
                         })
-                        .collect(Collectors.toList()));
+                        .collect(Collectors.toList()))).get();
+        } finally {
+            resolvePool.shutdownNow();
+        }
         FileUtils.writeText(new File(root, "manifest.json"), JsonUtils.GSON.toJson(newManifest));
 
         File versionRoot = repository.getVersionRoot(modManager.getInstanceId());
         File resourcePacksRoot = new File(versionRoot, "resourcepacks"), shaderPacksRoot = new File(versionRoot, "shaderpacks");
         finished.set(0);
-        dependencies = newManifest.getFiles()
+        ForkJoinPool pathPool = new ForkJoinPool(RESOLVE_PARALLELISM);
+        try {
+            dependencies = pathPool.submit(() -> newManifest.getFiles()
                 .stream().parallel()
                 .filter(f -> f.getFileName() != null)
                 .flatMap(f -> {
@@ -166,7 +194,7 @@ public final class CurseCompletionTask extends Task<Void> {
                         task.addIntegrityCheckHandler(FileDownloadTask.ZIP_INTEGRITY_CHECK_HANDLER);
                         task.setCacheRepository(dependency.getCacheRepository());
                         task.setCaching(true);
-                        return Stream.of(task.withCounter("fcl.modpack.download"));
+                        return Stream.<Task<?>>of(task.withCounter("fcl.modpack.download"));
                     } catch (IOException e) {
                         Logging.LOG.log(Level.WARNING, "Could not query api.curseforge.com for mod: " + f.getProjectID() + ", " + f.getFileID(), e);
                         return Stream.empty(); // Ignore this file.
@@ -174,9 +202,13 @@ public final class CurseCompletionTask extends Task<Void> {
                         updateProgress(finished.incrementAndGet(), newManifest.getFiles().size());
                     }
                 })
-                .collect(Collectors.toList());
+                .collect(Collectors.toList())).get();
+        } finally {
+            pathPool.shutdownNow();
+        }
 
         if (!dependencies.isEmpty()) {
+            setName("下载整合包模组 " + dependencies.size() + " 个");
             getProperties().put("total", dependencies.size());
             notifyPropertiesChanged();
         }
@@ -193,8 +225,7 @@ public final class CurseCompletionTask extends Task<Void> {
      */
     private File guessFilePath(CurseManifestFile file, File resourcePacksRoot, File shaderPacksRoot,
                                FileDownloadTask.IntegrityCheck check) throws IOException {
-        RemoteMod mod = CurseForgeRemoteModRepository.MODS.getModById(Integer.toString(file.getProjectID()));
-        int classID = ((CurseAddon) mod.getData()).classId();
+        int classID = classIdOf(file.getProjectID());
         String fileName = file.getFileName();
         switch (classID) {
             case 12: // Resource pack
@@ -210,6 +241,16 @@ public final class CurseCompletionTask extends Task<Void> {
                 return existingFileValid(target, check) ? null : target;
             }
         }
+    }
+
+    /** 查询（并缓存）项目分类：同一整合包内重复项目不再重复请求接口 */
+    private int classIdOf(int projectID) throws IOException {
+        Integer cached = classIdCache.get(projectID);
+        if (cached != null) return cached;
+        RemoteMod mod = CurseForgeRemoteModRepository.MODS.getModById(Integer.toString(projectID));
+        int classID = ((CurseAddon) mod.getData()).classId();
+        classIdCache.put(projectID, classID);
+        return classID;
     }
 
     /**

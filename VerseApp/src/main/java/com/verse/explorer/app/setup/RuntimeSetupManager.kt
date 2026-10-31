@@ -94,9 +94,30 @@ object RuntimeSetupManager {
 
     // ==================== 版本检测 ====================
 
+    /**
+     * 运行时资产包版本（与 FCL / Zalith 的做法一致：跟随「资产内容」而不是跟随「APK 装过没装过」）。
+     *
+     * APK 里 assets/app_runtime 目录的内容有任何变动（升级 lwjgl、换 JRE 构建、
+     * 加新组件）时把这个值 +1，用户覆盖安装后就会重新走一次「安装前置环境」；
+     * 只改 UI / 业务代码而不动运行时资产的版本不动它，覆盖安装后组件直接判定就绪，
+     * 不会让用户白等一次几百 MB 的解压。
+     *
+     * 旧版本写入的标记是 "1"（固定值）或 APK 时间戳，迁移时自然不匹配，
+     * 会触发一次重装，之后按本常量比较。
+     */
+    private const val RUNTIME_BUNDLE_VERSION = 2
+
+    private fun bundleStamp(): String = "bundle:$RUNTIME_BUNDLE_VERSION"
+
     fun isLatest(context: Context, component: RuntimeComponent): Boolean {
         val targetDir = File(getTargetDir(component))
         if (!targetDir.exists()) return false
+
+        // 运行时资产版本与安装时的记录不一致 → 需要重装
+        val installedStamp = File(targetDir, "version").let {
+            if (it.exists()) runCatching { it.readText().trim() }.getOrDefault("") else ""
+        }
+        if (installedStamp != bundleStamp()) return false
 
         val versionFile = File(targetDir, "version")
         if (!versionFile.exists()) {
@@ -143,7 +164,7 @@ object RuntimeSetupManager {
             downloadComponentFiles(component, targetDir)
         }
 
-        File(targetDir, "version").writeText("1")
+        File(targetDir, "version").writeText(bundleStamp())
 
         val meaningful = dir.listFiles()?.filter { it.name != "version" && it.length() > 0 }
         if (meaningful.isNullOrEmpty()) {
@@ -181,7 +202,7 @@ object RuntimeSetupManager {
             binDir.listFiles()?.forEach { it.setExecutable(true, false) }
         }
 
-        File(targetDir, "version").writeText("1")
+        File(targetDir, "version").writeText(bundleStamp())
         val versionNum = when (component) {
             RuntimeComponent.JAVA_8 -> "8"
             RuntimeComponent.JAVA_17 -> "17"
@@ -224,7 +245,7 @@ object RuntimeSetupManager {
             }
         }
 
-        File(targetDir, "version").writeText("1")
+        File(targetDir, "version").writeText(bundleStamp())
         Log.i(TAG, "Installed JNA")
     }
 

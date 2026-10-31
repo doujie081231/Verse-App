@@ -117,6 +117,29 @@ class GameLaunchController(private val context: Context) {
                 val phaseSteps = launchCheck(versionId) ?: return@launch
                 val (account, version, bestRuntime, javaVersion, javaHome, steps) = phaseSteps
 
+                // 资源文件（assets objects）不完整时直接拦住：半成品实例能起，但没贴图、
+                // 没标题背景、语言列表为空（只剩英文），用户只会认为「游戏坏了」。
+                val assetIssue = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        com.verse.explorer.core.launch.DependencyChecker(context)
+                            .checkAssets(version.id)
+                            .firstOrNull { it.status == com.verse.explorer.core.launch.CheckStatus.MISSING }
+                    }.getOrNull()
+                }
+                if (assetIssue != null) {
+                    _launchState.value = LaunchState(
+                        phase = LaunchPhase.FAILED,
+                        isLaunching = false,
+                        message = "资源文件不完整",
+                        errors = listOf(
+                            "${assetIssue.name}：${assetIssue.message}",
+                            "这个版本没有安装完，请到「下载 → 已安装版本」里重新安装或补全该版本"
+                        )
+                    )
+                    VerseLogger.info("资源文件不完整，阻止启动: ${assetIssue.name}", "LaunchController")
+                    return@launch
+                }
+
                 val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
                 val verIndependent = !verSettings.usesGlobal
 
@@ -436,9 +459,30 @@ class GameLaunchController(private val context: Context) {
         }
         emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
+        // ========== Vulkan 能力评估 ==========
+        // 26.2+（带 Vulkan 后端）的版本，游戏初始化阶段会加载 Vulkan 查询设备能力，
+        // 与最终用的渲染器是不是 OpenGL 无关。所以这里对这类版本**一律**先按缓存评估一次
+        // （只读缓存、不弹窗、不拦截），目的仅是刷新 vkshim 门控（VulkanCheckManager.needsVulkanShim）：
+        // 驱动缺 VK_EXT_vertex_attribute_divisor / fillModeNonSolid 时，不启用 shim 会拿到
+        // 缺扩展的系统加载器，调用未实现入口即 NULL 函数指针 → SIGSEGV（退出码 6）。
+        // 以前只在「渲染器是 Zink/Freedreno 或后端显式 vulkan」时才评估，走 MobileGlues/OpenGL
+        // 的设备因此永远拿不到 shim，26.3 一进游戏就崩。
+        if (cachedVersion != null && VulkanCheckManager.hasVulkanBackend(mcVersionOf(cachedVersion.id))) {
+            val (useTurnip, driverPath) = vulkanDriverSelection(cachedVersion.id)
+            runCatching {
+                VulkanCheckManager.ensureSupported(context, mcVersionOf(cachedVersion.id), useTurnip, driverPath)
+            }.onFailure {
+                VerseLogger.warn("Vulkan 能力评估失败（仅影响 vkshim 门控）: ${it.message}", "Launch")
+            }
+            VerseLogger.info(
+                "Vulkan 能力评估: shim=${VulkanCheckManager.needsVulkanShim}" +
+                    "（渲染器判定=${needsVulkanCheck(cachedVersion.id)}）", "Launch"
+            )
+        }
+
         // ========== Vulkan 检测（仅当所选渲染器/图形后端需要 Vulkan）==========
         // 需要 Vulkan 的启动方式先询问"是否检测"，检测完成后展示报告，
-        // 无论结论是否支持都允许继续启动；选择 OpenGL/GL4ES/MobileGlues 等渲染器时一律不检测。
+        // 无论结论是否支持都允许继续启动；选择 OpenGL/GL4ES/MobileGlues 等渲染器时一律不弹窗。
         if (cachedVersion != null && needsVulkanCheck(cachedVersion.id)) {
             stepIdx++
             steps.add(LaunchStep("Vulkan 检查", "进行中...", "code"))
@@ -508,6 +552,40 @@ class GameLaunchController(private val context: Context) {
                 return null
             }
         }
+
+        // ========== 渲染器/模组兼容性（阻断） ==========
+        // Sodium 0.6+ 走 GL 3.3 core 管线，GL4ES/Krypton 这类转译层翻不出它的 uint/UBO 着色器，
+        // 进世界瞬间管线编译失败 → SIGSEGV（真机：26.2 FO + NGGL4ES，退出码 6）。
+        // 这种组合每次必崩，拦在启动前，并给出可执行的换法。
+        stepIdx++
+        steps.add(LaunchStep("渲染器兼容", "进行中...", "display"))
+        emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, "正在检查渲染器与模组兼容性...")
+        if (cachedVersion == null) {
+            steps[stepIdx] = LaunchStep("渲染器兼容", "跳过 (版本缺失)", "skip")
+        } else {
+            val checkVersionId = cachedVersion.id
+            val vsRender = VersionSettingsRepository(context).getVersionSettings(checkVersionId)
+            val rendererId = if (vsRender.usesGlobal) settingsRepo.getRenderer() else vsRender.renderer
+            val issue = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    com.verse.explorer.app.game.RendererCompatCheck.check(
+                        context, gameDir, checkVersionId, rendererId
+                    )
+                }.onFailure {
+                    VerseLogger.warn("渲染器兼容性检查失败（忽略）: ${it.message}", "LaunchController")
+                }.getOrNull()
+            }
+            if (issue != null) {
+                steps[stepIdx] = LaunchStep("渲染器兼容", "不兼容", "error")
+                criticalErrors.add(issue.toMessage())
+                VerseLogger.error(
+                    "渲染器不兼容，阻止启动: renderer=$rendererId version=$checkVersionId", "LaunchController"
+                )
+            } else {
+                steps[stepIdx] = LaunchStep("渲染器兼容", "完成", "check")
+            }
+        }
+        emitState(LaunchPhase.FILE_CHECK, steps, stepIdx, steps[stepIdx].status)
 
         // ========== 检查汇总 ==========
         if (criticalErrors.isNotEmpty()) {
@@ -636,12 +714,21 @@ class GameLaunchController(private val context: Context) {
     }
 
     /**
+     * 版本实例对应的真实 MC 版本号（"26.2"）。
+     * 整合包实例的 id 是包名，直接拿 id 判断 26.x 会永远为假 —— 之前 26.2 的
+     * 「Fabulously Optimized」因此跳过了 Vulkan 环境注入，回落到 gl4es OpenGL 3.1。
+     */
+    private fun mcVersionOf(versionId: String): String {
+        return com.verse.explorer.app.game.McVersionResolver.resolve(gameDir, versionId) ?: versionId
+    }
+
+    /**
      * 是否需要 Vulkan 检测：仅当版本带 Vulkan 后端（26.2+）且当前启动方式真的走 Vulkan
      * （Zink/Freedreno 渲染器，或图形 API 显式 vulkan）。
      * OpenGL/GL4ES/MobileGlues 等渲染方式一律不检测。
      */
     private fun needsVulkanCheck(versionId: String): Boolean {
-        if (!VulkanCheckManager.hasVulkanBackend(versionId)) return false
+        if (!VulkanCheckManager.hasVulkanBackend(mcVersionOf(versionId))) return false
         val vs = VersionSettingsRepository(context).getVersionSettings(versionId)
         val rendererId = if (vs.usesGlobal) settingsRepo.getRenderer() else vs.renderer
         val backend = if (vs.usesGlobal) {
@@ -650,6 +737,11 @@ class GameLaunchController(private val context: Context) {
         val renderer = RendererManager.getRendererById(context, rendererId)
         // MobileGlues 是 GL 实现，OptionsInjector 会强制 opengl 后端，无需 Vulkan 检测
         if (renderer != null && renderer.glName.contains("mobileglues", ignoreCase = true)) {
+            return false
+        }
+        // GL 系渲染器同理：gl4es / Krypton / FPE 只实现 OpenGL，后端由 OptionsInjector
+        // 固定成 opengl，弹 Vulkan 检测只会打扰用户
+        if (renderer != null && com.verse.explorer.app.game.RendererCompatCheck.isTranslationLayer(renderer)) {
             return false
         }
         val vulkanRenderer = renderer != null && (

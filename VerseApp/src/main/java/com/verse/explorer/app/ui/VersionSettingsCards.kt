@@ -329,10 +329,7 @@ internal fun VersionConfigContent(
                 val rendererChoices = remember(settings.renderer) {
                     val base = listOf("" to "跟随全局设置") +
                         RendererManager.availableRenderers(context).map { cfg ->
-                            val label = if (cfg.pluginPackage.isNotEmpty()) {
-                                "${cfg.displayName}（插件）"
-                            } else cfg.displayName
-                            cfg.id to label
+                            cfg.id to cfg.displayLabel()
                         }
                     if (settings.renderer.isNotEmpty() && base.none { it.first == settings.renderer }) {
                         base + (settings.renderer to settings.renderer)

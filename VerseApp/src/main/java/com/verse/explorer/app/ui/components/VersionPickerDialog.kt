@@ -47,7 +47,9 @@ fun VersionPickerDialog(
     versions: List<VerseVersionItem>,
     defaultSelectedId: String?,
     onDismiss: () -> Unit,
-    onConfirm: (List<VerseVersionItem>) -> Unit
+    onConfirm: (List<VerseVersionItem>) -> Unit,
+    title: String = "为哪些游戏版本安装？",
+    hint: String? = null
 ) {
     val selected = remember(versions) {
         mutableStateListOf<String>().apply {
@@ -63,7 +65,15 @@ fun VersionPickerDialog(
         textContentColor = VerseColors.PcTextSecondary,
         shape = RoundedCornerShape(12.dp),
         title = {
-            Text("为哪些游戏版本安装？", fontWeight = FontWeight.Bold)
+            // 提示放在标题块里，text 槽保持「纯 LazyColumn」，
+            // 避免在 AlertDialog 里出现 Column 包 LazyColumn 的测量问题
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(title, fontWeight = FontWeight.Bold)
+                if (!hint.isNullOrBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(hint, fontSize = 11.sp, color = VerseColors.PcTextMuted)
+                }
+            }
         },
         text = {
             LazyColumn(

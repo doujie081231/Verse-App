@@ -28,6 +28,10 @@ import com.verse.explorer.app.ui.theme.VerseExplorerTheme
 
 class MainActivity : ComponentActivity() {
 
+    private companion object {
+        const val REQUEST_POST_NOTIFICATIONS = 0x5646
+    }
+
     val jreReady = mutableStateOf(false)
 
     /** 外部分享导入的整合包 Uri（微信等 ACTION_SEND → ModpackImportFlow） */
@@ -51,6 +55,39 @@ class MainActivity : ComponentActivity() {
 
     private val launchCoordinator = MainLaunchCoordinator(this)
 
+    /** 通知权限：已授权则直接后台检查一次版本；未授权则请求，授权回调里再检查 */
+    private fun requestUpdateNotificationPermission() {
+        val notifier = com.verse.explorer.app.update.UpdateNotifier
+        if (notifier.hasPermission(this)) {
+            Thread {
+                runCatching { notifier.checkAndNotify(this) }
+            }.start()
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                androidx.core.app.ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_POST_NOTIFICATIONS) {
+            Thread {
+                runCatching { com.verse.explorer.app.update.UpdateNotifier.checkAndNotify(this) }
+            }.start()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -61,6 +98,10 @@ class MainActivity : ComponentActivity() {
         try {
             (applicationContext as? com.verse.explorer.app.VerseApplication)?.writeBootLog("MainActivity.onCreate started")
         } catch (_: Throwable) {}
+
+        // 通知权限（Android 13+ 需运行时授权）：授权后立刻做一次版本检查，
+        // 有新版本就发通知；之后由 UpdateNotifier 的 6 小时定时任务接管
+        requestUpdateNotificationPermission()
 
         // 横屏允许正反两个方向（设备翻转后界面跟随旋转，不锁定单一朝向）
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE

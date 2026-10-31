@@ -9,11 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
-import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.verse.explorer.app.MainActivity
 import com.verse.explorer.app.VerseApplication
 import kotlinx.coroutines.CancellationException
@@ -46,7 +44,9 @@ data class DownloadCenterItem(
     /** 已下载字节（供下载弹窗展示 "已下载/总大小"） */
     val downloaded: Long = 0,
     /** 总字节；0 表示未知 */
-    val total: Long = 0
+    val total: Long = 0,
+    /** 项目图标（模组/整合包封面），下载浮层卡片与模组列表保持一致 */
+    val iconUrl: String? = null
 )
 
 /**
@@ -82,7 +82,6 @@ object DownloadCenter {
     private val lastReportAt = HashMap<Long, Long>()
     private var idCounter = 0L
     private var permissionRequested = false
-    private var lastStartToast: Toast? = null
 
     // 唤醒锁引用计数：有任务时持有，全部结束释放（后台/锁屏下载不中断）
     private val lockMonitor = Any()
@@ -103,6 +102,7 @@ object DownloadCenter {
         installAction: Runnable? = null,
         cleanupAction: Runnable? = null,
         onComplete: ((success: Boolean, error: String?) -> Unit)? = null,
+        iconUrl: String? = null,
         task: suspend (
             onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit,
             isCancelled: () -> Boolean
@@ -110,13 +110,11 @@ object DownloadCenter {
     ): DownloadCenterItem {
         val app = VerseApplication.instance
         val id = ++idCounter
-        val item = DownloadCenterItem(id, key, title)
+        val item = DownloadCenterItem(id, key, title, iconUrl = iconUrl)
 
         synchronized(lastReportAt) { lastReportAt.clear() }
-        val wasEmpty = synchronized(entries) { entries.isEmpty() }
         _items.update { it + item }
 
-        showStartedToast(app, title)
         requestNotificationPermissionIfNeeded()
         com.verse.explorer.core.log.DownloadLog.write("center", "提交下载: $title (key=$key)")
 
@@ -158,16 +156,11 @@ object DownloadCenter {
             entries[id]?.let { entries[id] = it.copy(job = job) }
         }
 
-        if (wasEmpty) {
-            // 从无任务变为有任务：启动前台服务保活，保证后台下载不中断
-            try {
-                ContextCompat.startForegroundService(
-                    app, Intent(app, DownloadService::class.java)
-                )
-            } catch (_: Exception) {
-                // 后台启动前台服务被系统限制时降级：仅持唤醒锁继续下载
-            }
-        }
+        // 不再使用前台服务：Android 12+（尤其 Android 16）要求 startForegroundService 后
+        // 服务必须在极短时间内 startForeground，否则系统抛
+        // ForegroundServiceDidNotStartInTimeException 直接杀掉进程（实测 1.2.23 崩溃）。
+        // 下载任务本来就跑在应用级协程里，配合下面的唤醒锁 + 进度通知即可，
+        // 前台服务在这里只提供进程优先级，收益小于它带来的崩溃风险。
         acquireLocks(app)
         refreshNotification()
         return item
@@ -254,7 +247,6 @@ object DownloadCenter {
         val list = _items.value
         if (list.isEmpty()) {
             NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
-            context.stopService(Intent(context, DownloadService::class.java))
         } else if (ActivityCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
             == PackageManager.PERMISSION_GRANTED
         ) {
@@ -319,13 +311,6 @@ object DownloadCenter {
         ActivityCompat.requestPermissions(
             activity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1002
         )
-    }
-
-    private fun showStartedToast(context: Context, title: String) {
-        lastStartToast?.cancel()
-        val toast = Toast.makeText(context, "$title · 已开始下载", Toast.LENGTH_SHORT)
-        lastStartToast = toast
-        toast.show()
     }
 
     /** 有任务时持有部分唤醒锁 + Wi-Fi 高性能锁（引用计数），全部任务结束后释放 */

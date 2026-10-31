@@ -510,7 +510,10 @@ class DependencyChecker(private val context: Context) {
 
             var missingAssets = 0
             var checkedCount = 0
-            val checkLimit = 200
+            // 全量检查：原来只抽前 200 个，断点续装留下的半成品实例（前 200 个已有、后面全缺）
+            // 会被判定为「资源完整」，然后启动进一个没贴图/没背景/只有英文的游戏。
+            // assets objects 是本地 stat，几千次也就几十毫秒。
+            val checkLimit = minOf(objects.size(), 20000)
 
             for ((name, element) in objects.entrySet()) {
                 if (checkedCount >= checkLimit) break
@@ -526,7 +529,7 @@ class DependencyChecker(private val context: Context) {
             }
 
             val estimatedMissing = if (checkedCount < totalAssets) {
-                (missingAssets * totalAssets / checkedCount)
+                (missingAssets.toLong() * totalAssets / checkedCount).toInt()
             } else {
                 missingAssets
             }

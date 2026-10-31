@@ -166,7 +166,7 @@ public class ForgeNewInstallTask extends Task<Version> {
 
             command.addAll(args);
 
-            runJVMProcess(processor, command, 21);
+            runJVMProcess(processor, command, 8);
 
             for (Map.Entry<String, String> entry : outputs.entrySet()) {
                 Path artifact = Paths.get(entry.getKey());
@@ -240,12 +240,14 @@ public class ForgeNewInstallTask extends Task<Version> {
             latch.await();
             int exitCode = Integer.parseInt((String) server.getResult());
             if (exitCode != 0) {
-                // 宿主适配：Forge 处理器（installertools 等）是 Java 17+ 字节码。
-                // aarch64 真机上 jre-8/JRE11 会直接 JIT 崩溃（Field too big for insn），
-                // 且 FCL 原版 FCLauncher 的 JNI 桥未实现 JDK25 符号，jre-25 不可用。
-                // 因此起跳 JRE 21，失败回退 17。递归调用仍在持锁期间（监视器可重入）。
-                if (java == 21) {
+                // FCL 原版以 JRE 8 跑 installertools，install_profile.json 里 outputs 的
+                // SHA-1 就是官方在 JDK 8 下生成的；换用更高版本 JVM 重新打包出的 jar
+                // 压缩字节不同，校验必然对不上（真机表现：Incorrect checksum (SHA-1)）。
+                // 因此起跳仍按 FCL 用 8，仅在真机 JRE8 不可用时依次回退 17、21。
+                if (java == 8) {
                     runJVMProcess(processor, command, 17);
+                } else if (java == 17) {
+                    runJVMProcess(processor, command, 21);
                 } else {
                     throw new IOException("Game processor exited abnormally with code " + exitCode);
                 }

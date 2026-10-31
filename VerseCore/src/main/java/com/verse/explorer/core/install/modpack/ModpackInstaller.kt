@@ -65,7 +65,9 @@ class ModpackInstallCancelledException : Exception("整合包安装已取消")
 object ModpackInstaller {
 
     private const val BMCL = "https://bmclapi2.bangbang93.com"
-    private const val TAG = "ModpackInstaller"
+    private const val COUNT_EMIT_INTERVAL_MS = 150L
+
+private const val TAG = "ModpackInstaller"
 
     @Volatile
     private var cancelled = false
@@ -78,6 +80,9 @@ object ModpackInstaller {
 
     /** 各阶段行的文件完成计数（计数事件按阶段累加，保证 UI 收到的 n 单调递增） */
     private val stageCounters = ConcurrentHashMap<String, Int>()
+
+    /** 各阶段最近一次向 UI 推送计数事件的时间（节流用，stage -> 毫秒） */
+    private val lastCountEmitAt = ConcurrentHashMap<String, Long>()
 
     /** 取消当前安装（文件下载阶段由调用方取消协程处理） */
     fun cancel() {
@@ -223,6 +228,11 @@ object ModpackInstaller {
 
         executor.addTaskListener(object : TaskListener() {
             override fun onRunning(task: Task<*>) {
+                // 单文件下载任务（整合包 1291 个 mod、资源文件的每个文件）不占阶段行：
+                // 进度由 CountTask 的计数事件表达。此前给每个下载任务都挂了一个
+                // progressProperty 监听器（回调经主线程分发），1291 个任务同时下载时
+                // 主线程被海量回调压住，界面停在上一帧不动 —— 表现就是「卡在这个阶段」。
+                if (task is FetchTask<*>) return
                 if (!displayable(task)) return
                 val key = rowKey(task) ?: return
                 emitTask(onEvent, task, ModpackTaskKind.RUNNING)
@@ -234,15 +244,27 @@ object ModpackInstaller {
                 if (task is Task<*>.CountTask) {
                     val stage = task.countStage
                     val done = stageCounters.merge(stage, 1) { old, add -> old + add } ?: 1
-                    if (done % 50 == 1) Log.i(TAG, "count $stage n=$done")
-                    onEvent(
-                        ModpackTaskEvent(
-                            key = "stage:$stage",
-                            label = labelOf(stage),
-                            kind = ModpackTaskKind.RUNNING,
-                            countDone = done
+                    if (done % 50 == 1) {
+                        Log.i(TAG, "count $stage n=$done")
+                        com.verse.explorer.core.log.DownloadLog.write("count", "$stage n=$done")
+                    }
+                    // 参考 ZL2 的 runBatchDownloads：进度按「快照」汇总上报，而不是每个文件一次事件。
+                    // 1291 个文件的阶段原先会推 1291 次状态更新，UI 来不及重组，
+                    // 表现为界面停住、总进度不动（实际下载仍在跑）。
+                    // 这里按 150ms 节流，收尾时补一次，保证最终值准确。
+                    val now = System.currentTimeMillis()
+                    val last = lastCountEmitAt[stage] ?: 0L
+                    if (now - last >= COUNT_EMIT_INTERVAL_MS) {
+                        lastCountEmitAt[stage] = now
+                        onEvent(
+                            ModpackTaskEvent(
+                                key = "stage:$stage",
+                                label = labelOf(stage),
+                                kind = ModpackTaskKind.RUNNING,
+                                countDone = done
+                            )
                         )
-                    )
+                    }
                     return
                 }
                 // 计数事件二：阶段任务在 execute 时声明本阶段文件总数（n/total 的 total）
@@ -250,6 +272,9 @@ object ModpackInstaller {
                 if (total >= 0) {
                     val stage = task.inheritedStage ?: task.stage ?: return
                     Log.i(TAG, "declare total stage=$stage total=$total task=${task.javaClass.simpleName}")
+                    com.verse.explorer.core.log.DownloadLog.write(
+                        "stage", "阶段开始 $stage 共 $total 个文件"
+                    )
                     onEvent(
                         ModpackTaskEvent(
                             key = "stage:$stage",
@@ -270,6 +295,8 @@ object ModpackInstaller {
                 // 计数包装任务不参与阶段行状态：它随每个单文件完成而结束，
                 // 若据此置行完成，首个文件下载完就会把整行虚标为已完成（总进度跳变）
                 if (task is Task<*>.CountTask) return
+                // 单文件下载任务同 onRunning：阶段行状态只由阶段宿主任务结束决定
+                if (task is FetchTask<*>) return
                 if (!displayable(task)) return
                 val key = rowKey(task) ?: return
                 // 单文件任务（下载任务）完成不算阶段行整体完成：

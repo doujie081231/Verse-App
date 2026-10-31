@@ -90,6 +90,8 @@ class VerseApplication : Application(), ImageLoaderFactory {
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
             override fun onActivityDestroyed(activity: android.app.Activity) {}
         })
+        // 版本更新后台检查：排定每 6 小时的定时任务（应用未打开也会检查并通知）
+        runCatching { com.verse.explorer.app.update.UpdateNotifier.schedule(this) }
         // 陶瓦联机：提供应用级 Context 供后台推送 VPN 通知状态
         com.verse.explorer.app.terracotta.TerracottaController.appContext = this
         com.verse.explorer.app.install.FclCoreHost.init(this)

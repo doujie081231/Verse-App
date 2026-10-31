@@ -642,7 +642,51 @@ public class DefaultLauncher extends Launcher {
                 false, false, false, false, false, false, false
         ));
         diag("FCLConfig 创建完成, 调用 FCLauncher.launchMinecraft ... 渲染库将在此加载 dlopen");
+        // Forge 1.12.2 的启动画面（SplashProgress）在自己的线程里调用 Display.update()
+        // → glfwPollEvents → pojavPumpEvents，而该原生回调用的是 GLFW 线程的 JNIEnv
+        // 去调 Java（pojav_environ->glfwThreadVmEnv）。跨线程使用 JNIEnv 属未定义行为，
+        // 实测在 libjvm 内 SIGSEGV（hs_err: GLFW.glfwSetWindowSize ← internalWindowSizeChanged）。
+        // Forge 用 config/splash.properties 的 enabled 开关控制该画面，这里在启动前落地关闭。
+        disableForgeSplash(repository.getRunDirectory(version.getId()));
         return FCLauncher.launchMinecraft(config);
+    }
+
+    /**
+     * 关闭 Forge 的早期启动画面（SplashProgress）。
+     *
+     * 该画面运行在独立线程，并在其中调用 LWJGL 的 Display.update()/glfwPollEvents；
+     * 而 FCL 的 GLFW 桥（libpojavexec 的 pojavPumpEvents）通过
+     * pojav_environ->glfwThreadVmEnv 这个「GLFW 线程的 JNIEnv」回调 Java ——
+     * 从别的线程用这个 env 调 Java 是 JNI 未定义行为，真机上表现为
+     * libjvm 内 SIGSEGV（崩溃栈顶 frame 为 GLFW.glfwSetWindowSize）。
+     *
+     * Forge 1.12.2 通过 config/splash.properties 的 enabled 开关读取该配置，
+     * 这里在启动前写入 enabled=false；文件已关闭时不动，避免覆盖整合包自带的其他配置。
+     */
+    private void disableForgeSplash(File runDir) {
+        if (runDir == null) return;
+        try {
+            File configDir = new File(runDir, "config");
+            File file = new File(configDir, "splash.properties");
+            if (file.isFile()) {
+                String text = new String(
+                        java.nio.file.Files.readAllBytes(file.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8
+                );
+                if (text.contains("enabled=false") || text.contains("enabled = false")) return;
+            } else if (!configDir.isDirectory() && !configDir.mkdirs()) {
+                return;
+            }
+            try (java.io.FileWriter writer = new java.io.FileWriter(file)) {
+                writer.write("# Written by Verse launcher: disable Forge early splash screen\n");
+                writer.write("# SplashProgress pumps GLFW events on its own thread; the native\n");
+                writer.write("# bridge uses the GLFW thread's JNIEnv, which is undefined behaviour.\n");
+                writer.write("enabled=false\n");
+            }
+            diag("splash.properties -> enabled=false (" + file.getAbsolutePath() + ")");
+        } catch (Exception e) {
+            diag("splash.properties write failed: " + e);
+        }
     }
 
     /** 文件级诊断日志：写到外部可访问目录，进程被杀后仍可读取（JVM 前 native 崩溃定位用） */

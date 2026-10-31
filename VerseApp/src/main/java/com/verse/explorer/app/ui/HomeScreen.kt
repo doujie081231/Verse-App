@@ -14,12 +14,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -156,6 +160,15 @@ fun HomeScreen(
             HomePageContent(gridState = gridState)
         }
 
+        // 左下角品牌标识：样式取自 VersePC2 启动页标题（font-weight 800、-0.03em 字距，
+        // 前半为主色文字、后半为「主色 → 次要色」的水平渐变）。
+        // 纯文本无手势，不会挡住下面可拖动的卡片网格。
+        VerseBrandMark(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 24.dp, bottom = 10.dp)
+        )
+
         if (!launchOverlayDismissed &&
             (launchState.isLaunching || launchState.errors.isNotEmpty() || launchState.phase == LaunchPhase.FAILED)
         ) {
@@ -177,6 +190,36 @@ fun HomeScreen(
             )
         }
     }
+}
+
+/**
+ * 「Verse App」品牌标识：对应 VersePC2 的 `#splash-title` / `#splash-title-accent`。
+ * 前半为常规主色，后半用水平渐变裁切到文字上（Compose 用 SpanStyle(brush=…) 实现）。
+ */
+@Composable
+private fun VerseBrandMark(modifier: Modifier = Modifier) {
+    val accent = Brush.horizontalGradient(
+        colors = listOf(VerseColors.PcTextPrimary, VerseColors.PcTextMuted)
+    )
+    Text(
+        text = buildAnnotatedString {
+            withStyle(
+                SpanStyle(
+                    color = VerseColors.PcTextPrimary,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            ) { append("Verse ") }
+            withStyle(
+                SpanStyle(
+                    brush = accent,
+                    fontWeight = FontWeight.ExtraBold
+                )
+            ) { append("App") }
+        },
+        fontSize = 19.sp,
+        letterSpacing = (-0.6).sp,
+        modifier = modifier
+    )
 }
 
 /**
@@ -342,7 +385,8 @@ private fun HomePageContent(
             modifier = Modifier.fillMaxWidth(),
             screenBoundsHeightPx = screenBoundsHeightPx
         )
-        Spacer(Modifier.height(6.dp))
+        // 底部留出品牌标识（左下角 Verse App）的高度，避免卡片贴到它上面
+        Spacer(Modifier.height(26.dp))
     }
 }
 

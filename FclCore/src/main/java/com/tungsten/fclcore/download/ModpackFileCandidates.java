@@ -14,10 +14,19 @@ import java.util.List;
 public final class ModpackFileCandidates {
 
     /** host 前缀 → 镜像前缀（与启动器资源下载的镜像映射保持一致） */
+    /**
+     * 与 ZL2 的 MCIMMirror 保持一致：把下面这些官方前缀整体换到 MCIM 镜像根，
+     * 官方原 URL 永远作为兜底排在后面。
+     * <p>
+     * ZL2 `MCIMMirror.REPLACE_MIRROR_HOLDERS` = edge.forgecdn.net / cdn.modrinth.com，
+     * 镜像根 `ROOT = https://mod.mcimirror.top`。
+     */
+    private static final String MCIM_ROOT = "https://mod.mcimirror.top";
     private static final String[][] MIRRORS = {
-            {"https://cdn.modrinth.com/", "https://mod.mcimirror.top/"},
-            {"https://cdn-alt.modrinth.com/", "https://mod.mcimirror.top/"},
-            {"https://edge.forgecdn.net/", "https://mediafilez.forgecdn.net/"},
+            {"https://cdn.modrinth.com/", MCIM_ROOT + "/"},
+            {"https://cdn-alt.modrinth.com/", MCIM_ROOT + "/"},
+            {"https://edge.forgecdn.net/", MCIM_ROOT + "/"},
+            {"https://mediafilez.forgecdn.net/", MCIM_ROOT + "/"},
     };
 
     private ModpackFileCandidates() {}

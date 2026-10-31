@@ -8,7 +8,8 @@ import androidx.compose.ui.unit.dp
 import com.verse.explorer.app.ui.theme.VerseColors
 
 /**
- * 玫瑰曲线加载动画入口：参数与旧约定兼容（size 仅用于布局占位），
+ * 玫瑰曲线加载动画入口：参数与旧约定兼容（size 仅用于布局占位）。
+ * 页面加载动画固定使用玫瑰曲线，不再跟随「下载进度条动画」设置。
  */
 @Composable
 fun RoseLoader(

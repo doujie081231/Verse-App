@@ -303,6 +303,11 @@ public abstract class FetchTask<T> extends Task<T> {
 
     }
 
+    /**
+     * 同时下载的文件数。与 FCL 原版一致（核心数 × 4，上限 64），ZL2 的 runBatchDownloads
+     * 也是 64 路并发：小文件阶段的瓶颈是每文件的跳转 + TLS 握手，连接太少反而更慢。
+     * 之前压到 8 并没有改善吞吐，说明慢的原因不在并发数（是事件汇报把 UI 线程压住了）。
+     */
     public static int DEFAULT_CONCURRENCY = Math.min(Runtime.getRuntime().availableProcessors() * 4, 64);
     private static int downloadExecutorConcurrency = DEFAULT_CONCURRENCY;
     private static volatile ThreadPoolExecutor DOWNLOAD_EXECUTOR;

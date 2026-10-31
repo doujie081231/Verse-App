@@ -108,10 +108,15 @@ fun ModDetailScreen(
     var retryCount by remember { mutableStateOf(0) }
 
     // 前置依赖：从版本列表聚合（描述 tab 内嵌展示），名称/图标按依赖自身来源解析
+    // 同一项目在不同版本里可能一个标 required、一个标 optional（Modrinth 由作者各自标注），
+    // 这里按「最严」合并：只要有一处标必需就按必需处理，避免把必装前置显示成可选、
+    // 或者把可选当成必装塞给用户。
     val deps = remember(versions) {
-        versions.flatMap { it.dependencies }
-            .distinctBy { it.projectId }
-            .filter { it.projectId.isNotBlank() }
+        val flat = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
+        val requiredIds = flat.filter { it.type == "required" }.map { it.projectId }.toSet()
+        flat.distinctBy { it.projectId }.map {
+            if (it.projectId in requiredIds && it.type != "required") it.copy(type = "required") else it
+        }
     }
     var depDetails by remember { mutableStateOf<Map<String, ResourceDetail>>(emptyMap()) }
     LaunchedEffect(deps) {
@@ -514,9 +519,11 @@ fun ModDetailScreen(
      */
     fun beginInstallDeps() {
         if (downloading) return
-        val deps = versions.flatMap { it.dependencies }
-            .distinctBy { it.projectId }
-            .filter { it.projectId.isNotBlank() && it.type == "required" }
+        // 与展示侧同一套合并规则：只要有一个版本把该项目标为必需，就按必需处理。
+        // 原先 distinctBy 取首个元素，若首个体现在其他版本里被标成 optional 就会漏装。
+        val flatDeps = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
+        val requiredIds = flatDeps.filter { it.type == "required" }.map { it.projectId }.toSet()
+        val deps = flatDeps.distinctBy { it.projectId }.filter { it.projectId in requiredIds }
         if (deps.isEmpty()) {
             Toast.makeText(context, "没有需要安装的前置模组", Toast.LENGTH_SHORT).show()
             return
@@ -558,9 +565,10 @@ fun ModDetailScreen(
         val versionIds = targetVersions.map { it.id }
         val appContext = context.applicationContext
         scope.launch {
-            val deps = versions.flatMap { it.dependencies }
-                .distinctBy { it.projectId }
-                .filter { it.projectId.isNotBlank() && it.type == "required" }
+            // 同上：必需优先合并，避免漏掉被别的版本标成 required 的依赖
+            val flatDeps = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
+            val requiredIds = flatDeps.filter { it.type == "required" }.map { it.projectId }.toSet()
+            val deps = flatDeps.distinctBy { it.projectId }.filter { it.projectId in requiredIds }
             if (deps.isEmpty()) {
                 Toast.makeText(context, "没有需要安装的前置模组", Toast.LENGTH_SHORT).show()
                 return@launch
@@ -675,6 +683,7 @@ fun ModDetailScreen(
         DownloadCenter.submit(
             key = itemKey,
             title = primary?.filename?.takeIf { it.isNotBlank() } ?: (project?.title ?: ver.versionNumber),
+            iconUrl = project?.iconUrl,
             onComplete = { success, error ->
                 Schedulers.androidUIThread().execute {
                     if (success) {
@@ -691,7 +700,6 @@ fun ModDetailScreen(
                 repository.downloadVersionForVersions(projectType, ver, targetVersions.map { it.id }, isCancelled, onProgress).isSuccess
             }
         )
-        Toast.makeText(context, "已加入下载队列", Toast.LENGTH_SHORT).show()
     }
 
     // 按当前筛选标签过滤版本
@@ -1024,7 +1032,11 @@ fun ModDetailScreen(
                                                             Spacer(Modifier.width(6.dp))
                                                             Text("前置模组", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = VerseColors.PcTextPrimary)
                                                             Spacer(Modifier.width(6.dp))
-                                                            Text("${deps.size}", fontSize = 12.sp, color = VerseColors.PcTextMuted)
+                                                            Text(
+                                                                "${deps.count { it.type == "required" }} 必需",
+                                                                fontSize = 12.sp,
+                                                                color = VerseColors.PcTextMuted
+                                                            )
                                                             Spacer(Modifier.weight(1f))
                                                             PcButton(
                                                                 text = "一键下载",
@@ -1035,7 +1047,21 @@ fun ModDetailScreen(
                                                         }
                                                         Spacer(Modifier.height(6.dp))
                                                         // 前置模组行：与资源列表行同密度（紧凑单行），不展示描述
-                                                        deps.forEach { dep ->
+                                                        // 必需 / 可选分开展示（PCL、ZL2 都是这样归类的），
+                                                        // 否则可选依赖会被一并当成"前置"塞给用户
+                                                        listOf(
+                                                            "必需" to deps.filter { it.type == "required" },
+                                                            "可选" to deps.filter { it.type == "optional" },
+                                                            "其它" to deps.filter { it.type != "required" && it.type != "optional" }
+                                                        ).forEach { (groupName, group) ->
+                                                            if (group.isEmpty()) return@forEach
+                                                            Text(
+                                                                groupName,
+                                                                fontSize = 11.sp,
+                                                                color = VerseColors.PcTextMuted,
+                                                                modifier = Modifier.padding(top = 2.dp)
+                                                            )
+                                                            group.forEach { dep ->
                                                             val info = depDetails[dep.projectId]
                                                             DependencyRow(
                                                                 title = info?.title?.ifEmpty { null } ?: dep.projectId,
@@ -1063,6 +1089,7 @@ fun ModDetailScreen(
                                                                 }
                                                             )
                                                             Spacer(Modifier.height(4.dp))
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -1140,12 +1167,10 @@ fun ModDetailScreen(
         }
 
         if (showVersionPicker) {
-            // 模组依赖加载器：只能安装到 fabric/forge/neoforge/quilt 版本，原版不可选；
-            // 材质包/光影不依赖加载器，全部版本可选
+            // 带加载器的版本排前面（模组通常需要加载器），原版同样可选并在列表里标注；
+            // 材质包/光影与加载器无关，顺序不变
             val installableVersions = if (projectType == "mod") {
-                installedVersions.filter {
-                    it.loaderHint in listOf("fabric", "forge", "neoforge", "quilt")
-                }
+                installedVersions.sortedByDescending { it.loaderHint != null }
             } else {
                 installedVersions
             }
@@ -1153,7 +1178,9 @@ fun ModDetailScreen(
                 versions = installableVersions.map {
                     VerseVersionItem(
                         id = it.id,
-                        typeLabel = when (it.type) {
+                        typeLabel = if (projectType == "mod" && it.loaderHint == null) {
+                            "原版（无加载器）"
+                        } else when (it.type) {
                             VersionType.RELEASE -> "正式版"
                             VersionType.SNAPSHOT -> "快照版"
                             VersionType.OLD_ALPHA -> "旧版 Alpha"
@@ -1176,6 +1203,15 @@ fun ModDetailScreen(
                     )
                 },
                 defaultSelectedId = SettingsRepository.getCustomSetting("last_version"),
+                title = when (projectType) {
+                    "mod" -> "为哪个游戏版本下载这个模组？"
+                    "modpack" -> "为哪个游戏版本下载这个整合包？"
+                    "resourcepack" -> "为哪个游戏版本下载这个材质包？"
+                    else -> "为哪个游戏版本下载这个光影？"
+                },
+                hint = if (projectType == "mod") {
+                    "带加载器的版本可直接使用；原版版本没有加载器，模组放入后不会被加载，仅作为文件下载。"
+                } else null,
                 onDismiss = { showVersionPicker = false },
                 onConfirm = { picked ->
                     showVersionPicker = false

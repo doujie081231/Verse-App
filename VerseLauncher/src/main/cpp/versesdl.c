@@ -523,9 +523,166 @@ static int load_bytehook_runtime(void) {
     return 0;
 }
 
+/* 渲染器 GL 库自身同时充当 SDL 与 LWJGL 的 GL 来源（MobileGlues、Zink 等
+ * 自带 EGL 的渲染器）：SDL 经 SDL_EGL_LIBRARY 与 LWJGL 经 org.lwjgl.opengl.libname
+ * 指向同一个 .so，RenderPearl 的 glGetError 同源校验天然成立，不需要这里再做重定向。
+ * 反过来，本库的 GL 代理会接管 SDL_GL_GetProcAddress / dlsym 出口，使 SDL 的 EGL
+ * 函数解析脱离渲染器自身的 EGL，GL 上下文与渲染器内部状态脱节：
+ * 真机表现为 MobileGlues 的 glGetString 转发给底层驱动时得到 NULL（该线程在驱动侧
+ * 没有 current context），MG 未判空直接 strlen → SIGSEGV（glGetString+0xbb8）。
+ * 这类渲染器下完全交给 sdl_hook（与 FCL 行为一致），本库只保留 Vulkan 句柄预置。 */
+static bool renderer_owns_sdl_gl(void) {
+    static int cached = -1;
+    if (cached == 1) return true;
+    const char *keys[] = {"SDL_OPENGL_LIBRARY", "LIBGL_NAME", "POJAVEXEC_EGL", "LIBGL_EGL"};
+    bool hit = false;
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); ++i) {
+        const char *v = getenv(keys[i]);
+        file_log("probe %s = %s", keys[i], (v != NULL && v[0] != '\0') ? v : "(unset)");
+        if (v != NULL && (strstr(v, "mobileglues") != NULL || strstr(v, "zink") != NULL ||
+                          strstr(v, "virgl") != NULL)) {
+            hit = true;
+        }
+    }
+    if (!hit) {
+        void *h = dlopen("libmobileglues.so", RTLD_NOLOAD);
+        file_log("probe dlopen(libmobileglues.so, NOLOAD) = %p", h);
+        if (h != NULL) {
+            dlclose(h);
+            hit = true;
+        }
+    }
+    /* 只缓存肯定命中，避免环境变量尚未注入时把 false 永久锁死 */
+    if (hit) cached = 1;
+    file_log("renderer_owns_sdl_gl = %d", hit ? 1 : 0);
+    return hit;
+}
+
+/* ---- 渲染器自持 EGL 时的只读诊断 ----
+ * 这类渲染器下不装任何重定向（见 renderer_owns_sdl_gl），但需要能判定
+ * "RenderPearl 开始查 GL 字符串时，该线程上到底有没有 current context"。
+ * 只记录调用与返回值，不改写任何参数/结果。 */
+static bool diag_hooks_installed = false;
+
+static void *(*real_sdl_gl_create_context)(void *);
+static int (*real_sdl_gl_make_current)(void *, void *);
+static void *(*real_sdl_gl_get_proc_address_diag)(const char *);
+static int (*real_egl_make_current)(void *, void *, void *, void *);
+
+static void *diag_SDL_GL_CreateContext(void *window) {
+    if (real_sdl_gl_create_context == NULL && sdl3_handle != NULL) {
+        real_sdl_gl_create_context =
+            (void *(*)(void *)) real_dlsym_fn(sdl3_handle, "SDL_GL_CreateContext");
+    }
+    void *ctx = real_sdl_gl_create_context != NULL ? real_sdl_gl_create_context(window) : NULL;
+    file_log("DIAG SDL_GL_CreateContext(win=%p) -> ctx=%p", window, ctx);
+    LOGI("VSDL-DIAG CreateContext win=%p ctx=%p", window, ctx);
+    return ctx;
+}
+
+/* SDL3 的 SDL_GL_MakeCurrent(window, NULL) 语义是「保持当前上下文、只切换窗口」
+ * （1.2.16 实测 current=0x6d3da35410 非空），因此这里只记录，不做任何干预。
+ * 保留这条日志是为了确认上下文在各阶段是否存在。 */
+static void *(*real_sdl_gl_get_current_context)(void);
+
+static int diag_SDL_GL_MakeCurrent(void *window, void *ctx) {
+    if (real_sdl_gl_make_current == NULL && sdl3_handle != NULL) {
+        real_sdl_gl_make_current =
+            (int (*)(void *, void *)) real_dlsym_fn(sdl3_handle, "SDL_GL_MakeCurrent");
+    }
+    if (real_sdl_gl_make_current == NULL) return -1;
+    if (real_sdl_gl_get_current_context == NULL && sdl3_handle != NULL) {
+        real_sdl_gl_get_current_context = (void *(*)(void))
+            real_dlsym_fn(sdl3_handle, "SDL_GL_GetCurrentContext");
+    }
+    void *before = real_sdl_gl_get_current_context != NULL
+                       ? real_sdl_gl_get_current_context() : NULL;
+    int r = real_sdl_gl_make_current(window, ctx);
+    void *after = real_sdl_gl_get_current_context != NULL
+                      ? real_sdl_gl_get_current_context() : NULL;
+    file_log("DIAG SDL_GL_MakeCurrent(win=%p, ctx=%p) -> %d, current %p -> %p",
+             window, ctx, r, before, after);
+    LOGI("VSDL-DIAG MakeCurrent win=%p ctx=%p r=%d current %p->%p",
+         window, ctx, r, before, after);
+    return r;
+}
+
+static void *diag_SDL_GL_GetProcAddress(const char *proc) {
+    if (real_sdl_gl_get_proc_address_diag == NULL && sdl3_handle != NULL) {
+        real_sdl_gl_get_proc_address_diag =
+            (void *(*)(const char *)) real_dlsym_fn(sdl3_handle, "SDL_GL_GetProcAddress");
+    }
+    void *fn = real_sdl_gl_get_proc_address_diag != NULL
+                   ? real_sdl_gl_get_proc_address_diag(proc) : NULL;
+    if (proc != NULL && strncmp(proc, "gl", 2) == 0) {
+        file_log("DIAG SDL_GL_GetProcAddress(%s) -> %p", proc, fn);
+    }
+    return fn;
+}
+
+static int diag_eglMakeCurrent(void *dpy, void *draw, void *read, void *ctx) {
+    if (real_egl_make_current == NULL) {
+        real_egl_make_current = (int (*)(void *, void *, void *, void *))
+            resolve_egl_symbol("eglMakeCurrent");
+    }
+    int r = real_egl_make_current != NULL ? real_egl_make_current(dpy, draw, read, ctx) : -1;
+    file_log("DIAG eglMakeCurrent(dpy=%p, draw=%p, ctx=%p) -> %d", dpy, draw, ctx, r);
+    LOGI("VSDL-DIAG eglMakeCurrent draw=%p ctx=%p r=%d", draw, ctx, r);
+    return r;
+}
+
+/* eglCreateContext 是判定「SDL 到底有没有建出 GL 上下文」的关键：
+ * 记录完整属性表与返回值。属性表能看出 MC 是否按桌面 GL 传了
+ * EGL_CONTEXT_MAJOR/MINOR_VERSION_KHR 或 OPENGL_PROFILE_MASK（渲染器 EGL 不认即失败）。 */
+static void *(*real_egl_create_context)(void *, void *, void *, const int *);
+
+static void *diag_eglCreateContext(void *dpy, void *cfg, void *share, const int *attrs) {
+    if (real_egl_create_context == NULL) {
+        real_egl_create_context = (void *(*)(void *, void *, void *, const int *))
+            resolve_egl_symbol("eglCreateContext");
+        if (real_egl_create_context == NULL) {
+            real_egl_create_context = (void *(*)(void *, void *, void *, const int *))
+                real_dlsym_fn(RTLD_DEFAULT, "eglCreateContext");
+        }
+        file_log("DIAG eglCreateContext resolved=%p", (void *) real_egl_create_context);
+    }
+    if (real_egl_create_context == NULL) return NULL;
+    char buf[384] = {0};
+    size_t used = 0;
+    if (attrs == NULL) {
+        snprintf(buf, sizeof(buf), "(null)");
+    } else {
+        for (int i = 0; i < 24 && attrs[i] != EGL_NONE; i += 2) {
+            int n = snprintf(buf + used, sizeof(buf) - used, "0x%x=%d ", attrs[i], attrs[i + 1]);
+            if (n <= 0) break;
+            used += (size_t) n;
+            if (used >= sizeof(buf) - 1) break;
+        }
+    }
+    void *ctx = real_egl_create_context(dpy, cfg, share, attrs);
+    file_log("DIAG eglCreateContext(dpy=%p, cfg=%p, share=%p, attrs=[%s]) -> ctx=%p",
+             dpy, cfg, share, buf, ctx);
+    LOGI("VSDL-DIAG eglCreateContext attrs=[%s] -> %p", buf, ctx);
+    return ctx;
+}
+
+static void install_diag_hooks(void) {
+    if (diag_hooks_installed) return;
+    diag_hooks_installed = true;
+    fn_hook_all(NULL, "SDL_GL_CreateContext", (void *) diag_SDL_GL_CreateContext, NULL, NULL);
+    fn_hook_all(NULL, "SDL_GL_MakeCurrent", (void *) diag_SDL_GL_MakeCurrent, NULL, NULL);
+    fn_hook_all(NULL, "SDL_GL_GetProcAddress", (void *) diag_SDL_GL_GetProcAddress, NULL, NULL);
+    fn_hook_all(NULL, "eglMakeCurrent", (void *) diag_eglMakeCurrent, NULL, NULL);
+    fn_hook_all(NULL, "eglCreateContext", (void *) diag_eglCreateContext, NULL, NULL);
+    file_log("diagnostic hooks installed (SDL_GL_*/eglMakeCurrent/eglCreateContext)");
+    LOGI("VerseSDL diagnostic hooks installed");
+}
+
 /* 安装 SDL_GL_GetProcAddress + dlsym hooks（bytehook 已 init 后调用） */
 static void install_verse_sdl_hooks(void) {
     if (sdl_hooks_installed) return;
+    /* bytehook 先就绪：诊断钩子无论如何都要装上，否则崩溃现场只剩 hs_err，
+     * 拿不到「上下文到底建没建、谁把它弄丢」这一步。 */
     int initResult = fn_init(BYTEHOOK_MODE_AUTOMATIC, false);
     if (initResult != BYTEHOOK_STATUS_CODE_OK &&
         initResult != BYTEHOOK_STATUS_CODE_INIT_ALREADY_CALLED) {
@@ -533,32 +690,17 @@ static void install_verse_sdl_hooks(void) {
         file_log("bytehook_init failed result=%d", initResult);
         return;
     }
-    file_log("bytehook init ok (result=%d), installing hooks", initResult);
-    /* 本库只做三件事：
-     * 1) SDL_GL_GetProcAddress 代理（gl* 从渲染器 GL 库解析，保证与 LWJGL 同源）；
-     * 2) SDL3 加载后预置 ES profile；
-     * 3) dlsym 出口替换 SDL_GL_GetProcAddress，覆盖经 FML 启动入口由 LWJGL
-     *    dlsym 取地址、不经过 libSDL3 GOT 的路径。
-     * 不再 hook eglGetProcAddress / eglCreateContext / eglChooseConfig：
-     * 全局 eglGetProcAddress 代理会把 egl* 回退到 dlsym(RTLD_DEFAULT)，命中的是系统
-     * libEGL 而非 SDL 通过 SDL_EGL_LIBRARY 加载的渲染器 EGL，SDL 拿到的
-     * eglCreateContext 变成系统实现。SDL 自己会从渲染器 EGL 句柄解析这些函数。 */
-    fn_hook_all(NULL, "SDL_GL_GetProcAddress",
-                (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
-    preset_egl_profile_es();
-    if (fn_hook_single != NULL && sdl3_handle != NULL) {
-        fn_hook_single(NULL, "libSDL3.so", "SDL_GL_GetProcAddress",
-                       (void *)custom_SDL_GL_GetProcAddress_Func, NULL, NULL);
-        file_log("bytehook_hook_single libSDL3.so SDL_GL_GetProcAddress installed");
-    }
-    /* dlsym 出口只安装单层补丁：old_func 传 NULL，代理内直接调用缓存的真实 dlsym。
-     * 传 &old_func 做链式调用会破坏 bytehook 调用栈，真机上表现为补丁安装后进程立即退出。 */
-    fn_hook_all(NULL, "dlsym", (void *)hooked_dlsym, NULL, NULL);
-    file_log("hooked_dlsym installed");
-    LOGI("VerseSDL hooks installed: SDL_GL_GetProcAddress=%p",
-         (void *)custom_SDL_GL_GetProcAddress_Func);
-    file_log("hooks installed sdl=%p", (void *)custom_SDL_GL_GetProcAddress_Func);
+    file_log("bytehook init ok (result=%d)", initResult);
+    install_diag_hooks();
+    /* 不再改写 SDL 的 GL/EGL 解析路径。
+     * FCL 没有这一层：SDL 与 LWJGL 的 GL 来源本来就相同（都指向渲染器自己的库），
+     * RenderPearl 的同源校验天然成立。此前这里的 SDL_GL_GetProcAddress 代理与 dlsym
+     * 出口替换会把 SDL 侧取到的 gl* 改成另一份实现，导致渲染器内部的上下文状态与
+     * 实际 current 的上下文脱节（真机表现为 glGetString 转发驱动返回 NULL → strlen 崩溃）。
+     * 现在只保留只读诊断，行为与 FCL 完全一致。 */
     sdl_hooks_installed = true;
+    LOGI("VerseSDL: rewriter disabled, diagnostics only (same as FCL)");
+    file_log("install_verse_sdl_hooks: no rewriter installed (diagnostics only)");
 }
 
 /* SDL3 加载回调：库 dlopen 时立刻补丁其 SDL_GL_GetProcAddress（若尚未安装） */

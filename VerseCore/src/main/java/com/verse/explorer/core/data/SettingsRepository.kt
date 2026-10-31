@@ -77,6 +77,12 @@ object SettingsRepository {
         private const val KEY_BACKGROUND_OPACITY = "background_opacity"
         private const val KEY_SIDEBAR_GLASS = "sidebar_liquid_glass"
         private const val KEY_SIDEBAR_LABELS = "sidebar_show_labels"
+        private const val KEY_LOADER_STYLE = "loader_style"
+        // 下载进度条动画样式（linear/wave/stripe/glow/segment/dots）
+        private const val KEY_PROGRESS_STYLE = "progress_bar_style"
+        // 页面切换动画样式（material/slide/fade/scale/sharedAxisY/none）与速度倍率（0.5~2）
+        private const val KEY_PAGE_ANIM_STYLE = "page_anim_style"
+        private const val KEY_PAGE_ANIM_SPEED = "page_anim_speed"
         // 背景模糊半径（0..40，单位 Dp，0=关闭）与模糊类型（background=背景模糊 / foreground=前景毛玻璃）
         private const val KEY_BACKGROUND_BLUR = "background_blur"
         private const val KEY_BACKGROUND_BLUR_TYPE = "background_blur_type"
@@ -572,6 +578,34 @@ object SettingsRepository {
 
     fun setSidebarGlass(enabled: Boolean) {
         prefs().edit().putBoolean(KEY_SIDEBAR_GLASS, enabled).apply()
+    }
+
+    /** 加载动画样式：rose（玫瑰曲线）/ linear（线性）/ wave（波浪）/ dots（点阵）/ ring（圆环） */
+    fun getLoaderStyle(): String = prefs().getString(KEY_LOADER_STYLE, "rose") ?: "rose"
+
+    fun setLoaderStyle(style: String) {
+        prefs().edit().putString(KEY_LOADER_STYLE, style).apply()
+    }
+
+    /** 下载进度条动画样式：linear / wave / stripe / glow / segment / dots（默认线性） */
+    fun getProgressStyle(): String = prefs().getString(KEY_PROGRESS_STYLE, "linear") ?: "linear"
+
+    fun setProgressStyle(style: String) {
+        prefs().edit().putString(KEY_PROGRESS_STYLE, style).apply()
+    }
+
+    /** 页面切换动画样式：material / slide / fade / scale / sharedAxisY / none（默认 Material 规范） */
+    fun getPageAnimStyle(): String = prefs().getString(KEY_PAGE_ANIM_STYLE, "material") ?: "material"
+
+    fun setPageAnimStyle(style: String) {
+        prefs().edit().putString(KEY_PAGE_ANIM_STYLE, style).apply()
+    }
+
+    /** 页面切换速度倍率：1=标准，>1 更快，<1 更慢（范围 0.5~2.0） */
+    fun getPageAnimSpeed(): Float = prefs().getFloat(KEY_PAGE_ANIM_SPEED, 1f).coerceIn(0.5f, 2f)
+
+    fun setPageAnimSpeed(speed: Float) {
+        prefs().edit().putFloat(KEY_PAGE_ANIM_SPEED, speed.coerceIn(0.5f, 2f)).apply()
     }
 
     /** 侧边栏按钮是否在图标下显示功能名（默认开） */

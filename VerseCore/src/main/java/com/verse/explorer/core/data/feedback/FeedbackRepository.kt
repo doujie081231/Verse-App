@@ -28,7 +28,7 @@ object FeedbackRepository {
     /** 单个日志只保留末尾这么多字节（定位问题看尾部即可） */
     private const val PER_LOG_TAIL_BYTES = 700 * 1024L
     /** 站点每天每 IP 的提交上限（服务端 DAILY_FEEDBACK_LIMIT） */
-    private const val DAILY_LIMIT = 10
+    private const val DAILY_LIMIT = 50
 
     /** 站点验证码：GET /api/feedback/captcha → { id, svg } */
     suspend fun fetchCaptcha(): Pair<String, String> {
@@ -75,8 +75,12 @@ object FeedbackRepository {
                 val name = f.name
                 // 主日志（latest / launch）识别：无论选哪个分类都随附上传，后台定位问题首要看它
                 // 反馈上传日志必须每次带上：否则用户「传不上去」时后台没有任何线索
+                // hs_err_pid*.log 是 JVM 原生崩溃报告：Problematic frame / 具体库名都在里面，
+                // 没有它只能看到"退出码 6"，定位原生崩溃基本靠猜
                 val isMainLog = name.startsWith("latest") || name.startsWith("launch") ||
-                    name.startsWith("feedback-")
+                    name.startsWith("feedback-") || name.startsWith("hs_err") ||
+                    // 下载诊断日志：下载/安装卡住时唯一能看出「卡在哪个阶段、哪个文件」的文件
+                    name == "download.log"
                 val keep = isMainLog || when (category) {
                     "launch" ->
                         name.contains("startup-timing") ||
@@ -98,20 +102,32 @@ object FeedbackRepository {
             }
         }
 
-        // 每个目录最多留 4 个最近的日志（主日志 latest/launch 优先），总量仍以 8 个封顶
+        // 每个目录最多留 5 个最近的日志，总量仍以 8 个封顶。
+        // hs_err_pid*.log 优先级最高（原生崩溃的唯一有效线索）：之前按
+        // 「latest/launch=2、verse_*=1、其它=0 + 每目录只取 4 个」排，hs_err 永远被挤掉，
+        // 退出码 6 这类原生崩溃因此一直拿不到 Problematic frame
         val grouped = candidates.groupBy { it.parentFile?.absolutePath }
         val picked = grouped.values.flatMap { group ->
-            group.sortedWith(
+            val sorted = group.sortedWith(
                 compareByDescending<File> { f ->
                     // 主日志与渲染诊断链优先保留，避免被其它日志挤出每目录配额
                     val n = f.name
                     when {
+                        n.startsWith("hs_err") -> 3
+                        n == "download.log" -> 3
                         n.startsWith("latest") || n.startsWith("launch") -> 2
                         n.startsWith("verse_") -> 1
                         else -> 0
                     }
                 }.thenByDescending { it.lastModified() }
-            ).take(4)
+            )
+            // hs_err 最多留 2 份：一次连崩 5 次时，5 份 hs_err（各 500KB 上下）会占满
+            // 总预算并把 latest.log / verse_sdl.log / launch_diag.log 全部挤出，
+            // 而「走到哪一步、EGL 是否建立、SDL 拿到什么」只记在这几份里。
+            // 同一崩溃点重复的 hs_err 信息量几乎相同，留最近 2 份足够。
+            val crashes = sorted.filter { it.name.startsWith("hs_err") }.take(2)
+            val rest = sorted.filterNot { it.name.startsWith("hs_err") }.take(5 - crashes.size)
+            crashes + rest
         }
         return picked.sortedByDescending { it.lastModified() }.take(8)
     }
@@ -182,7 +198,11 @@ object FeedbackRepository {
         var budget = TOTAL_ATTACHMENT_BUDGET
         for (f in logFiles) {
             if (out.size >= 10 || budget <= 0) break
-            val bytes = readTail(f, minOf(PER_LOG_TAIL_BYTES, budget)) ?: continue
+            // hs_err 的关键信息（Problematic frame / siginfo / 调用栈）在文件开头，
+            // 截尾会把它整段丢掉，所以这类文件取头部
+            val limit = minOf(PER_LOG_TAIL_BYTES, budget)
+            val bytes = if (f.name.startsWith("hs_err")) readHead(f, limit) else readTail(f, limit)
+            if (bytes == null) continue
             budget -= bytes.size
             // .log 扩展名会被站点网关静态规则拦截（下载返回 403），统一改挂 .txt
             val uploadName = if (f.name.endsWith(".log")) f.name + ".txt" else f.name
@@ -195,6 +215,28 @@ object FeedbackRepository {
             out.add(Triple(name, data, name))
         }
         return out
+    }
+
+    /** 读文件开头 maxBytes 字节；被截断时在末尾加一行说明（hs_err 这类头部含关键帧的文件用） */
+    private fun readHead(file: File, maxBytes: Long): ByteArray? {
+        if (!file.isFile || file.length() == 0L) return null
+        val limit = maxBytes.coerceAtLeast(64 * 1024L)
+        return runCatching {
+            if (file.length() <= limit) {
+                file.readBytes()
+            } else {
+                val buf = ByteArray(limit.toInt())
+                java.io.FileInputStream(file).use { input ->
+                    var read = 0
+                    while (read < buf.size) {
+                        val n = input.read(buf, read, buf.size - read)
+                        if (n <= 0) break
+                        read += n
+                    }
+                }
+                buf + "[hs_err 较大，仅保留开头 ${limit / 1024}KB]\n".toByteArray()
+            }
+        }.getOrNull()
     }
 
     /** 读文件末尾 maxBytes 字节；被截断时在开头加一行说明 */

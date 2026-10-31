@@ -139,6 +139,15 @@ object CrashSuggest {
                         "这属于渲染器插件（如 MobileGlues / ANGLE 等 GL 兼容层）与手机显卡驱动的匹配问题，不是游戏或整合包本身的问题。\n" +
                         "请到 设置 → 渲染器 升级到最新渲染器插件，或切换到其他渲染器后再启动。"
                 }
+                CrashReason.RendererLacksGlVersion -> {
+                    val detail = additional.firstOrNull().orEmpty()
+                    "渲染器没有实现该游戏版本需要的图形接口" +
+                        (if (detail.isNotBlank()) "（$detail）" else "") + "，游戏在初始化渲染器时崩溃。\n" +
+                        "这不是图形后端（OpenGL / Vulkan）选错的问题——当前渲染器本身只实现到 OpenGL 3.1/2.1，" +
+                        "较新的游戏版本需要 GL 3.3 的接口，切后端也无法解决。\n" +
+                        "Krypton Wrapper（NGGL4ES）、Holy-GL4ES 这类渲染器最高只支持 MC 26.2，" +
+                        "请到 设置 → 渲染器 换成 MobileGlues，或安装更新的渲染器插件后再启动该版本。"
+                }
                 CrashReason.NativeLinkError -> {
                     val needPathCheck = additional.firstOrNull()
                         ?.let { it != "请检查游戏路径是否包含中文字符" } ?: false
@@ -327,5 +336,6 @@ object CrashSuggest {
         CrashReason.StackModNameFound -> 56
         CrashReason.ModNeedsGlibc -> 57
         CrashReason.RendererMissingGlFunction -> 58
+        CrashReason.RendererLacksGlVersion -> 59
     }
 }

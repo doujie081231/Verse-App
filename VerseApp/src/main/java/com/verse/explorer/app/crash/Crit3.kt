@@ -67,6 +67,16 @@ object Crit3 {
                 CrashUtils.appendReason(reasons, CrashReason.RendererMissingGlFunction, listOf(fn))
             }
 
+            // 渲染器缺少新版游戏需要的 GL 能力：崩溃报告形如
+            // Description: Initializing game / ArithmeticException: / by zero
+            //   at net.minecraft.util.Mth.roundToward
+            //   at net.minecraft.client.renderer.DynamicGpuDataStorageMapped.<init>
+            // 对齐值来自 glGetIntegerv(GL_*_OFFSET_ALIGNMENT)，渲染器不实现该查询会返回 0，
+            // 随后除零崩溃（GL4ES/Krypton 这类只到 GL 3.1 的渲染器必现）
+            if (lc.contains("dynamicgpudatastoragemapped") && lc.contains("arithmeticexception")) {
+                CrashUtils.appendReason(reasons, CrashReason.RendererLacksGlVersion, listOf("GL 缓冲对齐查询返回 0"))
+            }
+
             // 特定方块导致崩溃
             if (lc.contains("\tBlock location: World: ")) {
                 val block = CrashUtils.regexSeekGroup(lc, "\\tBlock: Block\\{([^}]+)", 1) ?: ""

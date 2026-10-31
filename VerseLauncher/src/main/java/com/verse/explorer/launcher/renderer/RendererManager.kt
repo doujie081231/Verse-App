@@ -4,25 +4,6 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 
-// 旧版兼容类型：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
-@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
-enum class RendererType(val displayName: String, val glLibName: String) {
-    ZINK("Zink (Vulkan)", "libOSMesa_8.so"),
-    VIRGL("VirGL (OpenGL)", "libOSMesa.so"),
-    GL4ES("GL4ES (OpenGL 2)", "libgl4es_12.so"),
-    NGGL4ES("ng-GL4ES", "libgl4es_12.so"),
-    VGPU("VGPU (OpenGL)", "libvgpu.so"),
-    FREEDRENO("Freedreno (Turnip)", "libOSMesa_8.so")
-}
-
-// 旧版兼容数据类：GameWindow / MinecraftLauncher 仍引用此签名，保留至 MinecraftLauncher 迁移完成
-@Deprecated("Use RendererManager.RendererConfig for FCL-style renderer configuration")
-data class RendererConfig(
-    val type: RendererType,
-    val width: Int = 1280,
-    val height: Int = 720
-)
-
 object RendererManager {
 
     private const val TAG = "RendererManager"
@@ -52,7 +33,16 @@ object RendererManager {
         val pluginAppName: String = "",
         /** 需要预先 dlopen 的插件内库文件名 */
         val dlopenLibs: List<String> = emptyList()
-    )
+    ) {
+        /**
+         * 下拉列表展示用标签：插件标注来源，并带上该渲染器声明的最高支持版本
+         * （渲染器元数据里的 maxMCVer，与 FCL 渲染器列表的「支持版本」同源）。
+         */
+        fun displayLabel(): String {
+            val base = if (pluginPackage.isNotEmpty()) "$displayName（插件）" else displayName
+            return if (maxMcVersion.isNotBlank()) "$base · 最高支持 $maxMcVersion" else base
+        }
+    }
 
     val GL4ES = RendererConfig(
         displayName = "Holy-GL4ES",
@@ -102,7 +92,9 @@ object RendererManager {
         ),
         requiredLibs = listOf("libng_gl4es.so", "libspirv-cross-c-shared.so"),
         minMcVersion = "",
-        maxMcVersion = ""
+        // Krypton Wrapper 只对外声明 GL 3.1；26.3 起需要 GL 3.3 的缓冲对齐等接口，
+        // 实测该渲染器跑 26.3 必崩（DynamicGpuDataStorageMapped 除零）
+        maxMcVersion = "26.2"
     )
 
     val ZINK = RendererConfig(
@@ -128,7 +120,7 @@ object RendererManager {
         ),
         requiredLibs = listOf("libglxshim.so", "libEGL_mesa.so", "libcutils.so", "libglapi.so", "libzink_dri.so"),
         minMcVersion = "",
-        maxMcVersion = ""
+        maxMcVersion = "26.2"
     )
 
     val FREEDRENO = RendererConfig(
@@ -302,46 +294,4 @@ object RendererManager {
     }
 
     // 旧版兼容方法：GameWindow 仍调用，保留至迁移完成
-    @Deprecated("Renderer initialization is now handled by environment variables")
-    fun initializeRenderer(surface: android.view.Surface, config: com.verse.explorer.launcher.renderer.RendererConfig) {
-        Log.d(TAG, "Renderer ${config.type.displayName} initialized via environment variables")
-    }
-
-    @Deprecated("No-op for compatibility")
-    fun cleanup() {
-        Log.d(TAG, "Renderer cleanup complete")
-    }
-
-    @Deprecated("No-op for compatibility")
-    fun isRendererAvailable(type: RendererType): Boolean {
-        return true
-    }
-
-    @Deprecated("Use renderer.glName")
-    fun getGlLibName(type: RendererType): String {
-        return type.glLibName
-    }
-}
-
-// 旧版兼容方法：MinecraftLauncher 当前代码仍调用，保留至迁移完成
-@Deprecated("Use RendererManager.getRendererById / applyRendererEnvironment")
-fun resolveRendererType(renderer: String): RendererType {
-    return when (renderer.lowercase()) {
-        "gl4es" -> RendererType.GL4ES
-        "nggl4es" -> RendererType.NGGL4ES
-        "zink" -> RendererType.ZINK
-        "freedreno" -> RendererType.FREEDRENO
-        "virgl" -> RendererType.VIRGL
-        "vgpu" -> RendererType.VGPU
-        else -> RendererType.GL4ES
-    }
-}
-
-@Deprecated("Environment setup is now handled inside MinecraftLauncher.setupRendererEnvironment")
-fun setupRendererEnvironment(
-    config: com.verse.explorer.launcher.launch.LaunchConfiguration,
-    rendererConfig: RendererConfig
-): RendererConfig {
-    // 实际渲染器环境变量设置已在 MinecraftLauncher 内部完成，此处仅保持兼容签名
-    return rendererConfig
-}
+                }

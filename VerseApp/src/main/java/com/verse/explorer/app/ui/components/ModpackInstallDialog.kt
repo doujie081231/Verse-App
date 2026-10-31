@@ -179,6 +179,14 @@ fun ModpackInstallUiState.applyTaskEvent(ev: ModpackTaskEvent): ModpackInstallUi
                 // 任务名仅取可读名称，内部类名（无业务含义）不落到行详情
                 if (ev.name.isNotBlank() && !ev.name.startsWith("stage:") && !ev.name.contains('.')) {
                     r = r.copy(detail = ev.name)
+                    // 「解析下载地址」是「下载整合包模组」的前半段：CurseForge 包要逐个模组
+                    // 请求接口拿文件名/直链，这期间没有任何文件在下载。不单独标出来，
+                    // 用户只能看到这一行一直转圈，误以为卡死在下载。
+                    if (ev.name.startsWith("解析模组下载地址")) {
+                        r = r.copy(label = "解析模组下载地址")
+                    } else if (ev.name.startsWith("下载整合包模组")) {
+                        r = r.copy(label = "下载整合包模组")
+                    }
                 }
             }
         }
@@ -340,10 +348,12 @@ fun ModpackInstallDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("总进度", fontSize = 11.sp, color = VerseColors.PcTextMuted, modifier = Modifier.padding(end = 8.dp))
-                ModpackWaveBar(
+                VerseProgressBar(
                     progress = state.overall,
+                    modifier = Modifier.weight(1f),
+                    height = 8.dp,
                     color = VerseColors.PcAccent,
-                    modifier = Modifier.weight(1f).height(8.dp)
+                    trackColor = VerseColors.PcBgActive
                 )
                 Text(
                     " ${(state.overall * 100).toInt()}%",
@@ -486,10 +496,12 @@ private fun ModpackStageRowView(
                 )
                 if (active) {
                     Spacer(Modifier.height(6.dp))
-                    ModpackWaveBar(
+                    VerseProgressBar(
                         progress = progress,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 5.dp,
                         color = color,
-                        modifier = Modifier.fillMaxWidth().height(5.dp)
+                        trackColor = color.copy(alpha = 0.14f)
                     )
                 }
                 if (detail.isNotBlank()) {
@@ -580,57 +592,3 @@ private fun MiniCross() {
     }
 }
 
-/** 进度条：底轨 + 实心填充 + 填充区顶部正弦波浪（小进度也可辨识） */
-@Composable
-private fun ModpackWaveBar(
-    progress: Float,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val phase = rememberInfiniteTransition(label = "wavePhase").animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1400),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-        ),
-        label = "wave"
-    )
-    val t = phase.value
-    Canvas(modifier = modifier.clip(RoundedCornerShape(999.dp))) {
-        val w = size.width
-        val h = size.height
-        val r = h / 2
-        val corner = androidx.compose.ui.geometry.CornerRadius(r)
-        // 底轨
-        drawRoundRect(color = color.copy(alpha = 0.14f), cornerRadius = corner)
-        val filled = progress.coerceIn(0f, 1f) * w
-        if (filled > 0f) {
-            // 实心填充（半透明底层 + 实色主体）
-            drawRoundRect(
-                color = color.copy(alpha = 0.35f),
-                size = androidx.compose.ui.geometry.Size(filled, h),
-                cornerRadius = corner
-            )
-            drawRoundRect(
-                color = color,
-                size = androidx.compose.ui.geometry.Size(filled, h * 0.55f),
-                cornerRadius = corner
-            )
-            // 填充区内的流动波浪高光
-            val points = 40
-            val waveH = h * 0.9f
-            for (i in 0 until points) {
-                val x = i * filled / points
-                val y = h / 2 + sin((x / 6f) + t * 0.12f) * waveH * 0.35f + sin((x / 3f) + t * 0.2f) * waveH * 0.18f
-                drawLine(
-                    color = Color.White.copy(alpha = 0.35f),
-                    start = androidx.compose.ui.geometry.Offset(x, y),
-                    end = androidx.compose.ui.geometry.Offset(x, y + 1.2.dp.toPx()),
-                    strokeWidth = 1.2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-    }
-}

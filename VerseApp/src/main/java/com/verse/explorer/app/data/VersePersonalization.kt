@@ -49,6 +49,22 @@ object VersePersonalization {
         get() = (backgroundStyle == "image" && backgroundImagePath != null) ||
             (backgroundStyle == "video" && backgroundVideoPath != null)
 
+    /** 加载动画样式：rose / linear / wave / dots / ring */
+    var loaderStyle by mutableStateOf("rose")
+        private set
+
+    /** 下载进度条动画样式：linear / wave / stripe / glow / segment / dots（默认经典线性） */
+    var progressStyle by mutableStateOf("linear")
+        private set
+
+    /** 页面切换动画样式：material / slide / fade / scale / sharedAxisY / none */
+    var pageAnimStyle by mutableStateOf("material")
+        private set
+
+    /** 页面切换速度倍率（1=标准，>1 更快） */
+    var pageAnimSpeed by mutableStateOf(1f)
+        private set
+
     /** 侧边栏液态玻璃效果（Android 13+ 生效，默认关：实时着色器采样在低端机掉帧明显，可在设置开启） */
     var sidebarGlass by mutableStateOf(false)
         private set
@@ -91,6 +107,10 @@ object VersePersonalization {
         backgroundBlurType = SettingsRepository.getBackgroundBlurType()
             .takeIf { it == "background" || it == "foreground" } ?: "background"
         videoVolume = SettingsRepository.getVideoVolume().coerceIn(0, 100)
+        loaderStyle = SettingsRepository.getLoaderStyle()
+        progressStyle = SettingsRepository.getProgressStyle()
+        pageAnimStyle = SettingsRepository.getPageAnimStyle()
+        pageAnimSpeed = SettingsRepository.getPageAnimSpeed()
         sidebarGlass = SettingsRepository.getSidebarGlass()
         sidebarLabels = SettingsRepository.getSidebarLabels()
         colorTheme = SettingsRepository.getThemeSelection()
@@ -136,6 +156,29 @@ object VersePersonalization {
     fun applyVideoVolume(volume: Int) {
         videoVolume = volume.coerceIn(0, 100)
         SettingsRepository.setVideoVolume(videoVolume)
+    }
+
+    fun applyLoaderStyle(style: String) {
+        loaderStyle = style
+        SettingsRepository.setLoaderStyle(style)
+    }
+
+    /** 下载进度条动画样式（改即存，进度条在绘制时读取） */
+    fun applyProgressStyle(style: String) {
+        progressStyle = style
+        SettingsRepository.setProgressStyle(style)
+    }
+
+    /** 页面切换动画样式（下一次导航生效） */
+    fun applyPageAnimStyle(style: String) {
+        pageAnimStyle = style
+        SettingsRepository.setPageAnimStyle(style)
+    }
+
+    /** 页面切换速度倍率（下一次导航生效） */
+    fun applyPageAnimSpeed(speed: Float) {
+        pageAnimSpeed = speed.coerceIn(0.5f, 2f)
+        SettingsRepository.setPageAnimSpeed(pageAnimSpeed)
     }
 
     fun applySidebarGlass(enabled: Boolean) {

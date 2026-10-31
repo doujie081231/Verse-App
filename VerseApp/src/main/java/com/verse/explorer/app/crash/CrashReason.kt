@@ -68,4 +68,5 @@ enum class CrashReason(val cn: String) {
     OptiFineCannotLoadWorld("OptiFine导致无法加载世界"),
     ModNeedsGlibc("Mod需要Linux glibc"),
     RendererMissingGlFunction("渲染器缺少游戏需要的图形函数"),
+    RendererLacksGlVersion("渲染器不支持该游戏版本要求的图形能力"),
 }

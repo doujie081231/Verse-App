@@ -316,7 +316,12 @@ fun AccountsScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        profile.name.first().uppercase(),
+                                        // 角色名可能为空（皮肤站返回的 availableProfiles 里存在
+                                        // name 缺失的条目）。String.first() 对空串会抛
+                                        // NoSuchElementException，异常发生在组合过程中会让整个
+                                        // 条目渲染不出来，界面表现为「选择角色」弹窗里什么都没有
+                                        // 且无法点击。
+                                        profile.name.firstOrNull()?.uppercase() ?: "?",
                                         color = VerseColors.PcPurple,
                                         fontWeight = FontWeight.SemiBold,
                                         fontSize = 16.sp

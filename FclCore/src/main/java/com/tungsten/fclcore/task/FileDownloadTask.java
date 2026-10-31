@@ -286,11 +286,11 @@ public class FileDownloadTask extends FetchTask<Void> {
     // ===== 多连接分段下载（参考 PCL 的多线程下载） =====
 
     /** 小于该体积不值得开多连接：连接与握手开销大于并行收益 */
-    private static final long PARALLEL_MIN_SIZE = 1024L * 1024;
+    private static final long PARALLEL_MIN_SIZE = 4L * 1024 * 1024;
     /** 每段的最小体积，决定拆几段 */
     private static final long MIN_SEGMENT_SIZE = 512L * 1024;
     /** 单个文件最大并发段数（同时安装几十个文件，段数过多反而抢带宽） */
-    private static final int MAX_SEGMENTS = 6;
+    private static final int MAX_SEGMENTS = 4;
 
     private static final ExecutorService SEGMENT_POOL = Executors.newFixedThreadPool(MAX_SEGMENTS, r -> {
         Thread t = new Thread(r, "fcl-download-segment");

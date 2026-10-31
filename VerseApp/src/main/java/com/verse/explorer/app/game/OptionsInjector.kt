@@ -78,10 +78,12 @@ class OptionsInjector(private val activity: Context) {
     }
 
     /**
-     * 每次启动写 preferredGraphicsBackend：GL 渲染器（MobileGlues 等）强制 "opengl"
-     * （MobileGlues 是 OpenGL 实现，Vulkan 后端下其窗口/EGL 初始化失败
-     * "Failed to query window size in pixels: Invalid window"）；
-     * 其余渲染器写 "default"（MC 26.2 据此自选后端）。
+     * 每次启动写 preferredGraphicsBackend：
+     * - GL 系渲染器（MobileGlues / GL4ES / Krypton Wrapper 等）固定 "opengl"：
+     *   它们只实现 OpenGL，Vulkan 后端下窗口/EGL 初始化失败
+     *   （"Failed to query window size in pixels: Invalid window"），或直接初始化崩溃；
+     * - Zink / Freedreno 等 Vulkan 渲染器按用户选择（版本级优先，其次全局）；
+     * - 未显式选择时，只有该版本确实检测到可用 Vulkan 才写 "vulkan"，否则 "default" 交给游戏探测。
      * 注意：不整写旧版 options 模板——MC 26.2 的选项解析器对无引号旧格式行
      * （fov:0.0/clouds:true 等）报 "Skipping bad option"，可能引发启动期异常；
      * options.txt 首次由 MC 自行生成，这里只追加/更新 backend 键。
@@ -102,24 +104,48 @@ class OptionsInjector(private val activity: Context) {
             val isMobileGlues = rendererConfig != null &&
                 (rendererConfig.glName.contains("mobileglues", ignoreCase = true) ||
                     rendererConfig.displayName.contains("MobileGlues", ignoreCase = true))
-            val backend = if (isMobileGlues) {
-                "opengl"
-            } else {
-                // 版本级独立设置优先；26.2+ 版本在全局仍是 default 时按实测适配为 vulkan
-                // （G925 实测：default 时 MC 探测回落 GL 后端 glGetError mismatch 失败，
-                // 显式 vulkan 才走 Krypton/系统驱动正常），用户显式选择的值不受影响
-                backendOverride ?: run {
-                    val global = SettingsRepository.getGraphicsBackend()
-                    if (global == "default" &&
-                        com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(version.id)
-                    ) "vulkan" else global
-                }
+            // GL 系渲染器：MobileGlues / GL4ES / Krypton Wrapper(libng_gl4es) / SimpleFPEWrapper。
+            // 它们只实现 OpenGL，写 vulkan 后端时 MC 会先去初始化 Vulkan 再回落，
+            // 渲染器接不上（真机日志：nggl4es + vulkan 后端在初始化阶段直接崩）
+            val isGlRenderer = rendererConfig != null && listOf("mobileglues", "gl4es", "fpew").any {
+                rendererConfig.glName.contains(it, ignoreCase = true) ||
+                    rendererConfig.eglName.contains(it, ignoreCase = true)
+            }
+            // 用户显式选择：版本级独立设置优先，其次全局
+            val chosen = (backendOverride ?: SettingsRepository.getGraphicsBackend()).ifBlank { "default" }
+            val backend = when {
+                // GL 渲染器固定 opengl——与用户在设置里选 OpenGL 的结果一致，
+                // 也避免把 GL 渲染器强行塞进 Vulkan 后端（旧逻辑在全局为 default 时会这么写）
+                isGlRenderer -> "opengl"
+                // Zink / Freedreno 等 Vulkan 渲染器：尊重用户选择
+                chosen != "default" -> chosen
+                // 未显式选择时，只有确实检测到该版本 Vulkan 可用才写 vulkan，否则交给游戏探测
+                com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(version.id) &&
+                    com.verse.explorer.app.device.VulkanCheckManager.cachedSupport(activity, version.id) == true -> "vulkan"
+                else -> "default"
             }
 
             // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
             // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
             OptionsFileWriter.writeBackend(runDir, OptionsFileWriter.backendEntries(isMobileGlues, backend))
-            VerseLogger.info("已注入渲染后端: ${SettingsRepository.getGraphicsBackend()}", TAG)
+            VerseLogger.info(
+                "已注入渲染后端: $backend（渲染器=$renderer, 选择=${backendOverride ?: "跟随全局"}," +
+                    " 全局=${SettingsRepository.getGraphicsBackend()}" +
+                    (if (isGlRenderer) ", GL 渲染器固定 opengl" else "") + "）", TAG
+            )
+            // 渲染器支持上限校验：超出上限的渲染器跑新版本会在初始化阶段直接崩，
+            // 日志里先标出来，便于对照崩溃报告判断（不阻断启动，用户可换渲染器）
+            val maxVer = rendererConfig?.maxMcVersion
+            if (!maxVer.isNullOrBlank() && version.id.isNotBlank() &&
+                com.tungsten.fclcore.util.versioning.GameVersionNumber.compare(
+                    com.verse.explorer.app.device.normalizeMcVersion(version.id), maxVer
+                ) > 0
+            ) {
+                VerseLogger.warn(
+                    "渲染器 $renderer 最高支持 MC $maxVer，当前版本 ${version.id} 超出上限，可能出现图形初始化崩溃",
+                    TAG
+                )
+            }
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }

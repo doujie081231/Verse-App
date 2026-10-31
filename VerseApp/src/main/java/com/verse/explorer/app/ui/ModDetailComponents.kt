@@ -36,6 +36,7 @@ import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.RoseLoader
+import com.verse.explorer.app.ui.components.VerseProgressBar
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.resource.ResourceVersion
 import com.verse.explorer.core.version.VersionType
@@ -393,9 +394,10 @@ internal fun VersionsDetailCard(
             when {
                 isSelected && downloading -> {
                     Spacer(Modifier.height(6.dp))
-                    LinearProgressIndicator(
-                        progress = { downloadProgress },
-                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                    VerseProgressBar(
+                        progress = downloadProgress,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 6.dp,
                         color = VerseColors.PcAccent,
                         trackColor = VerseColors.PcBgSecondary
                     )

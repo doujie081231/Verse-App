@@ -283,6 +283,8 @@ fun MainScreen(
             importSource = shareImportUri,
             onHandled = onShareImportHandled
         )
+        // 全局下载浮层:底部总进度条 + 可展开任务面板，任意页面可见
+        DownloadDock()
     }
 }
 

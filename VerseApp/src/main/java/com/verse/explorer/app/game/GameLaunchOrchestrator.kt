@@ -61,6 +61,10 @@ class GameLaunchOrchestrator(
     private var currentVersionId: String? = null
     private var hasLaunched = false
     private var isLaunching = false
+
+    /** 崩溃分析页是否已拉起：退出回调与协程两条路径只允许拉起一次 */
+    @Volatile
+    private var crashPageShown = false
     // JVM 是否已启动过（bridge.execute 已调用）：用于保护 stopGame/release 中的 nativeSetInputReady(false)，
     private var jvmStarted = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -78,7 +82,11 @@ class GameLaunchOrchestrator(
     fun configure(params: GameLaunchParams) {
         this.launchParams = params
         VerseLogger.info("=== configure 接收启动参数 ===", TAG)
-        VerseLogger.info("  versionId=${params.versionId}", TAG)
+        VerseLogger.info(
+            "  versionId=${params.versionId}, mcVersion=${params.mcVersion ?: "<未解析>"}," +
+                " mcVersionMajor=${params.mcVersionMajor}",
+            TAG
+        )
         VerseLogger.info("  gameDir=${params.gameDirPath}", TAG)
         VerseLogger.info("  javaHome=${params.javaHome}, javaVersion=${params.javaVersion}", TAG)
         VerseLogger.info("  renderer=${params.renderer}, launchMethod=${params.launchMethod}", TAG)
@@ -112,6 +120,7 @@ class GameLaunchOrchestrator(
 
         hasLaunched = true
         isLaunching = true
+        crashPageShown = false
 
         statusOverlay.show()
         statusOverlay.setTitle("正在启动游戏...")
@@ -146,6 +155,22 @@ class GameLaunchOrchestrator(
         isLaunching = false
         VerseLogger.info("游戏退出，code=$code", TAG)
 
+        // 退出码 6/-1 这类原生崩溃，latest.log 里只有一行被截断的堆栈摘要，
+        // 真正定位靠 hs_err_pid*.log 的 Problematic frame。这里把关键几行抄进
+        // 启动器自己的日志（随反馈一起上传），避免每次都只能看到"退出码 6"。
+        if (code != 0) logNativeCrashFrame()
+
+        // 崩溃时必须在当前调用栈里同步拉起崩溃分析页：
+        // JVM 退出后 native 的 exit trap 立刻把 :game 进程带走，协程还没切到主线程
+        // 进程就没了（真机日志停在“游戏退出，code=-1”，崩溃页从未出现）。
+        // 崩溃页运行在独立 :crash 进程，这里只发出一次 startActivity 即可。
+        if (code != 0 && !crashPageShown) {
+            crashPageShown = true
+            runCatching { showCrashReportPage(code) }
+                .onSuccess { VerseLogger.info("崩溃分析页已拉起（同步，退出码 $code）") }
+                .onFailure { VerseLogger.error("拉起崩溃分析页失败: ${it.message}") }
+        }
+
         scope.launch {
             try {
                 if (isActivityAlive()) {
@@ -168,8 +193,9 @@ class GameLaunchOrchestrator(
 
                 val crashReport = currentGameDir?.let { CrashDetector.getLatestCrashReport(it) }
 
-                if (isActivityAlive()) {
+                if (isActivityAlive() && !crashPageShown) {
                     withContext(Dispatchers.Main) {
+                        crashPageShown = true
                         showCrashReportPage(code)
                         VerseLogger.info("崩溃分析页已展示（crashReport=${crashReport != null}）")
                     }
@@ -285,6 +311,38 @@ class GameLaunchOrchestrator(
     fun onSurfaceDestroyed() {
         VerseLogger.info("Surface destroyed, stopping game")
         stopGame()
+    }
+
+    /** 把最新 hs_err_pid*.log 的致命帧/信号/命令行抄进启动器日志（随反馈上传） */
+    private fun logNativeCrashFrame() {
+        runCatching {
+            val dir = File(activity.getExternalFilesDir(null), "VerseExplorerX/logs")
+            val hs = dir.listFiles { f -> f.isFile && f.name.startsWith("hs_err_pid") }
+                ?.maxByOrNull { it.lastModified() }
+                ?: run {
+                    VerseLogger.warn("未找到 hs_err_pid*.log（${dir.absolutePath}）", TAG)
+                    return
+                }
+            // 只读开头一段：Problematic frame / siginfo 都在头部，避免整文件读进内存
+            val head = StringBuilder()
+            hs.bufferedReader().use { r ->
+                var n = 0
+                while (n < 220) {
+                    val line = r.readLine() ?: break
+                    head.append(line).append('\n')
+                    n++
+                }
+            }
+            val text = head.toString()
+            val frame = Regex("(?m)^Problematic frame:////s*////n?////s*(.+)$").find(text)?.groupValues?.get(1)
+            val sig = Regex("(?m)^siginfo:.*$").find(text)?.value
+            val cmd = Regex("(?m)^Command Line:.*$").find(text)?.value
+            VerseLogger.error(
+                "hs_err(${hs.name}) ${sig ?: ""} | frame=${frame ?: "未解析到"}" +
+                    (cmd?.let { " | ${it.take(150)}" } ?: ""),
+                TAG
+            )
+        }.onFailure { VerseLogger.warn("读取 hs_err 失败: ${it.message}", TAG) }
     }
 
     private fun isActivityAlive(): Boolean {
@@ -424,6 +482,27 @@ class GameLaunchOrchestrator(
             } catch (t: Throwable) {
                 VerseLogger.error("[8/9 JVM启动] loadLibrary(versesdl) 失败: $t", TAG)
             }
+            // 26.2+ 的版本初始化阶段会加载 Vulkan 查询设备能力，与渲染器是不是 OpenGL 无关，
+            // 所以必须**无条件**按缓存评估一次设备能力，刷新 vkshim 门控
+            // （VulkanCheckManager.needsVulkanShim）。以前只在 Vulkan 渲染器时评估，
+            // MobileGlues/OpenGL 的设备永远拿到 shim=0，驱动缺 divisor/fillModeNonSolid 时
+            // 就会拿到缺扩展的系统加载器 → 调用未实现入口 → SIGSEGV(pc=0)/退出码 6。
+            // FCL 对 26.2+ 一律先做这一步能力评估（它还会据此拦截不支持 26.3 的机器）。
+            runCatching {
+                if (com.verse.explorer.app.device.VulkanCheckManager.hasVulkanBackend(fclVersion.id)) {
+                    val useTurnip = !(if (!verSettings.usesGlobal) verSettings.vkDriverSystem
+                    else SettingsRepository.getVkDriverSystem())
+                    val driverPath = if (useTurnip) activity.applicationInfo.nativeLibraryDir else null
+                    com.verse.explorer.app.device.VulkanCheckManager.ensureSupported(
+                        activity, fclVersion.id, useTurnip, driverPath
+                    )
+                    VerseLogger.info(
+                        "Vulkan 能力评估: shim=${com.verse.explorer.app.device.VulkanCheckManager.needsVulkanShim}" +
+                            "（版本=${fclVersion.id}, turnip=$useTurnip）", TAG
+                    )
+                }
+            }.onFailure { VerseLogger.warn("Vulkan 能力评估失败（仅影响 vkshim 门控）: ${it.message}", TAG) }
+
             // RenderPearl 的 Vulkan 后端（26.2+）要求 VK_EXT_vertex_attribute_divisor：
             // LWJGL/SDL 的 Vulkan 加载统一包装到 libvkshim.so（VULKAN_PTR）合成该扩展。
             // 仅 arm64-v8a 真机路径启用（模拟器 x86_64 / OpenGL 后端不受影响）。

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -23,6 +22,7 @@ import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.components.PcCard
 import com.verse.explorer.app.ui.components.RoseLoader
+import com.verse.explorer.app.ui.components.VerseProgressBar
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.loader.FclLoaderInstaller
@@ -189,9 +189,10 @@ internal fun LoaderInstallTab(
         Spacer(Modifier.height(10.dp))
 
         if (installing) {
-            LinearProgressIndicator(
+            VerseProgressBar(
+                progress = progressValue,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                progress = { progressValue },
+                height = 6.dp,
                 color = VerseColors.PcAccent
             )
             Text(progressText, fontSize = 11.sp, color = VerseColors.PcTextMuted)

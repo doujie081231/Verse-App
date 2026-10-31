@@ -31,12 +31,14 @@ import com.tungsten.fclcore.mod.RemoteModRepository;
 import com.tungsten.fclcore.util.MurmurHash2;
 import com.tungsten.fclcore.util.Pair;
 import com.tungsten.fclcore.util.StringUtils;
+import com.tungsten.fclcore.util.Logging;
 import com.tungsten.fclcore.util.io.HttpRequest;
 import com.tungsten.fclcore.util.io.NetworkUtils;
 
 import org.jetbrains.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
+import java.util.logging.Level;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -55,13 +57,69 @@ import java.util.stream.Stream;
 
 public final class CurseForgeRemoteModRepository implements RemoteModRepository {
 
-    private static final String PREFIX = "https://api.curseforge.com";
+    private static final String OFFICIAL_PREFIX = "https://api.curseforge.com";
+
+    /**
+     * CurseForge 接口镜像（mcimirror）。整合包的 manifest 只有 projectID/fileID，
+     * 每个模组都要单独查一次接口拿文件名和直链；国内直连 api.curseforge.com
+     * 单次常要 1~8 秒，200+ 个模组就是一两分钟，表现为「卡在下载整合包模组」。
+     * 镜像实测 0.23 秒响应，优先使用；镜像不可用或探活失败时回退官方地址。
+     */
+    private static final String MIRROR_PREFIX = "https://mod.mcimirror.top/curseforge";
+
     private static final String apiKey = FCLPath.CONTEXT.getString(R.string.curse_api_key);
 
     private static final int WORD_PERFECT_MATCH_WEIGHT = 5;
 
+    /** 延迟解析一次（首次调用发生在下载线程，不会阻塞 UI）；只缓存「镜像可用」这一结论 */
+    private static volatile String resolvedPrefix;
+
+    /** 上一次探活失败的时间：失败后短时间内不再重复探活，避免每个请求都吃 3 秒超时 */
+    private static volatile long lastProbeFailAt = 0L;
+    private static final long PROBE_RETRY_MS = 5 * 60_000L;
+
+    private static String PREFIX() {
+        String p = resolvedPrefix;
+        if (p != null) return p;
+        synchronized (CurseForgeRemoteModRepository.class) {
+            if (resolvedPrefix != null) return resolvedPrefix;
+            // 刚失败过：先用官方地址跑，等过了重试间隔再探活，
+            // 否则每个请求都会各花一次 3 秒探活超时
+            if (System.currentTimeMillis() - lastProbeFailAt < PROBE_RETRY_MS) {
+                return OFFICIAL_PREFIX;
+            }
+            if (probeMirror()) {
+                resolvedPrefix = MIRROR_PREFIX;
+                return MIRROR_PREFIX;
+            }
+            // 失败不缓存「走官方」这个结论：官方域名在国内经常整段不可达，
+            // 一旦缓存住，本次进程就再也回不到镜像
+            lastProbeFailAt = System.currentTimeMillis();
+            return OFFICIAL_PREFIX;
+        }
+    }
+
+    /** 探活：镜像必须能返回项目详情才认为可用（3 秒超时，失败即回退官方） */
+    private static boolean probeMirror() {
+        java.net.HttpURLConnection conn = null;
+        try {
+            conn = (java.net.HttpURLConnection) new java.net.URL(MIRROR_PREFIX + "/v1/mods/285109").openConnection();
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(3000);
+            conn.setRequestMethod("GET");
+            int code = conn.getResponseCode();
+            return code >= 200 && code < 300;
+        } catch (Exception e) {
+            Logging.LOG.log(Level.WARNING, "CurseForge mirror unavailable, fallback to official api", e);
+            return false;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
     private static <R extends HttpRequest> R withApiKey(R request) {
-        if (request.getUrl().startsWith(PREFIX) && !apiKey.isEmpty()) {
+        // 只对官方地址带 key：镜像不需要，也不该把我们的 key 交给第三方
+        if (request.getUrl().startsWith(OFFICIAL_PREFIX) && !apiKey.isEmpty()) {
             request.header("X-API-KEY", apiKey);
         }
         return request;
@@ -138,7 +196,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
         Response<List<CurseAddon>> response = null;
 
         IOException exception = null;
-        List<URL> candidates = downloadProvider.injectURLWithCandidates(NetworkUtils.withQuery(PREFIX + "/v1/mods/search", query));
+        List<URL> candidates = downloadProvider.injectURLWithCandidates(NetworkUtils.withQuery(PREFIX() + "/v1/mods/search", query));
         for (URL candidate : candidates) {
             LOG.info("Fetching " + candidate);
             try {
@@ -206,7 +264,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
 
         long hash = Integer.toUnsignedLong(MurmurHash2.hash32(baos.toByteArray(), baos.size(), 1));
 
-        Response<FingerprintMatchesResult> response = withApiKey(HttpRequest.POST(PREFIX + "/v1/fingerprints/432"))
+        Response<FingerprintMatchesResult> response = withApiKey(HttpRequest.POST(PREFIX() + "/v1/fingerprints/432"))
                 .json(mapOf(pair("fingerprints", Collections.singletonList(hash))))
                 .getJson(new TypeToken<Response<FingerprintMatchesResult>>() {
                 }.getType());
@@ -220,7 +278,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
 
     @Override
     public RemoteMod getModById(String id) throws IOException {
-        Response<CurseAddon> response = withApiKey(HttpRequest.GET(PREFIX + "/v1/mods/" + id))
+        Response<CurseAddon> response = withApiKey(HttpRequest.GET(PREFIX() + "/v1/mods/" + id))
                 .getJson(new TypeToken<Response<CurseAddon>>() {
                 }.getType());
         return response.data.toMod();
@@ -228,7 +286,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
 
     @Override
     public RemoteMod.File getModFile(String modId, String fileId) throws IOException {
-        Response<CurseAddon.LatestFile> response = withApiKey(HttpRequest.GET(String.format("%s/v1/mods/%s/files/%s", PREFIX, modId, fileId)))
+        Response<CurseAddon.LatestFile> response = withApiKey(HttpRequest.GET(String.format("%s/v1/mods/%s/files/%s", PREFIX(), modId, fileId)))
                 .getJson(new TypeToken<Response<CurseAddon.LatestFile>>() {
                 }.getType());
         return response.data().toVersion().getFile();
@@ -236,7 +294,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
 
     @Override
     public Stream<RemoteMod.Version> getRemoteVersionsById(String id) throws IOException {
-        Response<List<CurseAddon.LatestFile>> response = withApiKey(HttpRequest.GET(PREFIX + "/v1/mods/" + id + "/files",
+        Response<List<CurseAddon.LatestFile>> response = withApiKey(HttpRequest.GET(PREFIX() + "/v1/mods/" + id + "/files",
                 pair("pageSize", "10000")))
                 .getJson(new TypeToken<Response<List<CurseAddon.LatestFile>>>() {
                 }.getType());
@@ -244,7 +302,7 @@ public final class CurseForgeRemoteModRepository implements RemoteModRepository 
     }
 
     public List<CurseAddon.Category> getCategoriesImpl() throws IOException {
-        Response<List<CurseAddon.Category>> categories = withApiKey(HttpRequest.GET(PREFIX + "/v1/categories", pair("gameId", "432")))
+        Response<List<CurseAddon.Category>> categories = withApiKey(HttpRequest.GET(PREFIX() + "/v1/categories", pair("gameId", "432")))
                 .getJson(new TypeToken<Response<List<CurseAddon.Category>>>() {
                 }.getType());
         return reorganizeCategories(categories.data(), section);

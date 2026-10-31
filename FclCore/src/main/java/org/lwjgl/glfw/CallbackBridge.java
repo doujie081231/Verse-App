@@ -14,6 +14,7 @@ import android.view.WindowManager;
 import androidx.annotation.Nullable;
 
 import com.tungsten.fcl.FCLApplication;
+import com.tungsten.fcl.game.sdl.DirectGamepadEnableHandler;
 import com.tungsten.fcl.game.sdl.SdlBridge;
 import com.tungsten.fclauncher.bridge.FCLBridge;
 import com.tungsten.fclauncher.keycodes.EfficientAndroidLWJGLKeycode;
@@ -23,6 +24,10 @@ import com.tungsten.fclauncher.keycodes.LwjglKeycodeMap;
 import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.lang.ref.WeakReference;
 import java.util.function.Consumer;
 
 import dalvik.annotation.optimization.CriticalNative;
@@ -83,6 +88,14 @@ public class CallbackBridge {
     private static int sMouseButtonState = 0;
     public volatile static boolean holdingAlt, holdingCapslock, holdingCtrl,
             holdingNumlock, holdingShift;
+
+    // GLFW direct gamepad 共享缓冲（由 libpojavexec 分配的 native 内存，游戏侧直接读取）
+    public static final ByteBuffer sGamepadButtonBuffer;
+    public static final FloatBuffer sGamepadAxisBuffer;
+    public static boolean sGamepadDirectInput = false;
+    public static boolean sGamepadDirectEnabled = false;
+    // 弱引用避免静态持有 Context
+    private static WeakReference<DirectGamepadEnableHandler> sDirectGamepadEnableHandler;
 
     public static void putMouseEventWithCoords(int button, float x, float y) {
         putMouseEventWithCoords(button, true, x, y);
@@ -328,11 +341,31 @@ public class CallbackBridge {
     }
 
     //Called from JRE side
-        // libpojavexec（预编译版）JNI_OnLoad 的 dalvik 分支会
-        // GetStaticMethodID(onDirectInputEnable)，缺少该方法会导致异常挂起、输入注册全链失败。
-    // Verse 无 direct gamepad 机制，仅需方法存在（空实现）。
+    // libpojavexec JNI_OnLoad 的 dalvik 分支会 GetStaticMethodID(onDirectInputEnable)，
+    // 游戏侧 GLFW 启用 direct gamepad 后由 native 回调这里打开 Java 侧的写入口。
+    // 之前是空实现，导致 sGamepadDirectInput 永远为 false，手柄事件写不进共享缓冲。
     @SuppressWarnings("unused")
     private static void onDirectInputEnable() {
+        android.util.Log.i("VerseX", "Direct gamepad input enabled");
+        sGamepadDirectInput = true;
+        DirectGamepadEnableHandler handler =
+                sDirectGamepadEnableHandler == null ? null : sDirectGamepadEnableHandler.get();
+        if (handler != null) {
+            handler.onDirectGamepadEnabled();
+        }
+    }
+
+    /**
+     * 游戏侧 org.lwjgl.glfw.GLFW（lwjgl jar）在 glfwInit 时调用，
+     * 通知 native 启用 direct gamepad 通道。
+     */
+    public static void enableGamepadDirectInput() {
+        if (sGamepadDirectEnabled) return;
+        sGamepadDirectEnabled = nativeEnableGamepadDirectInput();
+    }
+
+    public static void setDirectGamepadEnableHandler(@Nullable DirectGamepadEnableHandler handler) {
+        sDirectGamepadEnableHandler = new WeakReference<>(handler);
     }
 
     //Called from JRE side
@@ -400,9 +433,12 @@ public class CallbackBridge {
 
     public static native String nativeClipboard(int action, byte[] copy);
 
-    public static native long nativeCreateGamepadAxisBuffer();
+    // 返回类型必须是 ByteBuffer：libpojavexec 的实现是 NewDirectByteBuffer，
+    // 声明成 long 时 JNI 按签名查不到方法（UnsatisfiedLinkError），拿不到共享内存，
+    // 游戏侧 GLFW 的 gamepad 状态永远是空的。
+    public static native ByteBuffer nativeCreateGamepadAxisBuffer();
 
-    public static native long nativeCreateGamepadButtonBuffer();
+    public static native ByteBuffer nativeCreateGamepadButtonBuffer();
 
     public static native boolean nativeEnableGamepadDirectInput();
 
@@ -437,23 +473,6 @@ public class CallbackBridge {
                 System.loadLibrary("SDL3");
                 android.util.Log.i("VerseX", "FCL: loading SDL2");
                 System.loadLibrary("SDL2");
-                // 26.3 SDL 渲染路径：SDL 初始化发生在游戏首帧之前，而此时
-                // GameActivity.onSurfaceTextureSizeChanged 的 pushEventWindow 仍被
-                // graphicOutputShown 门控（首帧前不推送），导致 CallbackBridge.windowWidth
-                // 恒为 0 → SDLSurface "Window size: 0x0" → SDL 窗口/GL 上下文创建异常。
-                // 这里在 SDL JNI 绑定前补发真实窗口尺寸（宿主 Activity 在
-                // surface 就绪时同样会设置 CallbackBridge.windowWidth）。
-                ensureSdlWindowSize();
-                // 26.3 RenderPearl glGetError mismatch：LWJGL 的 GL provider（libng_gl4es.so）
-                // 与 SDL_GL_GetProcAddress（SDL3 走系统 eglGetProcAddress）不是同一实现。
-                // versedl 在 dlsym 出口 + SDL_GL_GetProcAddress 符号处重定向 gl* 到 gl4es。
-                // 必须在 SDL3 已 dlopen 之后安装（bytehook_hook_single 针对已加载库补丁）。
-                try {
-                    org.libsdl.app.SDL.nativeInstallSdlHooks();
-                    android.util.Log.i("VerseX", "FCL: versedl SDL GL hooks installed");
-                } catch (Throwable t) {
-                    android.util.Log.w("VerseX", "FCL: versedl SDL GL hooks failed: " + t);
-                }
                 android.util.Log.i("VerseX", "FCL: setting up SDL JNI");
                 SdlBridge.setupJNI();
                 android.util.Log.i("VerseX", "FCL: binding SDL surface");
@@ -478,39 +497,11 @@ public class CallbackBridge {
 
     /** 复位 SDL 桥接状态（SdlBridge.reset 时调用，防止旧 Surface/旧初始化状态残留） */
     public static void clearSdlBridgeState() {
+        sGamepadDirectInput = false;
+        sDirectGamepadEnableHandler = null;
         sMouseButtonState = 0;
         deltaX = 0f;
         deltaY = 0f;
-    }
-
-    /**
-     * SDL 渲染路径（MC 26.3+）：SDL_Init 发生在游戏首帧前，pushEventWindow 被
-     * graphicOutputShown 门控尚未推送，windowWidth/windowHeight 恒为 0。
-     * 从当前 Activity 的真实显示尺寸补发，使 SDLSurface "Window size" 非零。
-     */
-    private static void ensureSdlWindowSize() {
-        if (windowWidth > 0 && windowHeight > 0) {
-            return;
-        }
-        try {
-            Activity activity = SDLActivity.getContext();
-            if (activity != null) {
-                DisplayMetrics dm = new DisplayMetrics();
-                WindowManager wm = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
-                if (wm != null) {
-                    wm.getDefaultDisplay().getRealMetrics(dm);
-                    windowWidth = dm.widthPixels;
-                    windowHeight = dm.heightPixels;
-                    android.util.Log.i("VerseX", "FCL: ensureSdlWindowSize -> " + windowWidth + "x" + windowHeight);
-                }
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("VerseX", "FCL: ensureSdlWindowSize failed: " + t);
-        }
-        if (windowWidth <= 0 || windowHeight <= 0) {
-            windowWidth = 1280;
-            windowHeight = 720;
-        }
     }
 
     static {
@@ -518,6 +509,11 @@ public class CallbackBridge {
         // （critical_send_* 读取 pojav_environ->GLFW_invoke_* 并受 isInputReady 门控）。
         // 误加载 verseexec 会让 nativeSetInputReady 绑定到 verse 环境，无法开启输入。
         System.loadLibrary("pojavexec");
+        // 与 FCL 一致：把 native 侧分配的手柄共享缓冲映射进来。
+        // 游戏通过 GLFW 直接读这块内存判断手柄状态，缺这两行则手柄在游戏内完全无效。
+        sGamepadButtonBuffer = nativeCreateGamepadButtonBuffer();
+        sGamepadAxisBuffer =
+                nativeCreateGamepadAxisBuffer().order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
     }
 }
 

@@ -8,9 +8,46 @@ import java.util.jar.JarFile
 
 class NativesDeployer(private val context: Context, private val log: (String) -> Unit) {
 
+    /** 覆盖安装后第一次启动：整份重刷已部署的原生库 */
+    private val forceRefresh: Boolean by lazy { needsFullRefresh() }
+
+    /**
+     * 覆盖安装的识别标记：APK 的 lastUpdateTime。
+     * 用「只补缺失」的策略时，覆盖安装（不卸载直接装新包）会保留旧的 .so / 运行时 jar，
+     * 表现就是「换了引擎却没生效、旧崩溃照旧」。APK 更新后这里必然变化，
+     * 因此可以据此把已部署的原生库整体重刷一遍。
+     */
+    private fun apkUpdateStamp(): String = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        info.lastUpdateTime.toString()
+    }.getOrDefault("")
+
+    /** 是否需要整份重刷（覆盖安装后第一次启动） */
+    private fun needsFullRefresh(): Boolean {
+        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_STAMP, "")
+        val stamp = apkUpdateStamp()
+        return stamp.isNotEmpty() && saved != stamp
+    }
+
+    private fun markDeployed() {
+        val stamp = apkUpdateStamp()
+        if (stamp.isEmpty()) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_STAMP, stamp).apply()
+    }
+
     fun copyNativesToInternalStorage(externalNativesDir: File, javaHome: String?, librariesDir: File? = null): File {
         val internalNativesDir = File(context.filesDir, "natives")
         internalNativesDir.mkdirs()
+
+        // 覆盖安装：先清掉旧的 .so，避免同名旧库被继续使用
+        if (forceRefresh) {
+            log("检测到 APK 已更新，重新部署原生库与运行时资源\n")
+            internalNativesDir.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.endsWith(".so")) runCatching { f.delete() }
+            }
+        }
 
         var copied = 0
 
@@ -24,7 +61,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
             nativeLibDir.listFiles()?.forEach { srcFile ->
                 if (srcFile.isFile && srcFile.name.endsWith(".so")) {
                     val dstFile = File(internalNativesDir, srcFile.name)
-                    if (dstFile.exists() && dstFile.length() == srcFile.length()) return@forEach
+                    if (!forceRefresh && dstFile.exists() && dstFile.length() == srcFile.length()) return@forEach
                     try {
                         srcFile.inputStream().use { input ->
                             dstFile.outputStream().use { output ->
@@ -65,6 +102,8 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
         } catch (e: Exception) {
             log("复制 libjemalloc.so 失败: ${e.message}\n")
         }
+
+        if (forceRefresh) markDeployed()
 
         ensureJnaNativeLib(internalNativesDir)
 
@@ -145,7 +184,7 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
 
                     val dstFile = File(nativesDir, libName)
 
-                    if (dstFile.exists() && dstFile.length() == entry.size) continue
+                    if (!forceRefresh && dstFile.exists() && dstFile.length() == entry.size) continue
 
                     zip.getInputStream(entry).use { input ->
                         dstFile.outputStream().use { output ->
@@ -402,7 +441,14 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
 
     private fun copyAssetIfMissing(assetPath: String, dest: File): Int {
         try {
-            if (dest.exists() && dest.length() >= 1024) return 0
+            // 与 assets 里的实际大小比对：覆盖安装后 jar 内容变了（大小通常也变），
+            // 只判 exists() 会让旧运行时（verse-bootstrap.jar / lwjgl 模块）一直留在原地
+            val assetSize = runCatching {
+                context.assets.open(assetPath).use { it.available().toLong() }
+            }.getOrDefault(-1L)
+            if (dest.exists() && dest.length() >= 1024 &&
+                (assetSize <= 0 || dest.length() == assetSize)
+            ) return 0
             dest.parentFile?.mkdirs()
             context.assets.open(assetPath).use { input ->
                 dest.outputStream().use { output -> input.copyTo(output) }
@@ -477,6 +523,9 @@ class NativesDeployer(private val context: Context, private val log: (String) ->
     }
 
     companion object {
+        private const val PREFS = "natives_deploy"
+        private const val KEY_STAMP = "apk_update_stamp"
+
         private val LWJGL_NATIVE_LIBS = listOf(
             "liblwjgl.so", "liblwjgl_nanovg.so", "liblwjgl_opengl.so",
             "liblwjgl_spng.so", "liblwjgl_stb.so", "liblwjgl_tinyfd.so",

@@ -26,6 +26,8 @@ data class VulkanCheckRecord(
     /** 设备可支持的 Minecraft 版本范围，[Range.until] 为排他上界，null 表示无上界 */
     val supportedRanges: List<Range> = emptyList(),
     val version: Int = 0,
+    /** 检测时间戳（毫秒）。超过 [VulkanCheckManager.CHECK_TTL_MS] 后视为结论过期 */
+    val checkedAt: Long = 0L,
 ) {
     data class Range(
         val since: String,
@@ -55,6 +57,7 @@ data class VulkanCheckRecord(
                 })
             }
         })
+        put("checkedAt", checkedAt)
     }.toString()
 
     companion object {
@@ -78,7 +81,8 @@ data class VulkanCheckRecord(
                 needsDivisorShim = obj.optBoolean("needsDivisorShim"),
                 needsFillModeEmulation = obj.optBoolean("needsFillModeEmulation"),
                 supportedRanges = ranges,
-                version = obj.optInt("version")
+                version = obj.optInt("version"),
+                checkedAt = obj.optLong("checkedAt", 0L)
             )
         }
     }
@@ -104,6 +108,13 @@ enum class VulkanEnsureResult {
 object VulkanCheckManager {
     private val mutex = Mutex()
     private const val PREFS_NAME = "vulkan_check"
+
+    /**
+     * 检测结论有效期。GPU 驱动、系统更新、驱动插件替换都不会改变 useTurnip/driverPath，
+     * 没有有效期时缓存会永久命中，用户只在第一次启动见过 Vulkan 检测弹窗。
+     * 过期后重新走一次「是否检测」询问，结论与体验都更可信。
+     */
+    const val CHECK_TTL_MS = 7L * 24 * 60 * 60 * 1000
 
     private const val EXT_VERTEX_ATTRIBUTE_DIVISOR = "VK_EXT_vertex_attribute_divisor"
     private const val KHR_VERTEX_ATTRIBUTE_DIVISOR = "VK_KHR_vertex_attribute_divisor"
@@ -168,7 +179,8 @@ object VulkanCheckManager {
                             ?.filter { it.supported }
                             ?.map { VulkanCheckRecord.Range(since = it.since, until = it.until) }
                             ?: emptyList(),
-                        version = VulkanRequirements.VULKAN_REQUIREMENTS_VERSION
+                        version = VulkanRequirements.VULKAN_REQUIREMENTS_VERSION,
+                        checkedAt = System.currentTimeMillis()
                     )
                 )
                 effective
@@ -188,9 +200,13 @@ object VulkanCheckManager {
         val mcVersion = normalizeMcVersion(gameVersion)
         val path = if (useTurnip) driverPath.orEmpty() else ""
         val record = loadRecord(context)?.takeIf { last ->
-            //检测器版本、驱动状态一致时设备能力不变，直接按已支持的版本范围判定
+            //检测器版本、驱动状态一致时设备能力不变，直接按已支持的版本范围判定。
+            //另加有效期：换驱动、系统更新、GPU 驱动包升级都不会改 useTurnip/driverPath，
+            //旧实现因此永远命中缓存，第 2 次启动起再也不弹 Vulkan 检测（用户只能看到第一次）。
             last.version == VulkanRequirements.VULKAN_REQUIREMENTS_VERSION &&
-                    last.useTurnip == useTurnip && last.driverPath == path
+                    last.useTurnip == useTurnip && last.driverPath == path &&
+                    (last.checkedAt <= 0L ||
+                            System.currentTimeMillis() - last.checkedAt <= CHECK_TTL_MS)
         } ?: run {
             //无与当前驱动状态一致的记录，shim 门控回到安全侧（不启用）
             needsVulkanShim = false
@@ -198,6 +214,17 @@ object VulkanCheckManager {
         }
         needsVulkanShim = record.needsDivisorShim || record.needsFillModeEmulation
         return if (record.isSupported(mcVersion)) VulkanEnsureResult.SUPPORTED else VulkanEnsureResult.UNSUPPORTED
+    }
+
+    /**
+     * 同步读取「该版本是否有可用的 Vulkan 能力」的缓存结论。
+     * null 表示没有可用的检测记录（需要先检测），true/false 为缓存判定结果。
+     * 用于启动前写 preferredGraphicsBackend 时避免把没检测过的机器强推成 vulkan。
+     */
+    fun cachedSupport(context: Context, gameVersion: String): Boolean? {
+        val record = loadRecord(context) ?: return null
+        if (record.version != VulkanRequirements.VULKAN_REQUIREMENTS_VERSION) return null
+        return record.isSupported(normalizeMcVersion(gameVersion))
     }
 
     private fun prefs(context: Context) =
