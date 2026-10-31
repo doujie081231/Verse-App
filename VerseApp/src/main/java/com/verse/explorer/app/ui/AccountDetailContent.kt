@@ -572,14 +572,34 @@ fun AccountDetailContent(
                             enabled = !capeBusy,
                             modifier = Modifier.weight(1f)
                         )
-                        if (account.type == AccountType.MICROSOFT) {
+                        // 微软账户的披风来自 account.capeUrl；外置登录（皮肤站）的披风
+                        // 在 yggdrasil profile 的 textures.CAPE 里，取法对齐 ZL2 的 CapeFileDownloader
+                        if (account.type == AccountType.MICROSOFT || account.type == AccountType.AUTHLIB) {
                             PcButton(
-                                text = "获取官方披风",
+                                text = "获取账户披风",
                                 onClick = {
                                     scope.launch {
                                         capeBusy = true
+                                        // 局部变量：account.serverUrl 跨模块无法智能转换（String? → String）
+                                        val serverUrl = account.serverUrl
+                                        val source = if (!account.capeUrl.isNullOrBlank()) {
+                                            account
+                                        } else if (account.type == AccountType.AUTHLIB &&
+                                            !serverUrl.isNullOrBlank()
+                                        ) {
+                                            val url = withContext(Dispatchers.IO) {
+                                                runCatching {
+                                                    com.verse.explorer.core.account.AuthlibServices
+                                                        .authlibAuthenticator
+                                                        .fetchCapeTextureUrl(serverUrl, account.uuid)
+                                                }.getOrNull()
+                                            }
+                                            url?.let { account.copy(capeUrl = it) } ?: account
+                                        } else {
+                                            account
+                                        }
                                         val capeId = withContext(Dispatchers.IO) {
-                                            CapeRepository.fetchOfficial(context, account)
+                                            CapeRepository.fetchOfficial(context, source)
                                         }
                                         if (capeId != null) {
                                             capes = CapeRepository.list(context, account.id)
@@ -593,7 +613,11 @@ fun AccountDetailContent(
                                     }
                                 },
                                 variant = PcButtonVariant.OUTLINE,
-                                enabled = !capeBusy && !account.capeUrl.isNullOrBlank(),
+                                enabled = !capeBusy && (
+                                    !account.capeUrl.isNullOrBlank() ||
+                                        (account.type == AccountType.AUTHLIB &&
+                                            !account.serverUrl.isNullOrBlank())
+                                    ),
                                 modifier = Modifier.weight(1f)
                             )
                         }

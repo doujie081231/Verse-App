@@ -146,15 +146,30 @@ class AuthlibAuthenticator {
     }
 
     /** 从 textures 属性解析皮肤纹理 URL（SKIN.url），供启动器头像展示 */
-    suspend fun fetchSkinTextureUrl(apiRoot: String, uuid: String): String? {
-        val value = fetchTexturesValue(apiRoot, uuid) ?: return null
+    suspend fun fetchSkinTextureUrl(apiRoot: String, uuid: String): String? =
+        fetchTextureUrls(apiRoot, uuid).first
+
+    /**
+     * 只取披风纹理 URL（textures.CAPE.url）。
+     * 外置登录（皮肤站）的披风就在 yggdrasil profile 的 textures 里，
+     * 与 ZL2 的 CapeFileDownloader 取法一致。
+     */
+    suspend fun fetchCapeTextureUrl(apiRoot: String, uuid: String): String? =
+        fetchTextureUrls(apiRoot, uuid).second
+
+    /**
+     * 一次请求同时解析皮肤与披风（避免为两件贴图各请求一次 profile）。
+     * @return (skinUrl, capeUrl)，任一不存在则为 null
+     */
+    suspend fun fetchTextureUrls(apiRoot: String, uuid: String): Pair<String?, String?> {
+        val value = fetchTexturesValue(apiRoot, uuid) ?: return null to null
         return runCatching {
             val decoded = String(android.util.Base64.decode(value, android.util.Base64.DEFAULT))
-            val json = gson.fromJson(decoded, JsonObject::class.java)
-            json?.getAsJsonObject("textures")
-                ?.getAsJsonObject("SKIN")
-                ?.get("url")?.asString
-        }.getOrNull()
+            val textures = gson.fromJson(decoded, JsonObject::class.java)?.getAsJsonObject("textures")
+            val skin = textures?.getAsJsonObject("SKIN")?.get("url")?.asString
+            val cape = textures?.getAsJsonObject("CAPE")?.get("url")?.asString
+            skin to cape
+        }.getOrDefault(null to null)
     }
 
     suspend fun authenticate(
@@ -193,8 +208,11 @@ class AuthlibAuthenticator {
             val selectedProfile = json.getAsJsonObject("selectedProfile")
             val availableProfiles = json.getAsJsonArray("availableProfiles")
 
-            fun buildAccount(profileUuid: String, profileName: String, token: String): AuthResult =
-                AuthResult(
+            suspend fun buildAccount(profileUuid: String, profileName: String, token: String): AuthResult {
+                // 皮肤/披风都来自皮肤站的 textures（ZL2 同样从 CAPE.url 取披风），
+                // 取不到时回落到 mc-heads 头像，不影响登录
+                val (skinUrl, capeUrl) = fetchTextureUrls(apiRoot, profileUuid)
+                return AuthResult(
                     success = true,
                     account = Account(
                         username = profileName,
@@ -203,9 +221,11 @@ class AuthlibAuthenticator {
                         type = AccountType.AUTHLIB,
                         serverUrl = apiRoot,
                         loginUsername = username,
-                        skinUrl = "https://mc-heads.net/avatar/$profileUuid/64"
+                        skinUrl = skinUrl ?: "https://mc-heads.net/avatar/$profileUuid/64",
+                        capeUrl = capeUrl
                     )
                 )
+            }
 
             // 多角色且未指定：先返回候选列表，等用户选择后带 profileId 再走一遍
             // （此时经 /authserver/refresh 选定角色）
@@ -244,7 +264,7 @@ class AuthlibAuthenticator {
      * 角色选定：认证响应未含 selectedProfile 时，通过 /authserver/refresh 携带
      * selectedProfile 完成（需复用认证时的 clientToken）。
      */
-    private fun selectProfile(
+    private suspend fun selectProfile(
         apiRoot: String,
         accessToken: String,
         clientToken: String,
@@ -274,6 +294,7 @@ class AuthlibAuthenticator {
             val newToken = json.get("accessToken")?.takeIf { it.isJsonPrimitive }?.asString ?: accessToken
             val profileId = selected?.get("id")?.asString ?: profile.id
             val profileName = selected?.get("name")?.asString ?: profile.name
+            val (skinUrl, capeUrl) = fetchTextureUrls(apiRoot, profileId)
             AuthResult(
                 success = true,
                 account = Account(
@@ -283,7 +304,8 @@ class AuthlibAuthenticator {
                     type = AccountType.AUTHLIB,
                     serverUrl = apiRoot,
                     loginUsername = loginUsername,
-                    skinUrl = "https://mc-heads.net/avatar/$profileId/64"
+                    skinUrl = skinUrl ?: "https://mc-heads.net/avatar/$profileId/64",
+                    capeUrl = capeUrl
                 )
             )
         } catch (e: Exception) {

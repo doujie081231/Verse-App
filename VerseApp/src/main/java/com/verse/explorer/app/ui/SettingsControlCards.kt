@@ -398,7 +398,7 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 gyroscopeSensitivity = clamped
                 MenuSetting.gyroscopeSensitivity = clamped
                 persist(MenuSetting.Key.GYROSCOPE_SENSITIVITY)
-                runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = clamped * 0.5f }
+                runCatching { LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroFactor() }
             }
             PcSliderRow(
                 label = "采样率",

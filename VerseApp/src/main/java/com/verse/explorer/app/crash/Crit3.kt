@@ -28,6 +28,23 @@ object Crit3 {
                 CrashUtils.appendReason(reasons, CrashReason.ShortLogOutput, listOf(lm))
             }
 
+            // 图形后端全部初始化失败：OpenGL 与 Vulkan 都创建不出来，游戏以退出码 0 结束
+            // （反馈 57c360a3ee8d：Failed to create backend OpenGL / Vulkan → No supported graphics backend）
+            if (lm.contains("No supported graphics backend") ||
+                (lm.contains("Failed to create backend OpenGL") &&
+                    lm.contains("Failed to create backend Vulkan"))
+            ) {
+                CrashUtils.appendReason(reasons, CrashReason.NoGraphicsBackend, null)
+            }
+
+            // 外置登录验证服务器不可达：authlib-injector 在 MOD 阶段拿不到 metadata 就直接退出
+            // （反馈 7a7c54ce094e：UnknownHostException: littleskin.cn → OpenJDK exit 1）
+            if (lm.contains("[authlib-injector]") &&
+                (lm.contains("Failed to fetch metadata") || lm.contains("UnknownHostException"))
+            ) {
+                CrashUtils.appendReason(reasons, CrashReason.SkinServerUnreachable, null)
+            }
+
             // Mod 解析错误（常见于 Fabric 前置校验失败）
             if (lm.contains("Mod resolution failed")) {
                 CrashUtils.appendReason(reasons, CrashReason.ModLoaderError, null)

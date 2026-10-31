@@ -69,4 +69,6 @@ enum class CrashReason(val cn: String) {
     ModNeedsGlibc("Mod需要Linux glibc"),
     RendererMissingGlFunction("渲染器缺少游戏需要的图形函数"),
     RendererLacksGlVersion("渲染器不支持该游戏版本要求的图形能力"),
+    NoGraphicsBackend("图形后端全部初始化失败（OpenGL 与 Vulkan 都不可用）"),
+    SkinServerUnreachable("外置登录验证服务器无法连接"),
 }

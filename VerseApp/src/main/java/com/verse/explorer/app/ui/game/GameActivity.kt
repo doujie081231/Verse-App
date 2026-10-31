@@ -946,7 +946,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             // 启动器控制设置持久化的陀螺仪项同步到运行时偏好（GyroControl 构造时即读取平滑窗口）
             LauncherPreferences.PREF_GYRO_INVERT_X = MenuSetting.isInvertGyroscope
             LauncherPreferences.PREF_GYRO_INVERT_Y = MenuSetting.isInvertGyroscope
-            LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroscopeSensitivity * 0.5f
+            LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroFactor()
             LauncherPreferences.PREF_GYRO_SAMPLE_RATE = MenuSetting.gyroscopeSampleRate
             LauncherPreferences.PREF_GYRO_SMOOTHING = MenuSetting.isGyroscopeSmoothing
             LauncherPreferences.PREF_GYRO_SMOOTHING_WINDOW = MenuSetting.gyroscopeSmoothingWindow

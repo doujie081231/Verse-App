@@ -674,7 +674,8 @@ class InGameControlOverlay(
 
     private fun applyGyroSensitivity(value: Int) {
         runCatching {
-            LauncherPreferences.PREF_GYRO_SENSITIVITY = value * 0.5f
+            // 曲线在 MenuSetting.gyroFactor() 里统一（1.5 次幂，低档更慢）
+            LauncherPreferences.PREF_GYRO_SENSITIVITY = MenuSetting.gyroFactor()
         }.onFailure {
             VerseLogger.warn("写入 PREF_GYRO_SENSITIVITY 失败: ${it.message}", "Control")
         }

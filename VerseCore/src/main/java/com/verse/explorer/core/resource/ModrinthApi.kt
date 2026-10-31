@@ -295,17 +295,20 @@ object ModrinthApi {
         offset: Int = 0,
         useMirror: Boolean = true
     ): ModrinthSearchResult = withContext(Dispatchers.IO) {
+        // facets 构造与 PCL 的 GetModrinthAddress 一致：
+        //   [["project_type:mod"],["categories:'fabric'"],["versions:'1.20.1'"]]
+        // 值统一用单引号包裹（Modrinth 允许两种写法，PCL 用单引号，含空格的分类名更稳）
         val facets = mutableListOf<List<String>>()
         facets.add(listOf("project_type:$projectType"))
 
         if (categories.isNotEmpty()) {
-            facets.add(categories.map { "categories:$it" })
+            facets.add(categories.map { "categories:'$it'" })
         }
         if (gameVersions.isNotEmpty()) {
-            facets.add(gameVersions.map { "versions:$it" })
+            facets.add(gameVersions.map { "versions:'$it'" })
         }
         if (loaders.isNotEmpty()) {
-            facets.add(loaders.map { "categories:$it" })
+            facets.add(loaders.map { "categories:'$it'" })
         }
 
         val params = mutableListOf<String>()

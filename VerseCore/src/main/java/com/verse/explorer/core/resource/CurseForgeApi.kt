@@ -43,8 +43,19 @@ object CurseForgeApi {
         "resourcepack" -> 12
         "modpack" -> 4471
         "shader" -> 6552
-        "datapack" -> 3743
+        // 与 PCL 一致：数据包 6945（旧值 3743 是错的，会返回空列表）、世界 17
+        "datapack" -> 6945
+        "world" -> 17
         else -> null
+    }
+
+    /** 排序 -> CurseForge sortField（与 PCL 的 CompSortType 映射一致） */
+    private fun sortFieldFor(sort: String): Int = when (sort.lowercase()) {
+        "downloads" -> 6
+        "follows" -> 2
+        "newest" -> 11
+        "updated" -> 3
+        else -> 4
     }
 
     /** 加载器名 -> CurseForge modLoaderType id */
@@ -132,15 +143,21 @@ object CurseForgeApi {
     ): ResourceSearchResult = withContext(Dispatchers.IO) {
         val classId = classIdForType(projectType) ?: return@withContext ResourceSearchResult()
 
-        val sb = StringBuilder("/mods/search?gameId=432&classId=$classId")
-        if (query.isNotBlank()) sb.append("&searchFilter=${java.net.URLEncoder.encode(query, "UTF-8")}")
-        // sortField: 1=featured,2=popularity,3=lastUpdated,4=name,5=authored
-        sb.append("&sortField=").append(if (sort == "newest" || sort == "updated") 3 else 2)
-        sb.append("&sortOrder=Desc")
-        sb.append("&pageSize=$limit")
-        sb.append("&index=$offset")
+        // 请求参数与 PCL 的 GetCurseForgeAddress 完全一致：
+        //   gameId=432&sortOrder=desc&pageSize=N&classId=X[&categoryId][&modLoaderType][&gameVersion]
+        //   [&searchFilter][&index][&sortField]
+        val sb = StringBuilder("/mods/search?gameId=432&sortOrder=desc&pageSize=$limit")
+        sb.append("&classId=$classId")
+        if (query.isNotBlank()) {
+            sb.append("&searchFilter=${java.net.URLEncoder.encode(query, "UTF-8")}")
+        }
+        if (offset > 0) sb.append("&index=$offset")
+        // PCL 的 CompSortType → sortField：相关度 4、下载量 6、关注 2、最新 11、最近更新 3
+        sb.append("&sortField=").append(sortFieldFor(sort))
         loaderToId(loader)?.let { sb.append("&modLoaderType=$it") }
-        if (gameVersion.isNotBlank()) sb.append("&gameVersion=${java.net.URLEncoder.encode(gameVersion, "UTF-8")}")
+        if (gameVersion.isNotBlank()) {
+            sb.append("&gameVersion=${java.net.URLEncoder.encode(gameVersion, "UTF-8")}")
+        }
 
         val body = executeWithMirror(sb.toString(), 60_000)
 

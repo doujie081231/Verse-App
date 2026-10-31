@@ -44,10 +44,16 @@ class ResourceRepository(
     ): ResourceSearchResult = withContext(Dispatchers.IO) {
         val allHits = mutableListOf<ModrinthSearchHit>()
         var total = 0
+        // 旧实现两个源都用 runCatching 吞掉异常，接口挂了就静默返回空列表，
+        // 界面显示「搜索 0 项」——用户只会以为真没结果（反馈 9f3404595e05 就是这个现象）
+        var cfError: Throwable? = null
+        var mrError: Throwable? = null
+        var requested = 0
 
         // 避免 source=全部 时串行等待两个慢源（旧实现先 CF 后 MR，最坏 2 倍超时）。
         coroutineScope {
             val cfDeferred = if (source.isBlank() || source == "curseforge") {
+                requested++
                 async {
                     runCatching {
                         CurseForgeApi.search(
@@ -64,6 +70,7 @@ class ResourceRepository(
             } else null
 
             val mrDeferred = if (source.isBlank() || source == "modrinth") {
+                requested++
                 async {
                     runCatching {
                         ModrinthApi.searchProjects(
@@ -85,11 +92,18 @@ class ResourceRepository(
             cfDeferred?.await()?.onSuccess {
                 allHits.addAll(it.hits)
                 total += it.total
-            }
+            }?.onFailure { cfError = it }
             mrDeferred?.await()?.onSuccess {
                 allHits.addAll(it.hits)
                 total += it.totalHits
-            }
+            }?.onFailure { mrError = it }
+        }
+
+        // 所有被请求的源都失败 → 抛出可读错误，让界面显示「搜索失败」而不是「0 项」
+        val failed = listOfNotNull(cfError, mrError).count { true }
+        if (allHits.isEmpty() && requested > 0 && failed >= requested) {
+            val reasons = listOfNotNull(cfError?.message, mrError?.message).distinct()
+            throw IllegalStateException("搜索失败：" + reasons.joinToString("；"))
         }
 
         if (allHits.size > 1) {

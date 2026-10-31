@@ -81,6 +81,18 @@ object MenuSetting {
         const val GAMEPAD_DEADZONE = "gamepadDeadzone"
     }
 
+    /**
+     * 陀螺仪灵敏度倍率：滑条 0..100 → 0..5（100 约等于 Pojav 原版默认手感）。
+     *
+     * 旧实现是线性 `滑条 × 0.5`，滑条调到 1（倍率 0.5）用户仍觉得过快（反馈 44d3cef311d6）。
+     * 改成 1.5 次幂曲线：低档下降得比线性快得多，高档保留原来的上限，
+     * 这样「想很慢」和「想像以前一样快」都调得出来。
+     */
+    fun gyroFactor(): Float {
+        val ratio = gyroscopeSensitivity.coerceIn(0, 100) / 100f
+        return 5.0f * ratio * kotlin.math.sqrt(ratio)
+    }
+
     /** 快捷栏判定：自动（按 MC 的 GUI 缩放算 9 格尺寸，对齐 ZL2 HotbarRule.Auto） */
     const val ITEM_BAR_RULE_AUTO = 0
 
@@ -106,7 +118,7 @@ object MenuSetting {
     var isDisableLeftTouch: Boolean = false
     var isEnableGyroscope: Boolean = false
     var isInvertGyroscope: Boolean = false
-    var gyroscopeSensitivity: Int = 10
+    var gyroscopeSensitivity: Int = 25
     var gyroscopeSampleRate: Int = 16        // 采样间隔（ms）
     var isGyroscopeSmoothing: Boolean = true
     var gyroscopeSmoothingWindow: Int = 4
@@ -206,7 +218,7 @@ object MenuSetting {
         isEnableGyroscope = obj[Key.ENABLE_GYROSCOPE]?.asBoolean ?: false
         isInvertGyroscope = obj[Key.INVERT_GYROSCOPE]?.asBoolean ?: false
         // 灵敏度上限收敛到 100：旧配置里存过 1000 等越界值，换算后转速高到不可用
-        gyroscopeSensitivity = (obj[Key.GYROSCOPE_SENSITIVITY]?.asInt ?: 10).coerceIn(0, 100)
+        gyroscopeSensitivity = (obj[Key.GYROSCOPE_SENSITIVITY]?.asInt ?: 25).coerceIn(0, 100)
         gyroscopeSampleRate = obj[Key.GYROSCOPE_SAMPLE_RATE]?.asInt ?: 16
         isGyroscopeSmoothing = obj[Key.GYROSCOPE_SMOOTHING]?.asBoolean ?: true
         gyroscopeSmoothingWindow = obj[Key.GYROSCOPE_SMOOTHING_WINDOW]?.asInt ?: 4

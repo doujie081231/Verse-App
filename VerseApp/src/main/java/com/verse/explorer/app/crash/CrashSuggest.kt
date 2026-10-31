@@ -139,7 +139,18 @@ object CrashSuggest {
                         "这属于渲染器插件（如 MobileGlues / ANGLE 等 GL 兼容层）与手机显卡驱动的匹配问题，不是游戏或整合包本身的问题。\n" +
                         "请到 设置 → 渲染器 升级到最新渲染器插件，或切换到其他渲染器后再启动。"
                 }
-                CrashReason.RendererLacksGlVersion -> {
+                CrashReason.NoGraphicsBackend ->
+            "游戏的图形层没能建立起来：OpenGL 与 Vulkan 两个后端都初始化失败" +
+                "（日志里可见 Failed to create backend OpenGL / Vulkan，随后 No supported graphics backend）。\n" +
+                "这通常意味着当前渲染器只提供了残缺的 OpenGL 实现，同时这台设备的 Vulkan 也被游戏判为不可用。\n" +
+                "请到 设置 → 渲染器 换成 MobileGlues 或 Zink 再启动；换完仍失败的话，" +
+                "在版本设置里把「图形 API」改成 OpenGL 试一次。"
+        CrashReason.SkinServerUnreachable ->
+            "外置登录（皮肤站）的验证服务器连不上：日志里 authlib-injector 报 " +
+                "Failed to fetch metadata / UnknownHostException 后进程直接退出。\n" +
+                "游戏还没进入初始化阶段，属于网络问题，不是游戏或整合包坏了。\n" +
+                "请检查网络/DNS，或换一个皮肤站地址后重新登录该账户。"
+        CrashReason.RendererLacksGlVersion -> {
                     val detail = additional.firstOrNull().orEmpty()
                     "渲染器没有实现该游戏版本需要的图形接口" +
                         (if (detail.isNotBlank()) "（$detail）" else "") + "，游戏在初始化渲染器时崩溃。\n" +
@@ -337,5 +348,7 @@ object CrashSuggest {
         CrashReason.ModNeedsGlibc -> 57
         CrashReason.RendererMissingGlFunction -> 58
         CrashReason.RendererLacksGlVersion -> 59
+        CrashReason.NoGraphicsBackend -> 60
+        CrashReason.SkinServerUnreachable -> 61
     }
 }
