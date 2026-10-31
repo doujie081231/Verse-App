@@ -45,6 +45,7 @@ import com.verse.explorer.core.data.FavoritesRepository
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.download.DownloadCenter
 import com.verse.explorer.app.download.DownloadCenterState
+import com.verse.explorer.app.download.ModpackInstallSession
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.ModpackInstallDialog
 import com.verse.explorer.app.ui.components.ModpackInstallPhase
@@ -155,9 +156,9 @@ fun ModDetailScreen(
         (item.key.startsWith(modpackKeyPrefix) || item.key.startsWith(resourceKeyPrefix) || item.key.startsWith(depKeyPrefix)) &&
             item.state == DownloadCenterState.RUNNING
     }
-    // 安装阶段不走下载中心（本地任务链），单独标记
-    var installInProgress by remember { mutableStateOf(false) }
-    val downloading = hasRunningDownload || installInProgress
+    // 安装阶段通过 ModpackInstallSession 承载（应用级会话，页面退出不丢）
+    val modpackInstalling by ModpackInstallSession.installing.collectAsState()
+    val downloading = hasRunningDownload || modpackInstalling
 
     var showVersionPicker by remember { mutableStateOf(false) }
     var showNoVersionsWarning by remember { mutableStateOf(false) }
@@ -165,14 +166,12 @@ fun ModDetailScreen(
 
     var pickerMode by remember { mutableStateOf("main") }
 
-    // ===== 整合包下载/安装弹窗状态（对齐版本下载：分阶段任务流） =====
-    val modpackChannel = remember { Channel<ModpackTaskEvent>(Channel.UNLIMITED) }
-    var modpackState by remember { mutableStateOf(ModpackInstallUiState()) }
-    var modpackJob by remember { mutableStateOf<Job?>(null) }
-    /** 本次已下载的整合包 zip（安装完成/失败/取消后删除，避免介质残留） */
-    var modpackZip by remember { mutableStateOf<File?>(null) }
-    /** 本次下载的整合包项目图标缓存（安装完成/失败/取消后删除） */
-    var modpackIcon by remember { mutableStateOf<File?>(null) }
+    // ===== 整合包下载/安装弹窗状态（已提升为 ModpackInstallSession，可最小化后从小窗恢复） =====
+    val modpackState by ModpackInstallSession.state.collectAsState()
+    val minimizedKeys by DownloadCenter.minimizedKeys.collectAsState()
+    /** 本页整合包详情的导航路由（小窗点击任务跳回） */
+    val modpackRoute = "modpack_detail/$projectId?source=$source"
+
     /** 移动网络确认（开始下载前确认，避免无意消耗流量） */
     var showMobileDataConfirm by remember { mutableStateOf(false) }
     var pendingModpackInstall by remember { mutableStateOf<Pair<ResourceVersion, String?>?>(null) }
@@ -180,9 +179,15 @@ fun ModDetailScreen(
     var showModpackNamingDialog by remember { mutableStateOf(false) }
     var modpackConfirmName by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        for (ev in modpackChannel) {
-            modpackState = modpackState.applyTaskEvent(ev)
+    // 从小窗「展开」跳回本页时恢复弹窗：最小化记录已被清除、安装链路仍在跑
+    LaunchedEffect(minimizedKeys, modpackState.phase, modpackState.visible) {
+        if (ModpackInstallSession.belongsTo(projectId) &&
+            !modpackState.visible &&
+            ModpackInstallSession.dialogKey?.let { it !in minimizedKeys } == true &&
+            (modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE ||
+                modpackState.phase == ModpackInstallPhase.INSTALLING)
+        ) {
+            ModpackInstallSession.showDialog()
         }
     }
 
@@ -196,10 +201,10 @@ fun ModDetailScreen(
                 "${FileUtils.formatFileSize(item.downloaded)} / ${FileUtils.formatFileSize(item.total)}"
             } else ""
             val speedText = if (item.speed > 0) formatSpeed(item.speed) else ""
-            modpackState = modpackState.copy(
-                fileProgress = item.progress.coerceAtLeast(0f),
-                downloadSpeed = item.speed,
-                fileText = listOf(percent, sizeText, speedText)
+            ModpackInstallSession.syncDownloadProgress(
+                progress = item.progress.coerceAtLeast(0f),
+                speed = item.speed,
+                text = listOf(percent, sizeText, speedText)
                     .filter { it.isNotBlank() }
                     .joinToString(" · ")
             )
@@ -309,61 +314,27 @@ fun ModDetailScreen(
         iconFile: File?
     ) {
         if (file == null || !file.exists()) return
-        Schedulers.androidUIThread().execute {
-            modpackZip = file
-            modpackIcon = iconFile
-            installInProgress = true
-            modpackState = ModpackInstallUiState(
-                visible = true,
-                title = project?.title ?: ver?.versionNumber ?: file.nameWithoutExtension,
-                iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-                phase = ModpackInstallPhase.DOWNLOAD_FILE
-            ).withFixedStageRows()
-        }
-        VerseApplication.instance.appScope.launch {
-            val gameDir = GameConfig.getGameDir(appContext)
-            val result = ModpackInstaller.installModpack(
-                gameDir = gameDir,
-                zipFile = file,
-                // 与版本命名弹窗一致：默认取 manifest.name（标题），命名后按用户输入
-                name = name,
-                iconFile = iconFile
-            ) { ev ->
-                modpackChannel.trySend(ev)
-            }
+        // 安装链路整体迁入 ModpackInstallSession（页面退出后弹窗状态仍存活，
+        // 并向下载中心提交独占镜像条目驱动小窗的总安装百分比）
+        ModpackInstallSession.onFinished = { success, error ->
             Schedulers.androidUIThread().execute {
-                result.fold(
-                    onSuccess = {
-                        modpackZip?.delete()
-                        modpackZip = null
-                        modpackIcon?.delete()
-                        modpackIcon = null
-                        installInProgress = false
-                        downloadDone = true
-                        downloadText = "整合包安装完成"
-                        modpackState = modpackState.copy(phase = ModpackInstallPhase.DONE)
-                    },
-                    onFailure = { e ->
-                        modpackZip?.delete()
-                        modpackZip = null
-                        modpackIcon?.delete()
-                        modpackIcon = null
-                        if (e is ModpackInstallCancelledException || e is kotlinx.coroutines.CancellationException) {
-                            installInProgress = false
-                            modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
-                        } else {
-                            installInProgress = false
-                            downloadError = e.message ?: "整合包安装失败"
-                            downloadText = downloadError ?: "整合包安装失败"
-                            modpackState = modpackState.copy(
-                                phase = ModpackInstallPhase.FAILED,
-                                error = e.message ?: "整合包安装失败"
-                            )
-                        }
-                    }
-                )
+                if (success) {
+                    downloadDone = true
+                    downloadText = "整合包安装完成"
+                } else {
+                    downloadError = error ?: "整合包安装失败"
+                    downloadText = downloadError ?: "整合包安装失败"
+                }
             }
         }
+        ModpackInstallSession.beginInstall(
+            appContext = appContext,
+            file = file,
+            name = name,
+            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
+            zipCache = file,
+            iconCache = iconFile
+        )
     }
 
     /**
@@ -378,6 +349,11 @@ fun ModDetailScreen(
      */
     fun startModpackDownload(ver: ResourceVersion, name: String?, skipMobileCheck: Boolean = false) {
         if (downloading) return
+        // 整合包下载是独占任务：任何下载进行中都不允许再开
+        if (!DownloadCenter.canStart(exclusive = true)) {
+            Toast.makeText(context, "有下载任务正在进行，完成后再下载整合包", Toast.LENGTH_SHORT).show()
+            return
+        }
         val itemKey = "$modpackKeyPrefix${ver.id}"
         // 同一整合包已在队列中：待安装则续接安装，下载中则恢复弹窗进度
         when (DownloadCenter.findByKey(itemKey)?.state) {
@@ -386,11 +362,11 @@ fun ModDetailScreen(
                 return
             }
             DownloadCenterState.RUNNING -> {
-                modpackState = ModpackInstallUiState(
-                    visible = true,
+                ModpackInstallSession.beginDownloadPhase(
+                    projectId = projectId,
+                    route = modpackRoute,
                     title = project?.title ?: ver.versionNumber,
-                    iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-                    phase = ModpackInstallPhase.DOWNLOAD_FILE
+                    iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
                 )
                 return
             }
@@ -405,11 +381,11 @@ fun ModDetailScreen(
         downloadDone = false
         downloadError = null
         downloadText = "准备下载整合包..."
-        modpackState = ModpackInstallUiState(
-            visible = true,
+        ModpackInstallSession.beginDownloadPhase(
+            projectId = projectId,
+            route = modpackRoute,
             title = project?.title ?: ver.versionNumber,
-            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-            phase = ModpackInstallPhase.DOWNLOAD_FILE
+            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
         )
         val appContext = context.applicationContext
         val runName = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
@@ -424,18 +400,18 @@ fun ModDetailScreen(
                 runCatching { zipRef.get()?.delete() }
                 runCatching { iconRef.get()?.delete() }
             },
+            // 版本/整合包下载为独占任务：运行期间下载中心拒绝其他下载
+            exclusive = true,
+            route = modpackRoute,
             onComplete = { success, error ->
                 Schedulers.androidUIThread().execute {
                     if (success) {
                         downloadText = "整合包下载完成"
                     } else {
-                        modpackZip = null
-                        modpackIcon?.delete()
-                        modpackIcon = null
                         downloadError = error ?: "整合包下载失败"
                         downloadText = downloadError ?: "整合包下载失败"
-                        modpackState = modpackState.copy(
-                            phase = if (error == "已取消") ModpackInstallPhase.CANCELLED else ModpackInstallPhase.FAILED,
+                        ModpackInstallSession.markDownloadFinished(
+                            cancelled = error == "已取消",
                             error = error ?: "整合包下载失败"
                         )
                     }
@@ -469,24 +445,13 @@ fun ModDetailScreen(
         startModpackDownload(ver, name)
     }
 
-    /** 取消整合包下载/安装：下载中取消队列任务；安装中取消安装器 */
+    /** 取消整合包下载/安装：下载中取消队列任务；安装中经会话取消安装器 */
     fun cancelModpackInstall() {
         val item = centerItems.firstOrNull { it.key.startsWith(modpackKeyPrefix) }
         if (item != null && item.state == DownloadCenterState.RUNNING) {
             DownloadCenter.cancel(item)
         } else {
-            ModpackInstaller.cancel()
-            modpackJob?.cancel()
-            modpackJob = null
-            modpackZip?.delete()
-            modpackZip = null
-            modpackIcon?.delete()
-            modpackIcon = null
-            val ph = modpackState.phase
-            if (ph == ModpackInstallPhase.DOWNLOAD_FILE || ph == ModpackInstallPhase.INSTALLING) {
-                modpackState = modpackState.copy(phase = ModpackInstallPhase.CANCELLED)
-                installInProgress = false
-            }
+            ModpackInstallSession.cancelInstall()
         }
     }
 
@@ -516,6 +481,11 @@ fun ModDetailScreen(
      */
     fun beginInstall() {
         if (downloading) return
+        // 版本/整合包下载期间禁止其他下载（独占规则）
+        if (!DownloadCenter.canStart(exclusive = false)) {
+            Toast.makeText(context, "版本/整合包下载中，暂时无法进行其他下载", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (selectedVersion == null) return
         if (projectType == "modpack") {
             showModpackNamingDialog = true
@@ -539,6 +509,11 @@ fun ModDetailScreen(
      */
     fun beginInstallDeps() {
         if (downloading) return
+        // 版本/整合包下载期间禁止其他下载（独占规则）
+        if (!DownloadCenter.canStart(exclusive = false)) {
+            Toast.makeText(context, "版本/整合包下载中，暂时无法进行其他下载", Toast.LENGTH_SHORT).show()
+            return
+        }
         // 与展示侧同一套合并规则：只要有一个版本把该项目标为必需，就按必需处理。
         // 原先 distinctBy 取首个元素，若首个体现在其他版本里被标成 optional 就会漏装。
         val flatDeps = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
@@ -690,6 +665,11 @@ fun ModDetailScreen(
     fun startDownloadForVersions(targetVersions: List<MinecraftVersion>) {
         val ver = selectedVersion ?: return
         if (targetVersions.isEmpty()) return
+        // 版本/整合包下载期间禁止其他下载（独占规则）
+        if (!DownloadCenter.canStart(exclusive = false)) {
+            Toast.makeText(context, "版本/整合包下载中，暂时无法进行其他下载", Toast.LENGTH_SHORT).show()
+            return
+        }
         val itemKey = "$resourceKeyPrefix${ver.id}"
         if (DownloadCenter.findByKey(itemKey) != null) {
             Toast.makeText(context, "该资源已在下载队列中", Toast.LENGTH_SHORT).show()
@@ -1370,18 +1350,24 @@ fun ModDetailScreen(
     }
 
     // ===== 整合包下载/安装弹窗（对齐版本下载：分阶段任务流）=====
-    if (modpackState.visible) {
+    // 弹窗状态在 ModpackInstallSession；最小化后可从下载小窗点回本页恢复
+    val modpackMinimized = ModpackInstallSession.dialogKey?.let { it in minimizedKeys } == true
+    if (modpackState.visible && ModpackInstallSession.belongsTo(projectId) && !modpackMinimized) {
         val modpackRunning = modpackState.phase == ModpackInstallPhase.DOWNLOAD_FILE ||
             modpackState.phase == ModpackInstallPhase.INSTALLING
         Dialog(onDismissRequest = {
             // 下载/安装进行中不允许直接关闭（与版本下载弹窗一致）
-            if (!modpackRunning) modpackState = modpackState.copy(visible = false)
+            if (!modpackRunning) ModpackInstallSession.closeDialog()
         }) {
             ModpackInstallDialog(
                 state = modpackState,
                 onCancel = { cancelModpackInstall() },
                 onRetry = { retryModpackInstall() },
-                onClose = { modpackState = modpackState.copy(visible = false) }
+                onClose = { ModpackInstallSession.closeDialog() },
+                onMinimize = {
+                    // 最小化下载：弹窗收起，任务转入下载小窗，可随时点回恢复
+                    ModpackInstallSession.dialogKey?.let { DownloadCenter.minimize(it) }
+                }
             )
         }
     }

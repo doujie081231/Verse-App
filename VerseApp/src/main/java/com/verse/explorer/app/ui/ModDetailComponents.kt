@@ -283,6 +283,7 @@ internal fun StatChip(icon: androidx.compose.ui.graphics.vector.ImageVector, tex
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun VersionsDetailCard(
     version: ResourceVersion,
@@ -311,6 +312,13 @@ internal fun VersionsDetailCard(
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         ) {
+            // 「等 N 个版本」展开状态：点开显示该文件支持的全部游戏版本
+            var showAllGameVersions by remember { mutableStateOf(false) }
+            // 与 PCL 一致：适用版本按从新到旧排序，只显示最新一个 + 其余数量，
+            // 否则 API 原始顺序会给出「1.16.5、1.20.1」这种看起来毫无意义的组合
+            val sortedGameVersions = remember(version.gameVersions) {
+                McVersionGroups.sortDescending(version.gameVersions)
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -328,21 +336,23 @@ internal fun VersionsDetailCard(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // 与 PCL 一致：适用版本按从新到旧排序，只显示最新一个 + 其余数量，
-                        // 否则 API 原始顺序会给出「1.16.5、1.20.1」这种看起来毫无意义的组合
-                        val sortedGameVersions = remember(version.gameVersions) {
-                            McVersionGroups.sortDescending(version.gameVersions)
-                        }
                         sortedGameVersions.firstOrNull()?.let { newest ->
                             Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
                                 Text(newest, color = VerseColors.PcTextSecondary, fontSize = 9.sp, modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp))
                             }
                         }
                         if (sortedGameVersions.size > 1) {
-                            Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
+                            Surface(
+                                shape = RoundedCornerShape(3.dp),
+                                color = VerseColors.PcBgSecondary,
+                                modifier = Modifier.clickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() }
+                                ) { showAllGameVersions = !showAllGameVersions }
+                            ) {
                                 Text(
-                                    "等 ${sortedGameVersions.size} 个版本",
-                                    color = VerseColors.PcTextMuted,
+                                    if (showAllGameVersions) "收起" else "等 ${sortedGameVersions.size} 个版本",
+                                    color = VerseColors.PcAccent,
                                     fontSize = 9.sp,
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                 )
@@ -392,6 +402,26 @@ internal fun VersionsDetailCard(
                     }
                     else -> {
                         Icon(Icons.Outlined.ChevronRight, null, Modifier.size(20.dp), VerseColors.PcTextMuted)
+                    }
+                }
+            }
+
+            // 「等 N 个版本」展开：显示该文件支持的全部游戏版本，确认支持自己的版本后再点安装
+            if (showAllGameVersions && sortedGameVersions.size > 1) {
+                Spacer(Modifier.height(4.dp))
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    sortedGameVersions.forEach { gv ->
+                        Surface(shape = RoundedCornerShape(3.dp), color = VerseColors.PcBgSecondary) {
+                            Text(
+                                gv,
+                                color = VerseColors.PcTextSecondary,
+                                fontSize = 9.sp,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
                     }
                 }
             }

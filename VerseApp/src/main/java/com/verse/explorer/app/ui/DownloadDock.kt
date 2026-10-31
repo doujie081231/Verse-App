@@ -50,14 +50,16 @@ import com.verse.explorer.app.ui.theme.VerseColors
 /**
  * 全局下载浮层。样式对齐 Zalith Launcher 2 的 TaskMenu：
  *
- * 最小化态是一条「线性进度条 + 任务图标」的小块（ZL2 在顶栏右侧，这里放在底部居中），
- * 点击展开成悬浮小窗，窗内每个任务是一张 ZL2 同款卡片：
- * 左侧取消按钮、中间任务标题、进度条、百分比与速度。
+ * 最小化态是一条「线性进度条 + 总安装百分比」的小块（ZL2 在顶栏右侧，这里放在底部居中），
+ * 进度条显示当前正在下载的任务；点击展开成悬浮小窗，窗内每个任务是一张 ZL2 同款卡片：
+ * 左侧取消按钮、中间任务标题、进度条、百分比与速度；点卡片可跳回任务所属页面
+ * 重新弹出下载弹窗（版本下载 / 整合包下载支持最小化-恢复）。
  *
  * 挂在导航宿主之外（MainScreen 根 Box），任意页面可见。
  */
 @Composable
 fun DownloadDock(
+    navController: androidx.navigation.NavHostController? = null,
     modifier: Modifier = Modifier,
     bottomPadding: Dp = 12.dp
 ) {
@@ -68,6 +70,21 @@ fun DownloadDock(
         if (tasks.isEmpty()) expanded = false
     }
     if (tasks.isEmpty()) return
+
+    /** 点任务卡片：跳回任务所属页面（route 存在时）并恢复其最小化弹窗 */
+    fun openTask(item: DownloadCenterItem) {
+        expanded = false
+        val route = item.route
+        if (navController != null && !route.isNullOrBlank()) {
+            val current = navController.currentBackStackEntry?.destination?.route
+            if (current != route.substringBefore("?")) {
+                runCatching {
+                    navController.navigate(route) { launchSingleTop = true }
+                }
+            }
+        }
+        DownloadCenter.restoreMinimizedForRoute(route)
+    }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -131,6 +148,7 @@ fun DownloadDock(
                 DownloadWindow(
                     items = tasks,
                     onCollapse = { expanded = false },
+                    onOpenTask = { openTask(it) },
                     dragHandleModifier = Modifier.pointerInput(Unit) {
                         detectDragGestures { change, dragAmount ->
                             change.consume()
@@ -145,17 +163,20 @@ fun DownloadDock(
 }
 
 /**
- * 最小化态：ZL2 顶栏那块任务指示的同款做法 —— 一条线性进度条 + 一个任务图标，
- * 整块可点，不使用文字，尽量不占地方。
+ * 最小化态：一条进度条 + 右侧总安装百分比。
+ * 进度条显示当前正在下载的任务（无进行中任务时回退聚合进度），
+ * 百分比为全部任务的总安装进度 —— 与模组下载的展示口径一致。
  */
 @Composable
 private fun DownloadPill(
     items: List<DownloadCenterItem>,
     onClick: () -> Unit
 ) {
-    val progress = aggregateProgress(items)
+    val current = items.firstOrNull { it.state == DownloadCenterState.RUNNING } ?: items.first()
+    val currentProgress = if (current.progress >= 0f) current.progress else aggregateProgress(items)
+    val overall = aggregateProgress(items)
     val animated by animateFloatAsState(
-        targetValue = progress,
+        targetValue = currentProgress,
         animationSpec = tween(320, easing = FastOutSlowInEasing),
         label = "pillProgress"
     )
@@ -167,32 +188,39 @@ private fun DownloadPill(
             .background(VerseColors.PcBgCard)
             .border(1.dp, VerseColors.PcBorder, shape)
             .clickable(onClick = onClick)
-            .padding(8.dp)
-            .width(132.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         VerseProgressBar(
             progress = animated,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(96.dp),
             height = 8.dp,
             color = VerseColors.PcPurple,
             trackColor = VerseColors.PcBgActive
         )
+        if (overall >= 0f) {
+            Text(
+                text = "${(overall * 100).toInt()}%",
+                fontSize = 10.sp,
+                color = VerseColors.PcTextSecondary
+            )
+        }
         Icon(
             Icons.Outlined.CloudDownload,
             contentDescription = "展开下载任务",
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(18.dp),
             tint = VerseColors.PcTextSecondary
         )
     }
 }
 
-/** 展开态：悬浮小窗，内容按 ZL2 TaskMenu 的列表组织 */
+/** 展开态：悬浮小窗，内容按 ZL2 TaskMenu 的列表组织；点任务卡片跳回所属页面 */
 @Composable
 private fun DownloadWindow(
     items: List<DownloadCenterItem>,
     onCollapse: () -> Unit,
+    onOpenTask: (DownloadCenterItem) -> Unit,
     dragHandleModifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(20.dp)
@@ -234,7 +262,13 @@ private fun DownloadWindow(
             contentPadding = PaddingValues(start = 6.dp, end = 6.dp, top = 2.dp, bottom = 6.dp)
         ) {
             items(items, key = { it.id }) { item ->
-                DownloadTaskItem(item)
+                DownloadTaskItem(
+                    item = item,
+                    onClick = {
+                        // 待安装条目没有可恢复的弹窗，仅进行中/有路由的任务支持跳回
+                        if (item.state != DownloadCenterState.WAIT_INSTALL) onOpenTask(item)
+                    }
+                )
             }
         }
     }
@@ -245,7 +279,10 @@ private fun DownloadWindow(
  * 取消按钮在最左、任务标题在上、进度条居中、百分比与速度在下。
  */
 @Composable
-private fun DownloadTaskItem(item: DownloadCenterItem) {
+private fun DownloadTaskItem(
+    item: DownloadCenterItem,
+    onClick: () -> Unit = {}
+) {
     val progress by animateFloatAsState(
         targetValue = item.progress.coerceIn(0f, 1f),
         animationSpec = tween(300, easing = FastOutSlowInEasing),
@@ -255,6 +292,7 @@ private fun DownloadTaskItem(item: DownloadCenterItem) {
     val shape = RoundedCornerShape(16.dp)
 
     Surface(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 3.dp),

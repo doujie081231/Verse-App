@@ -11,6 +11,7 @@ import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionManager
 import com.verse.explorer.core.version.VersionManifest
 import com.verse.explorer.core.version.VersionType
+import com.verse.explorer.app.download.DownloadCenter
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -162,6 +163,7 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
                 installName = installName,
                 isInstalling = true
             )
+            submitInstallMirrorTask(version, installName)
             // 记录安装前基础目录是否已存在：失败/取消时只清理本次新建的基础目录，
             // 复用的既有基础版本不能删（否则其他实例的 inheritsFrom 悬空）。
             val baseDirExisted = File(GameConfig.getVersionsDir(gameDir), version.id).exists()
@@ -252,6 +254,69 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
      */
     private fun cleanupVersion(versionId: String) {
         versionManager.removeVersionFromDisk(versionId)
+    }
+
+    /**
+     * 版本安装镜像任务：把 installState 的整体进度映射成下载中心的一个独占条目，
+     * 让下载小窗像模组下载一样展示版本安装（进度条 = 当前阶段进度，标题 = 当前阶段名）。
+     * 小窗里取消任务会联动取消真实安装；安装结束（成功/失败/取消）条目自动移除。
+     */
+    private fun submitInstallMirrorTask(version: MinecraftVersion, installName: String) {
+        val mirrorKey = "version-install:${installName.ifBlank { version.id }}"
+        val name = installName.ifBlank { version.id }
+        val route = "version_detail/${version.id}?type=${version.type.name.lowercase()}" +
+            "&url=${java.net.URLEncoder.encode(version.url, "UTF-8")}"
+        DownloadCenter.submit(
+            key = mirrorKey,
+            title = "安装版本 $name",
+            exclusive = true,
+            route = route,
+            task = { onProgress, isCancelled ->
+                try {
+                    while (true) {
+                        if (isCancelled()) break
+                        val st = _installState.value
+                        // 安装状态被重置（页面取消/异常清理）：镜像任务随之结束
+                        if (st.versionId != version.id) break
+                        // 总进度映射为固定总量上报（下载中心按 字节/总量 换算百分比）
+                        onProgress(
+                            (st.progress.coerceIn(0f, 1f) * 1_000_000f).toLong(),
+                            1_000_000L,
+                            st.speed
+                        )
+                        DownloadCenter.updateTitle(mirrorKey, installStageTitle(st, name))
+                        when {
+                            st.isCompleted -> return@submit true
+                            st.isFailed -> return@submit false
+                        }
+                        kotlinx.coroutines.delay(300)
+                    }
+                    // 走到这里说明被取消（小窗取消或状态重置）：联动取消真实安装
+                    cancelInstall()
+                    false
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    // 小窗取消任务时协程被直接取消，同样联动取消真实安装
+                    cancelInstall()
+                    throw e
+                }
+            }
+        )
+    }
+
+    /** 安装阶段 → 小窗标题（与 InstallFlowCard 的阶段文案一致） */
+    private fun installStageTitle(st: InstallState, name: String): String {
+        val stage = when (st.stage) {
+            InstallStage.PREPARING -> "准备安装"
+            InstallStage.DOWNLOADING_VERSION -> "下载版本信息"
+            InstallStage.DOWNLOADING_CLIENT -> "下载游戏客户端"
+            InstallStage.DOWNLOADING_LIBRARIES -> "下载依赖库"
+            InstallStage.DOWNLOADING_ASSETS -> "下载资源文件"
+            InstallStage.EXTRACTING_NATIVES -> "解压原生库"
+            InstallStage.COMPLETED -> "安装完成"
+            InstallStage.FAILED -> "安装失败"
+            else -> "正在安装"
+        }
+        return "$stage · $name"
     }
 
     fun downloadVersion(version: MinecraftVersion, onComplete: (Boolean) -> Unit) {

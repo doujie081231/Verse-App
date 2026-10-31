@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -212,7 +216,9 @@ fun ModpackInstallDialog(
     state: ModpackInstallUiState,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    /** 右上角「最小化下载」：弹窗收起、任务转入下载小窗（仅下载/安装进行中显示） */
+    onMinimize: (() -> Unit)? = null
 ) {
     val failed = state.phase == ModpackInstallPhase.FAILED
     val done = state.phase == ModpackInstallPhase.DONE
@@ -288,6 +294,17 @@ fun ModpackInstallDialog(
                             fontSize = 11.sp,
                             color = VerseColors.PcAccent,
                             fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                // 右上角「最小化下载」：任务不中断，转入下载小窗
+                if (running && onMinimize != null) {
+                    IconButton(onClick = onMinimize, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "最小化下载",
+                            modifier = Modifier.size(20.dp),
+                            tint = VerseColors.PcTextSecondary
                         )
                     }
                 }

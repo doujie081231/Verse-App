@@ -98,6 +98,13 @@ fun VersionDetailScreen(
 
     /** 下发版本下载任务（命名确认或移动网络确认后调用） */
     fun beginInstall(name: String) {
+        // 版本下载是独占任务：任何下载（含其他版本/整合包）进行中都不允许再开
+        if (!com.verse.explorer.app.download.DownloadCenter.canStart(exclusive = true)) {
+            android.widget.Toast.makeText(
+                context, "有下载任务正在进行，完成后再下载版本", android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
         viewModel.installVersion(
             com.verse.explorer.core.version.MinecraftVersion(
                 id = versionId,
@@ -411,7 +418,10 @@ fun VersionDetailScreen(
     }
 
     // 下载/安装进度弹窗（分阶段动画流程卡片，进度内嵌卡片已移除）
-    if (installState.isInstalling && installState.versionId == versionId) {
+    // 最小化后弹窗收起，任务留在下载小窗；点小窗任务会跳回本页并恢复弹窗
+    val minimizedKeys by com.verse.explorer.app.download.DownloadCenter.minimizedKeys.collectAsState()
+    val versionInstallMinimized = minimizedKeys.any { it.startsWith("version-install:") }
+    if (installState.isInstalling && installState.versionId == versionId && !versionInstallMinimized) {
         Dialog(onDismissRequest = {}) {
             InstallFlowCard(
                 state = installState,
@@ -423,6 +433,11 @@ fun VersionDetailScreen(
                     viewModel.cancelInstall()
                     viewModel.resetInstallState()
                     beginInstall(confirmedInstallName ?: versionId)
+                },
+                onMinimize = {
+                    com.verse.explorer.app.download.DownloadCenter.minimize(
+                        "version-install:${installState.installName.ifBlank { installState.versionId }}"
+                    )
                 }
             )
         }

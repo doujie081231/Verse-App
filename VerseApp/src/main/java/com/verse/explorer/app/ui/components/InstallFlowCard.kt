@@ -15,6 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -80,7 +82,9 @@ private fun stageRange(stage: InstallStage): Pair<Float, Float> = when (stage) {
 fun InstallFlowCard(
     state: InstallState,
     onCancel: () -> Unit,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    /** 右上角「最小化下载」：弹窗收起、任务转入下载小窗（仅安装进行中显示） */
+    onMinimize: (() -> Unit)? = null
 ) {
     val stages = remember { stageUiList() }
 
@@ -105,13 +109,26 @@ fun InstallFlowCard(
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // 标题
-            Text(
-                if (failed) "安装失败" else if (allDone) "安装完成" else "正在安装",
-                fontSize = 13.sp,
-                color = if (failed) VerseColors.PcRed else VerseColors.PcTextMuted,
-                fontWeight = FontWeight.SemiBold
-            )
+            // 标题 + 最小化下载（安装进行中显示；最小化后任务转入下载小窗）
+            val installingNow = !failed && !allDone
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (failed) "安装失败" else if (allDone) "安装完成" else "正在安装",
+                    fontSize = 13.sp,
+                    color = if (failed) VerseColors.PcRed else VerseColors.PcTextMuted,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (installingNow && onMinimize != null) {
+                    androidx.compose.material3.IconButton(onClick = onMinimize) {
+                        androidx.compose.material3.Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "最小化下载",
+                            tint = VerseColors.PcTextSecondary
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(14.dp))
 
             // 逐步出现的阶段行：内容超高时在区域内滚动，保证底部取消按钮不被顶出

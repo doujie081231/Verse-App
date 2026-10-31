@@ -46,7 +46,14 @@ data class DownloadCenterItem(
     /** 总字节；0 表示未知 */
     val total: Long = 0,
     /** 项目图标（模组/整合包封面），下载浮层卡片与模组列表保持一致 */
-    val iconUrl: String? = null
+    val iconUrl: String? = null,
+    /**
+     * 独占任务（版本下载 / 整合包下载）：运行期间禁止提交其他任何下载；
+     * 普通任务（模组等）在独占任务运行期间也不允许开始。
+     */
+    val exclusive: Boolean = false,
+    /** 任务所属页面的导航路由；小窗点击任务时跳回该页面重新弹出下载弹窗 */
+    val route: String? = null
 )
 
 /**
@@ -66,6 +73,35 @@ object DownloadCenter {
 
     private val _items = MutableStateFlow<List<DownloadCenterItem>>(emptyList())
     val items: StateFlow<List<DownloadCenterItem>> = _items.asStateFlow()
+
+    /**
+     * 已被「最小化下载」的弹窗 key 集合（版本安装 / 整合包安装）。
+     * key 与队列条目 key 一致；页面据此隐藏弹窗，小窗点击任务时恢复并导航回页面。
+     */
+    private val _minimizedKeys = MutableStateFlow<Set<String>>(emptySet())
+    val minimizedKeys: StateFlow<Set<String>> = _minimizedKeys.asStateFlow()
+
+    fun minimize(key: String) {
+        _minimizedKeys.update { it + key }
+        com.verse.explorer.core.log.DownloadLog.write("center", "弹窗最小化: $key")
+    }
+
+    fun restoreMinimized(key: String) {
+        _minimizedKeys.update { it - key }
+    }
+
+    fun isMinimized(key: String): Boolean = _minimizedKeys.value.contains(key)
+
+    /**
+     * 小窗「展开」跳回页面时按路由恢复弹窗：同一页面的下载条目 key 与
+     * 安装镜像条目 key 不同（整合包），按 route 统一清掉该页面的最小化记录。
+     */
+    fun restoreMinimizedForRoute(route: String?) {
+        if (route == null) return
+        _minimizedKeys.update { keys ->
+            keys.filterNot { key -> _items.value.any { it.route == route && it.key == key } }.toSet()
+        }
+    }
 
     private data class Entry(
         val id: Long,
@@ -103,6 +139,8 @@ object DownloadCenter {
         cleanupAction: Runnable? = null,
         onComplete: ((success: Boolean, error: String?) -> Unit)? = null,
         iconUrl: String? = null,
+        exclusive: Boolean = false,
+        route: String? = null,
         task: suspend (
             onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit,
             isCancelled: () -> Boolean
@@ -110,7 +148,7 @@ object DownloadCenter {
     ): DownloadCenterItem {
         val app = VerseApplication.instance
         val id = ++idCounter
-        val item = DownloadCenterItem(id, key, title, iconUrl = iconUrl)
+        val item = DownloadCenterItem(id, key, title, iconUrl = iconUrl, exclusive = exclusive, route = route)
 
         synchronized(lastReportAt) { lastReportAt.clear() }
         _items.update { it + item }
@@ -194,6 +232,27 @@ object DownloadCenter {
     fun findByKey(key: String): DownloadCenterItem? =
         _items.value.firstOrNull { it.key == key }
 
+    /**
+     * 独占规则：是否允许开始一个新的下载。
+     * - exclusive 任务（版本/整合包）：任何任务在跑都不允许（含其他独占任务）；
+     * - 普通任务（模组/光影等）：仅当有独占任务在跑时禁止。
+     */
+    fun canStart(exclusive: Boolean): Boolean {
+        val running = _items.value.filter { it.state == DownloadCenterState.RUNNING }
+        return if (exclusive) running.isEmpty() else running.none { it.exclusive }
+    }
+
+    /** 是否有独占任务（版本/整合包）正在下载 */
+    fun hasExclusiveRunning(): Boolean =
+        _items.value.any { it.exclusive && it.state == DownloadCenterState.RUNNING }
+
+    /** 更新队列条目标题（版本/整合包安装阶段推进时同步显示当前阶段名） */
+    fun updateTitle(key: String, title: String) {
+        _items.update { list ->
+            list.map { if (it.key == key && it.title != title) it.copy(title = title) else it }
+        }
+    }
+
     private fun entryJob(id: Long): Job? = synchronized(entries) { entries[id]?.job }
 
     private fun finish(id: Long, success: Boolean, error: String?) {
@@ -212,6 +271,8 @@ object DownloadCenter {
                 }
             } else {
                 _items.update { list -> list.filterNot { it.id == id } }
+                // 任务已结束，弹窗最小化记录一并清掉，避免残留影响下一次同名任务
+                _minimizedKeys.update { it - visible.key }
             }
         } else {
             synchronized(entries) { entries.remove(id) }
