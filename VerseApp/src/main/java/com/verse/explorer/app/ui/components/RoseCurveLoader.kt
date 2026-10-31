@@ -69,15 +69,19 @@ internal fun roseRotation(timeMs: Long): Float {
     return -((timeMs % RoseConfig.rotationDurationMs).toFloat() / RoseConfig.rotationDurationMs) * 360f
 }
 
-internal fun roseBuildPath(detailScale: Float): Path {
+internal fun roseBuildPath(detailScale: Float, width: Float = 100f, height: Float = 100f): Path {
     val path = Path()
     val steps = 480
     for (i in 0..steps) {
         val p = rosePoint(i.toFloat() / steps, detailScale)
+        // 映射到画布实际尺寸：路径与粒子必须走同一套 0~100 → 画布 的换算，
+        // 否则画布不是 100px 时灰底（固定 0~100px）和粒子（按尺寸缩放）错位
+        val x = p.x / 100f * width
+        val y = p.y / 100f * height
         if (i == 0) {
-            path.moveTo(p.x, p.y)
+            path.moveTo(x, y)
         } else {
-            path.lineTo(p.x, p.y)
+            path.lineTo(x, y)
         }
     }
     return path
@@ -130,8 +134,8 @@ fun RoseCurveLoader(
             degrees = rotationDeg,
             pivot = Offset(cx, cy)
         ) {
-            // 1. 玫瑰曲线路径（弱 10% 透明描边）
-            val path = roseBuildPath(detailScale)
+            // 1. 玫瑰曲线路径（弱 10% 透明描边）——与粒子同一套画布映射
+            val path = roseBuildPath(detailScale, size.width, size.height)
             drawPath(
                 path = path,
                 color = color.copy(alpha = 0.1f),
