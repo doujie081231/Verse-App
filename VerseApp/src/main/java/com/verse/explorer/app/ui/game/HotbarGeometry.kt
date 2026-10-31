@@ -64,4 +64,45 @@ object HotbarGeometry {
 
     /** 槽位对应的 GLFW 数字键码偏移（1 号槽 → 0，9 号槽 → 8） */
     fun keyOffset(slot: Int): Int = slot.coerceIn(0, SLOTS - 1)
+
+    // ===== 自动尺寸（对齐 ZL2 的 HotbarRule.Auto） =====
+
+    /** 单格逻辑像素：MC 快捷栏每格 20×20 GUI 像素 */
+    private const val SLOT_LOGICAL_PX = 20
+
+    /** MC 自动 GUI 缩放的下限基准（320×240 逻辑分辨率） */
+    private const val AUTO_BASE_WIDTH = 320
+    private const val AUTO_BASE_HEIGHT = 240
+
+    /**
+     * 实际生效的 GUI 缩放（对齐 ZL2 `getMCGuiScale`）：
+     * - options.txt 里 `guiScale:0`（自动）或未读到 → 用自动缩放 `min(w/320, h/240)`；
+     * - 手设为 N → 取 `min(N, 自动缩放)`，与 MC 自身的上限行为一致。
+     */
+    fun effectiveGuiScale(guiScaleOption: Int, screenWidth: Int, screenHeight: Int): Int {
+        val auto = minOf(screenWidth / AUTO_BASE_WIDTH, screenHeight / AUTO_BASE_HEIGHT)
+            .coerceAtLeast(1)
+        return if (guiScaleOption <= 0) auto else minOf(guiScaleOption, auto)
+    }
+
+    /**
+     * 自动模式下的快捷栏矩形：9 格宽 × 1 格高，水平居中、贴屏幕底边。
+     * 单格 = 生效缩放 × 20 像素（与 MC 自己画的快捷栏同尺寸）。
+     */
+    fun autoRect(
+        screenWidth: Int,
+        screenHeight: Int,
+        guiScaleOption: Int
+    ): Rect? {
+        if (screenWidth <= 0 || screenHeight <= 0) return null
+        val scale = effectiveGuiScale(guiScaleOption, screenWidth, screenHeight)
+        val slot = (scale * SLOT_LOGICAL_PX).toFloat()
+        if (slot <= 0f) return null
+        var w = slot * SLOTS
+        var h = slot
+        if (w > screenWidth) w = screenWidth.toFloat()
+        if (h > screenHeight) h = screenHeight.toFloat()
+        val left = (screenWidth - w) / 2f
+        return Rect(left, screenHeight - h, left + w, screenHeight.toFloat())
+    }
 }

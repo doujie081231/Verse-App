@@ -173,6 +173,9 @@ internal fun ControlSettingsContent(context: android.content.Context) {
     var disableSoftKeyAdjust by remember { mutableStateOf(MenuSetting.isDisableSoftKeyAdjust) }
     var itemBarWidth by remember { mutableIntStateOf(MenuSetting.itemBarWidth) }
     var itemBarHeight by remember { mutableIntStateOf(MenuSetting.itemBarHeight) }
+    var itemBarRule by remember { mutableIntStateOf(MenuSetting.itemBarRule) }
+    var itemBarDoubleTap by remember { mutableStateOf(MenuSetting.itemBarDoubleTap) }
+    var itemBarLongPress by remember { mutableStateOf(MenuSetting.itemBarLongPress) }
     var cursorOffset by remember { mutableIntStateOf(MenuSetting.cursorOffset.toInt()) }
     var performanceMode by remember { mutableStateOf(MenuSetting.isPerformanceMode) }
     var autoFit by remember { mutableStateOf(MenuSetting.isAutoFit) }
@@ -495,7 +498,24 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 MenuSetting.isPerformanceMode = on
                 persist(MenuSetting.Key.PERFORMANCE_MODE)
             }
-            // 快捷栏触控层尺寸：0 关闭，>0 为占屏幕的百分比（宽度按屏宽、高度按屏高）
+            // 快捷栏（物品栏）判定方式：自动按 MC GUI 缩放算尺寸，自定义用下面两个百分比。
+            // 旧版默认两个百分比都是 0，等于整层关闭 —— 反馈里「只能使用第一格物品」就是这个原因。
+            PcDropdownRow(
+                label = "物品栏判定方式",
+                value = if (itemBarRule == MenuSetting.ITEM_BAR_RULE_CUSTOM) "custom" else "auto",
+                options = listOf(
+                    "auto" to "自动（跟随游戏 GUI 缩放）",
+                    "custom" to "自定义尺寸"
+                )
+            ) { v ->
+                val rule = if (v == "custom") MenuSetting.ITEM_BAR_RULE_CUSTOM
+                else MenuSetting.ITEM_BAR_RULE_AUTO
+                itemBarRule = rule
+                MenuSetting.itemBarRule = rule
+                persist(MenuSetting.Key.ITEM_BAR_RULE)
+                com.verse.explorer.app.ui.game.HotbarOverlayView.requestFeedback()
+            }
+            if (itemBarRule == MenuSetting.ITEM_BAR_RULE_CUSTOM) {
             PcSliderRow(
                 label = "物品栏缩放 - 宽度",
                 value = itemBarWidth,
@@ -518,8 +538,28 @@ internal fun ControlSettingsContent(context: android.content.Context) {
                 persist(MenuSetting.Key.ITEM_BAR_HEIGHT)
                 com.verse.explorer.app.ui.game.HotbarOverlayView.requestFeedback()
             }
+            }
+            PcSwitchRow(
+                "双击交换主副手",
+                "同一格连点两次发送 F，交换主手与副手物品",
+                itemBarDoubleTap
+            ) { on ->
+                itemBarDoubleTap = on
+                MenuSetting.itemBarDoubleTap = on
+                persist(MenuSetting.Key.ITEM_BAR_DOUBLE_TAP)
+            }
+            PcSwitchRow(
+                "长按丢弃",
+                "按住某一格 ${MenuSetting.itemBarLongPressDelay}ms 发送 Q 丢弃该格物品",
+                itemBarLongPress
+            ) { on ->
+                itemBarLongPress = on
+                MenuSetting.itemBarLongPress = on
+                persist(MenuSetting.Key.ITEM_BAR_LONG_PRESS)
+            }
             Text(
-                "设为 0 关闭（不拦截自定义布局）；设为任意百分比后，游戏里点按或左右滑动快捷栏即可切换物品栏槽位，双击同一格交换主副手",
+                "自动模式按游戏 GUI 缩放计算 9 格尺寸，无需手动调；点按即切到该格、左右滑动跟手切格。" +
+                    "自定义模式下两个百分比都为 0 表示关闭该触控层（不拦截自定义布局）",
                 fontSize = 11.sp,
                 color = VerseColors.PcTextMuted
             )

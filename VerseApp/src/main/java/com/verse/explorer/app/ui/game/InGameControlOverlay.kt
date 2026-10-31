@@ -452,6 +452,25 @@ class InGameControlOverlay(
             MenuSetting.isDisableSoftKeyAdjust = on
             MenuSetting.notifyChange(MenuSetting.Key.DISABLE_SOFT_KEY_ADJUST)
         })
+        // 快捷栏判定方式：自动（跟随游戏 GUI 缩放）/ 自定义尺寸（对齐 ZL2 的 HotbarRule）
+        content.addView(rows.spinnerRow(
+            "物品栏判定方式",
+            listOf("自动（跟随 GUI 缩放）", "自定义尺寸"),
+            if (MenuSetting.itemBarRule == MenuSetting.ITEM_BAR_RULE_CUSTOM) 1 else 0
+        ) { index ->
+            MenuSetting.itemBarRule = if (index == 1) MenuSetting.ITEM_BAR_RULE_CUSTOM
+            else MenuSetting.ITEM_BAR_RULE_AUTO
+            HotbarOverlayView.requestFeedback()
+            MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_RULE)
+        })
+        content.addView(rows.switchRow("双击交换主副手", MenuSetting.itemBarDoubleTap) { on ->
+            MenuSetting.itemBarDoubleTap = on
+            MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_DOUBLE_TAP)
+        })
+        content.addView(rows.switchRow("长按丢弃（${MenuSetting.itemBarLongPressDelay}ms）", MenuSetting.itemBarLongPress) { on ->
+            MenuSetting.itemBarLongPress = on
+            MenuSetting.notifyChange(MenuSetting.Key.ITEM_BAR_LONG_PRESS)
+        })
         content.addView(rows.seekbarRow("物品栏缩放 - 宽度", 0, 100, MenuSetting.itemBarWidth, "%") { v ->
             MenuSetting.itemBarWidth = v
             HotbarOverlayView.requestFeedback()

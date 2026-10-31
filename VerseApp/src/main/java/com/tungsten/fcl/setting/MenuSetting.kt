@@ -72,10 +72,20 @@ object MenuSetting {
         const val PHYSICAL_MOUSE_MODE = "physicalMouseMode"
         const val ITEM_BAR_WIDTH = "itemBarWidth"
         const val ITEM_BAR_HEIGHT = "itemBarHeight"
+        const val ITEM_BAR_RULE = "itemBarRule"
+        const val ITEM_BAR_DOUBLE_TAP = "itemBarDoubleTap"
+        const val ITEM_BAR_LONG_PRESS = "itemBarLongPress"
+        const val ITEM_BAR_LONG_PRESS_DELAY = "itemBarLongPressDelay"
         const val WINDOW_SCALE = "windowScale"
         const val CURSOR_OFFSET = "cursorOffset"
         const val GAMEPAD_DEADZONE = "gamepadDeadzone"
     }
+
+    /** 快捷栏判定：自动（按 MC 的 GUI 缩放算 9 格尺寸，对齐 ZL2 HotbarRule.Auto） */
+    const val ITEM_BAR_RULE_AUTO = 0
+
+    /** 快捷栏判定：自定义尺寸（用 itemBarWidth / itemBarHeight 百分比） */
+    const val ITEM_BAR_RULE_CUSTOM = 1
 
     // ===== 属性（默认值与旧版一致） =====
     var isAutoFit: Boolean = true
@@ -114,6 +124,28 @@ object MenuSetting {
     var isPhysicalMouseMode: Boolean = false
     var itemBarWidth: Int = 0
     var itemBarHeight: Int = 0
+
+    /**
+     * 快捷栏判定方式（对齐 ZL2 的 HotbarRule）：
+     * [ITEM_BAR_RULE_AUTO] 按 MC 的 GUI 缩放自动计算 9 格尺寸（默认，开箱即用）；
+     * [ITEM_BAR_RULE_CUSTOM] 使用下面的宽度/高度百分比。
+     */
+    var itemBarRule: Int = ITEM_BAR_RULE_AUTO
+
+    /** 同一格双击：交换主副手（ZL2 hotbarDoubleClick，默认开） */
+    var itemBarDoubleTap: Boolean = true
+
+    /** 长按一格：丢弃（ZL2 hotbarLongClick，默认开） */
+    var itemBarLongPress: Boolean = true
+
+    /** 长按判定时长（毫秒，ZL2 hotbarLongClickDelay 默认 300） */
+    var itemBarLongPressDelay: Int = 300
+
+    /**
+     * 游戏内 GUI 缩放（来自 options.txt 的 guiScale；0 = 自动，-1 = 尚未读取）。
+     * 只用于快捷栏自动尺寸，不落盘。
+     */
+    var mcGuiScale: Int = -1
     var windowScale: Double = 1.0
     var cursorOffset: Double = 0.0
     var gamepadDeadzone: Double = 0.2
@@ -192,6 +224,10 @@ object MenuSetting {
         isPhysicalMouseMode = obj[Key.PHYSICAL_MOUSE_MODE]?.asBoolean ?: false
         itemBarWidth = obj[Key.ITEM_BAR_WIDTH]?.asInt ?: 0
         itemBarHeight = obj[Key.ITEM_BAR_HEIGHT]?.asInt ?: 0
+        itemBarRule = obj[Key.ITEM_BAR_RULE]?.asInt ?: ITEM_BAR_RULE_AUTO
+        itemBarDoubleTap = obj[Key.ITEM_BAR_DOUBLE_TAP]?.asBoolean ?: true
+        itemBarLongPress = obj[Key.ITEM_BAR_LONG_PRESS]?.asBoolean ?: true
+        itemBarLongPressDelay = obj[Key.ITEM_BAR_LONG_PRESS_DELAY]?.asInt ?: 300
         windowScale = obj[Key.WINDOW_SCALE]?.asDouble ?: 1.0
         cursorOffset = obj[Key.CURSOR_OFFSET]?.asDouble ?: 0.0
         gamepadDeadzone = obj[Key.GAMEPAD_DEADZONE]?.asDouble ?: 0.2
@@ -245,6 +281,10 @@ object MenuSetting {
             addProperty(Key.PHYSICAL_MOUSE_MODE, isPhysicalMouseMode)
             addProperty(Key.ITEM_BAR_WIDTH, itemBarWidth)
             addProperty(Key.ITEM_BAR_HEIGHT, itemBarHeight)
+            addProperty(Key.ITEM_BAR_RULE, itemBarRule)
+            addProperty(Key.ITEM_BAR_DOUBLE_TAP, itemBarDoubleTap)
+            addProperty(Key.ITEM_BAR_LONG_PRESS, itemBarLongPress)
+            addProperty(Key.ITEM_BAR_LONG_PRESS_DELAY, itemBarLongPressDelay)
             addProperty(Key.WINDOW_SCALE, windowScale)
             addProperty(Key.CURSOR_OFFSET, cursorOffset)
             addProperty(Key.GAMEPAD_DEADZONE, gamepadDeadzone)

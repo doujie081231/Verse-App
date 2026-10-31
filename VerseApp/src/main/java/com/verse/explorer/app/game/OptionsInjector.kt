@@ -128,6 +128,11 @@ class OptionsInjector(private val activity: Context) {
             // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
             // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
             OptionsFileWriter.writeBackend(runDir, OptionsFileWriter.backendEntries(isMobileGlues, backend))
+            // 游戏内 GUI 缩放：快捷栏自动判定要用它算 9 格尺寸（0 = 跟随自动，-1 = 读不到）。
+            // 对齐 ZL2 的 MCOptions.get("guiScale")。
+            val guiScale = readGuiScale(runDir)
+            com.tungsten.fcl.setting.MenuSetting.mcGuiScale = guiScale
+            VerseLogger.info("快捷栏自动尺寸基准: options.txt guiScale=$guiScale", TAG)
             VerseLogger.info(
                 "已注入渲染后端: $backend（渲染器=$renderer, 选择=${backendOverride ?: "跟随全局"}," +
                     " 全局=${SettingsRepository.getGraphicsBackend()}" +
@@ -149,6 +154,21 @@ class OptionsInjector(private val activity: Context) {
         }.onFailure {
             VerseLogger.warn("注入 preferredGraphicsBackend 失败: ${it.message}", TAG)
         }
+    }
+
+    /**
+     * 读 options.txt 的 guiScale（MC 的 GUI 缩放：0 = 自动，缺省行同样视为自动）。
+     * @return 0/1..N；读不到返回 -1（调用方按自动处理）
+     */
+    private fun readGuiScale(runDir: File): Int {
+        return runCatching {
+            val f = File(runDir, "options.txt")
+            if (!f.isFile) return -1
+            f.readLines()
+                .firstOrNull { it.startsWith("guiScale:") }
+                ?.substringAfter(':')?.trim()?.toIntOrNull()
+                ?: -1
+        }.getOrDefault(-1)
     }
 
     /**
