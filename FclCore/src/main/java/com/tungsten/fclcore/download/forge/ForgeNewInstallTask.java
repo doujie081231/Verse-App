@@ -71,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
@@ -237,7 +238,12 @@ public class ForgeNewInstallTask extends Task<Version> {
                 break;
             }
             server.start();
-            latch.await();
+            // 宿主适配（根因加固）：等待退出码必须有界，理由同 NeoForgeOldInstallTask。
+            if (!latch.await(4, TimeUnit.MINUTES)) {
+                appendInstallerDiag("FATAL: processor JVM no exit code in 4min, jre=" + java +
+                    ", cmd=" + new CommandBuilder().addAll(command).toString());
+                throw new IOException("Game processor JVM did not report exit code within 4 minutes（安装器无响应，详见 FCL/log/processor_summary.log）");
+            }
             int exitCode = Integer.parseInt((String) server.getResult());
             if (exitCode != 0) {
                 // FCL 原版以 JRE 8 跑 installertools，install_profile.json 里 outputs 的
@@ -252,6 +258,19 @@ public class ForgeNewInstallTask extends Task<Version> {
                     throw new IOException("Game processor exited abnormally with code " + exitCode);
                 }
             }
+        }
+    }
+
+    /** 处理器诊断：追加到设备外部可读汇总文件（与 NeoForgeOldInstallTask 同一文件） */
+    private static void appendInstallerDiag(String line) {
+        try {
+            java.io.File dir = new java.io.File(android.os.Environment.getExternalStorageDirectory(), "FCL/log");
+            dir.mkdirs();
+            java.io.File f = new java.io.File(dir, "processor_summary.log");
+            try (java.io.FileWriter w = new java.io.FileWriter(f, true)) {
+                w.write("[" + java.time.Instant.now() + "] Forge " + line + "\n");
+            }
+        } catch (Throwable ignored) {
         }
     }
 

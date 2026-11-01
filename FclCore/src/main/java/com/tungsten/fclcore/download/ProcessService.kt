@@ -49,6 +49,25 @@ class ProcessService : Service() {
             if (portCounter.get() > 45000) portCounter.set(PROCESS_SERVICE_PORT + 1)
             return port
         }
+
+        /**
+         * 解析处理器 JVM 使用的 JRE 根目录（含 bin/java）。
+         * 候选顺序：
+         * 1. files/jre/jre-<版本>-<架构> —— JreInstaller/JavaRuntimeManager 的实际安装位置；
+         * 2. app_runtime/jre-<版本>-<架构> —— 旧布局兜底；
+         * 3. app_runtime/java/jre<版本> —— 更旧布局兜底。
+         * 找不到时返回一个不存在路径（由调用方 fail-fast 回报 -1）。
+         */
+        @JvmStatic
+        fun resolveJreRoot(context: android.content.Context, java: Int, jreName: String): File {
+            val candidates = listOf(
+                File(File(context.filesDir, "jre"), jreName),
+                File(com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH, jreName),
+                File(File(com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH, "java"), "jre$java")
+            )
+            candidates.firstOrNull { File(it, "bin/java").isFile }?.let { return it }
+            return candidates.first()
+        }
     }
 
     private var exitPort = PROCESS_SERVICE_PORT
@@ -78,6 +97,12 @@ class ProcessService : Service() {
             "-XX:ErrorFile=/storage/emulated/0/Android/data/com.verse.explorer/files/installer_hs_err_pid%p.log"
         ) + command!!
         val jre = "jre-$java-${com.tungsten.fclauncher.utils.FCLPath.JRE_ARCH}"
+        // 宿主适配（根因修复）：JRE 实际安装位置与 Verse 的 JreInstaller/JavaRuntimeManager
+        // 一致 —— files/jre/jre-<版本>-<架构>。FCLPath.JAVA_PATH（app_runtime）是旧布局，
+        // 那里从来没有 JRE：此前处理器永远找不到 java 二进制 → exec skipped →
+        // FCLauncher 兜底用同样不存在的 javaHome 启动 → 无 UDP 退出码 →
+        // 任务侧 latch.await() 永久挂起 → 加载器安装卡在 97% 不动也不报错。
+        val jreRoot: File = resolveJreRoot(this, java, jre)
         // 诊断汇总：每次处理器执行把命令/退出码/异常追加到外部可读汇总文件
         val diagFile = File(
             Environment.getExternalStorageDirectory(),
@@ -90,21 +115,20 @@ class ProcessService : Service() {
             } catch (_: Throwable) {
             }
         }
+        appendDiag("== resolve jre=$jre java=$java resolved=${jreRoot.absolutePath} exists=${jreRoot.exists()}")
+        // 找不到任何可用 JRE：直接回报 -1 让任务侧的运行时梯子立即跳过，
+        // 绝不进入 FCLauncher 兜底 —— 以前兜底用不存在的 javaHome 启动，
+        // native 挂死且无退出码，任务侧 latch 永久等待（97% 卡死的根因路径）
+        if (!File(jreRoot, "bin/java").isFile) {
+            appendDiag("!! jre not found: $jre (candidates scanned), send -1")
+            sendCode(-1)
+            return START_NOT_STICKY
+        }
         // 宿主适配（诊断/加固）：处理器 JVM 直接以 java 二进制 + ProcessBuilder 启动，
         // 复现桌面 FCL 原版跑 installertools 处理器的方式；stdout+stderr 合并落盘到
         // 外部可读文件，避免 pojava fc 管道的 stderr 丢失导致退出码 6 无任何日志。
         // JRE 二进制完整性先校验（bin/java + lib/libjli.so 存在），失败回退 FCL API installer。
-        val javaExec = File(
-            File(
-                com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH,
-                jre
-            ),
-            "bin/java"
-        )
-        val jreRoot = File(
-            com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH,
-            jre
-        )
+        val javaExec = File(jreRoot, "bin/java")
         val jreLib = File(File(jreRoot, "lib"), "libjli.so")
         if (javaExec.isFile && (jreLib.isFile || jreLib.exists())) {
             try {
@@ -142,7 +166,7 @@ class ProcessService : Service() {
         val config = FCLConfig(
             applicationContext,
             Environment.getExternalStorageDirectory().absolutePath + "/FCL/log",
-            com.tungsten.fclauncher.utils.FCLPath.JAVA_PATH + "/" + jre,
+            jreRoot.absolutePath,
             applicationContext.cacheDir.toString() + "/fclauncher",
             Renderer(
                 Renderer.ID_GL4ES,

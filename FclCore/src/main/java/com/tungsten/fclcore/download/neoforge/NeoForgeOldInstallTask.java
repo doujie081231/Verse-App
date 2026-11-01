@@ -72,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.Attributes;
 import java.util.jar.JarFile;
@@ -240,7 +241,14 @@ public class NeoForgeOldInstallTask extends Task<Version> {
                 break;
             }
             server.start();
-            latch.await();
+            // 宿主适配（根因加固）：等待退出码必须有界。此前 latch.await() 无超时，
+            // 一旦 :jvm 服务未能回报（JRE 缺失/启动挂死），处理器任务永久挂起，
+            // 表现为加载器安装卡在 97% 既不动也不报错。对齐 ZL2 的 15 分钟上限。
+            if (!latch.await(4, TimeUnit.MINUTES)) {
+                appendProcessorDiag("FATAL: processor JVM no exit code in 4min, jre=" + java +
+                    ", cmd=" + new CommandBuilder().addAll(command).toString());
+                throw new IOException("Game processor JVM did not report exit code within 4 minutes（安装器无响应，详见 FCL/log/processor_summary.log）");
+            }
             int exitCode = Integer.parseInt((String) server.getResult());
             if (exitCode != 0) {
                 // 宿主适配：NeoForge 处理器（installertools/jarsplitter）是 Java 17+ 字节码。

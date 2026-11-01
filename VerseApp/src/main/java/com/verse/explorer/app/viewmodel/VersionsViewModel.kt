@@ -155,6 +155,11 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
         loaderType: String? = null,
         loaderVersion: String? = null
     ) {
+        // 防重入（真机日志实锤过两次安装并发：两个 FCL 任务图 + 两个 :jvm 安装器
+        // 互相踩踏后双双卡死）。上一个安装仍标记为进行中时，先取消并清理再重开。
+        if (_installState.value.isInstalling && _installState.value.versionId.isNotBlank()) {
+            cancelInstall()
+        }
         gameInstaller.cancelled = false
         installJob = viewModelScope.launch {
             _downloadingVersions.value = _downloadingVersions.value + version.id

@@ -121,14 +121,14 @@ object FclLoaderInstaller {
 
                 override fun onRunning(task: com.tungsten.fclcore.task.Task<*>) {
                     task.name?.let { Log.i("FclLoaderInstaller", it) }
-                    progress(task.name ?: "安装中…", 0.93f)
+                    progress(currentTaskText(task), 0.93f)
                 }
 
                 override fun onFinished(task: com.tungsten.fclcore.task.Task<*>) {
                     val total = totalTasks.get().coerceAtLeast(1)
                     val done = doneTasks.incrementAndGet().coerceAtMost(total)
                     progress(
-                        task.name ?: "安装中…",
+                        currentTaskText(task),
                         (0.93f + 0.04f * done.toFloat() / total).coerceAtMost(0.97f)
                     )
                 }
@@ -142,7 +142,7 @@ object FclLoaderInstaller {
                     if (now - lastReport < 250) return
                     lastReport = now
                     progress(
-                        task.name ?: "安装中…",
+                        currentTaskText(task),
                         (base + 0.04f * p.toFloat()).coerceAtMost(0.97f)
                     )
                 }
@@ -183,5 +183,19 @@ object FclLoaderInstaller {
                 "加载器安装失败: $loaderType $loaderVersion — ${e.javaClass.simpleName}: ${e.message}"
             )
         }
+    }
+
+    /**
+     * 进度消息文案：优先用任务自己上报的 message（处理器会把安装器实时日志
+     * 写进 message，如 "Running installertools ..."），没有则退回任务名。
+     * 加载器安装阶段动辄 1~5 分钟，只显示任务名会让用户以为卡死。
+     */
+    private fun currentTaskText(task: com.tungsten.fclcore.task.Task<*>): String {
+        // Task.message 是私有字段，只能经 messageProperty() 读
+        val msg = runCatching { task.messageProperty().get() }.getOrNull()
+        if (!msg.isNullOrBlank()) {
+            return msg.lineSequence().lastOrNull { it.isNotBlank() }?.take(160) ?: msg.take(160)
+        }
+        return task.name ?: "安装中…"
     }
 }

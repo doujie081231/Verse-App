@@ -102,6 +102,22 @@ object FeedbackRepository {
             }
         }
 
+        // 安装器处理器诊断（/sdcard/FCL/log/）：加载器安装卡住时唯一能看出
+        // 「JRE 是否解析到、处理器 JVM 是否启动、退出码多少」的文件，必须在日志目录之外单独补采。
+        // processor_summary.log 由 ProcessService 与 Forge/NeoForge 处理器每次执行时追加。
+        runCatching {
+            val fclLogDir = File(android.os.Environment.getExternalStorageDirectory(), "FCL/log")
+            if (fclLogDir.isDirectory) {
+                fclLogDir.listFiles()?.forEach { f ->
+                    val n = f.name
+                    val wanted = n == "processor_summary.log" || n.startsWith("latest_api_installer")
+                    if (wanted && f.isFile && f.length() > 0 && f.length() <= 20 * 1024 * 1024) {
+                        candidates.add(f)
+                    }
+                }
+            }
+        }
+
         // 每个目录最多留 5 个最近的日志，总量仍以 8 个封顶。
         // hs_err_pid*.log 优先级最高（原生崩溃的唯一有效线索）：之前按
         // 「latest/launch=2、verse_*=1、其它=0 + 每目录只取 4 个」排，hs_err 永远被挤掉，
@@ -115,6 +131,7 @@ object FeedbackRepository {
                     when {
                         n.startsWith("hs_err") -> 3
                         n == "download.log" -> 3
+                        n == "processor_summary.log" -> 3
                         n.startsWith("latest") || n.startsWith("launch") -> 2
                         n.startsWith("verse_") -> 1
                         else -> 0

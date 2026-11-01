@@ -65,15 +65,16 @@ class GameInstaller(private val context: Context) {
     // 智能混合下载客户端：小文件竞速、大文件测速分块、低速换源、镜像熔断
     private val smartClient = SmartDownloadClient(context = context)
 
-    // 专用于 assets 小文件下载的快速客户端（callTimeout 10s 覆盖整链含重定向：
-    // 镜像 302 到不可达节点时 10s 内快速失败换源，不占住 64 路并发窗口）
+    // 专用于 assets 小文件下载的快速客户端（镜像 302 到不可达节点时快速失败换源，
+    // 不占住 64 路并发窗口）。callTimeout 30s：10s 版本在慢网络下会把「下载慢」
+    // 误判为「下载失败」，每个资源都走完整重试链，用户看到的就是资源阶段卡死。
     // Dispatcher 每 host 并发必须显式放开：OkHttp 默认每 host 仅 5 个连接，
     // 64 路协程里 59 个在排队（实测 assets 只有 ~11 文件/s），放开后窗口才真正生效
     private val fastHttpClient = downloadManager.httpClient.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .dispatcher(okhttp3.Dispatcher().apply {
             maxRequests = 256
             maxRequestsPerHost = 128
@@ -295,15 +296,19 @@ class GameInstaller(private val context: Context) {
 
                 Log.d("GameInstaller", "Downloading ${missingLibs.size}/$totalLibs missing libraries (32 threads, smart)")
 
-                var completedLibs = 0
-                val batchSize = 32
+                val completedCounter = java.util.concurrent.atomic.AtomicInteger(0)
                 // 失败必须让安装失败：否则界面显示「安装完成」，玩家启动时才崩在
                 // 类加载阶段（如缺 netty-common 导致 NoClassDefFoundError）
                 val failedLibs = java.util.concurrent.ConcurrentLinkedQueue<Triple<String, String, String?>>()
-                missingLibs.chunked(batchSize).forEach { batch ->
-                    coroutineScope {
-                        batch.map { (url, path, sha1) ->
-                            async {
+                // 滑动并发（替代 32 个一批的批栅栏）：批栅栏下一个慢源（如镜像限速
+                // 2 分钟的库）会冻结整批的进度计数、并让下一批 32 个库全部空等，
+                // 用户看到的就是「卡在下载依赖库」。信号量只限并发数，完成一个
+                // 立即计数+放行下一个，进度持续推进。
+                val libSemaphore = kotlinx.coroutines.sync.Semaphore(32)
+                coroutineScope {
+                    missingLibs.map { (url, path, sha1) ->
+                        async {
+                            libSemaphore.withPermit {
                                 val libFile = File(librariesDir, path)
                                 try {
                                     val result = smartClient.download(
@@ -320,20 +325,20 @@ class GameInstaller(private val context: Context) {
                                     Log.w("GameInstaller", "Lib failed: $path - ${e.message}")
                                     failedLibs.add(Triple(url, path, sha1))
                                 }
+                                val done = completedCounter.incrementAndGet()
+                                emitProgressThrottled(force = done == missingLibs.size) {
+                                    progressCallback(InstallProgress(
+                                        InstallStage.DOWNLOADING_LIBRARIES,
+                                        "下载库文件 ($done/${missingLibs.size})...",
+                                        0.2f + (0.40f * done / missingLibs.size.coerceAtLeast(1)),
+                                        "智能混合下载",
+                                        speed = downloadAgg.speed,
+                                        downloaded = downloadAgg.downloaded
+                                    ))
+                                }
                             }
-                        }.forEach { it.await() }
-                    }
-
-                    completedLibs += batch.size
-                    val progress = 0.2f + (0.40f * completedLibs / missingLibs.size.coerceAtLeast(1))
-                    progressCallback(InstallProgress(
-                        InstallStage.DOWNLOADING_LIBRARIES,
-                        "下载库文件 ($completedLibs/${missingLibs.size})...",
-                        progress,
-                        "智能混合下载",
-                        speed = downloadAgg.speed,
-                        downloaded = downloadAgg.downloaded
-                    ))
+                        }
+                    }.forEach { it.await() }
                 }
 
                 checkCancelled()
@@ -367,9 +372,11 @@ class GameInstaller(private val context: Context) {
                 }
 
                 progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, "下载原生库文件...", 0.60f))
+                com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 原生库下载开始")
                 downloadNativeClassifiers(versionJson) { p, msg, speed, downloaded ->
                     progressCallback(InstallProgress(InstallStage.DOWNLOADING_LIBRARIES, msg, 0.60f + p * 0.05f, speed = speed, downloaded = downloaded))
                 }
+                com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 原生库下载完成")
                 checkCancelled()
 
                 val assetIndex = versionJson.get("assetIndex")?.asJsonObject
@@ -385,6 +392,7 @@ class GameInstaller(private val context: Context) {
                     // Gson「Unterminated string ... $.objects...」而失败
                     if (assetUrl != null && assetIndexBroken(assetFile, assetSha1, assetSize)) {
                         assetFile.delete()
+                        com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 资源索引重新下载")
                         downloadAssetIndex(smartClient, assetUrl, assetFile, assetSha1) { p, progress ->
                             progressCallback(InstallProgress(
                                 InstallStage.DOWNLOADING_ASSETS,
@@ -401,10 +409,12 @@ class GameInstaller(private val context: Context) {
 
                     if (assetFile.exists()) {
                         progressCallback(InstallProgress(InstallStage.DOWNLOADING_ASSETS, "解析资源列表...", 0.68f))
+                        com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 资源索引解析开始")
 
                         val assetIndexData = parseAssetIndexOrRedownload(
                             assetFile, assetSha1, assetUrl, smartClient
                         )
+                        com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 资源索引解析完成")
                         val objects = assetIndexData.get("objects")?.asJsonObject
 
                         if (objects != null) {
@@ -426,24 +436,37 @@ class GameInstaller(private val context: Context) {
                             }
 
                             Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (sliding window, smart)")
+                            com.verse.explorer.core.log.DownloadLog.write(
+                                "version",
+                                "阶段: 资源下载开始（待下载 ${missingAssets.size}，并发 64）"
+                            )
 
                             // 始终保持 64 个活跃下载，一个完成立即补下一个（而非分批等待整批完成），
                             // 避免慢文件拖住整批导致"下一下卡一下"。
                             downloadAssetsSlidingWindow(missingAssets) { completed, total ->
-                                val progress = 0.68f + (0.22f * completed / total.coerceAtLeast(1))
-                                progressCallback(InstallProgress(
-                                    InstallStage.DOWNLOADING_ASSETS,
-                                    "下载资源 ($completed/$total)...",
-                                    progress,
-                                    "智能混合下载",
-                                    speed = downloadAgg.speed,
-                                    downloaded = downloadAgg.downloaded
-                                ))
+                                if (completed % 200 == 0 || completed == total) {
+                                    com.verse.explorer.core.log.DownloadLog.write(
+                                        "version",
+                                        "资源进度: ${completed}/${total}"
+                                    )
+                                }
+                                emitProgressThrottled(force = completed == total) {
+                                    val progress = 0.68f + (0.22f * completed / total.coerceAtLeast(1))
+                                    progressCallback(InstallProgress(
+                                        InstallStage.DOWNLOADING_ASSETS,
+                                        "下载资源 ($completed/$total)...",
+                                        progress,
+                                        "智能混合下载",
+                                        speed = downloadAgg.speed,
+                                        downloaded = downloadAgg.downloaded
+                                    ))
+                                }
                             }
                         }
                     }
                 }
 
+                com.verse.explorer.core.log.DownloadLog.write("version", "阶段: 资源下载完成，开始提取原生库")
                 progressCallback(InstallProgress(InstallStage.EXTRACTING_NATIVES, "提取原生库...", 0.90f))
                 extractNatives(versionJson)
 
@@ -762,6 +785,26 @@ class GameInstaller(private val context: Context) {
      * 每个文件按镜像列表顺序（BMCLAPI/MCBBS 优先）用共享连接池直连下载，
      * 全部镜像失败后回退 SmartDownloadClient 多源重试，保证健壮性的同时最大化吞吐。
      */
+    /** 进度回调节流时间戳（CAS 更新，避免 64 路并发同时进 UI 回调） */
+    private val lastProgressEmitAt = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * 进度回调节流：滑动窗口下每完成一个文件就回调一次（资源阶段 3000 个文件、
+     * 64 路并发时等于每秒数百次 StateFlow 更新 → 安装弹窗整块重组，进度条肉眼卡住）。
+     * 统一 150ms 节流，阶段完成（force=true）时必定放行。
+     */
+    private fun emitProgressThrottled(force: Boolean, block: () -> Unit) {
+        val now = System.currentTimeMillis()
+        if (!force) {
+            val last = lastProgressEmitAt.get()
+            if (now - last < 150) return
+            if (!lastProgressEmitAt.compareAndSet(last, now)) return
+        } else {
+            lastProgressEmitAt.set(now)
+        }
+        block()
+    }
+
     private suspend fun downloadAssetsSlidingWindow(
         assets: List<Pair<String, File>>,
         onProgress: (completed: Int, total: Int) -> Unit
@@ -778,11 +821,11 @@ class GameInstaller(private val context: Context) {
                     semaphore.withPermit {
                         checkCancelled()
                         // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
-                        // assets 官方 CDN 国内实测速度远优于镜像（镜像现为 302 跳转节点池，
-                        // 大面积不可达），官方源固定排在最前，镜像只作兜底
-                        val urls = MirrorSourceManager.getMirrorUrls(context, url).let { list ->
-                            list.sortedByDescending { it.startsWith("https://resources.download.minecraft.net/") }
-                        }
+                        // 源顺序完全跟随 MirrorSourceManager 的用户设置（auto/bmclapi =
+                        // 镜像在前）。此前强制官方源排最前，但用户网络（本条反馈实测）
+                        // Mojang 官方 CDN 龟速（text2speech 11KB/21s），每个资源都要先在
+                        // 官方源上烧完超时才轮到镜像 —— 资源阶段整体龟速被感知为「卡住」。
+                        val urls = MirrorSourceManager.getMirrorUrls(context, url)
                         var success = false
                         for (mirrorUrl in urls) {
                             if (cancelled) throw CancelledInstallException()

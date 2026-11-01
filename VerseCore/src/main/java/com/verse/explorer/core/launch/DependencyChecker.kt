@@ -226,9 +226,19 @@ class DependencyChecker(private val context: Context) {
 
     fun checkClientJar(versionId: String): List<DependencyStatus> {
         val results = mutableListOf<DependencyStatus>()
-        val versionDir = File(gameDir, "versions/$versionId")
-        val clientJar = File(versionDir, "$versionId.jar")
-        val versionJson = File(versionDir, "$versionId.json")
+        // 客户端 jar 归属：链上显式 "jar" 字段优先，否则找带 downloads.client 的版本（原版）。
+        // 加载器版本目录里本来就没有自己的 jar（靠 inheritsFrom），此前按自身 id 拼路径
+        // 必然误判缺失，进而拦住启动。
+        val chain = versionChain(versionId)
+        val jarProviderId = chain.firstOrNull { it.second.has("jar") }
+            ?.second?.get("jar")?.asString?.takeIf { it.isNotBlank() }
+            ?: chain.firstOrNull {
+                it.second.getAsJsonObject("downloads")?.getAsJsonObject("client") != null
+            }?.first
+            ?: versionId
+        val versionDir = File(gameDir, "versions/$jarProviderId")
+        val clientJar = File(versionDir, "$jarProviderId.jar")
+        val versionJson = File(versionDir, "$jarProviderId.json")
 
         if (!clientJar.exists()) {
             var downloadUrl: String? = null
@@ -248,7 +258,7 @@ class DependencyChecker(private val context: Context) {
 
             results.add(DependencyStatus(
                 id = "client_jar",
-                name = "游戏客户端 ($versionId.jar)",
+                name = "游戏客户端 ($jarProviderId.jar)",
                 category = DependencyCategory.CLIENT_JAR,
                 status = CheckStatus.MISSING,
                 message = "游戏客户端JAR文件不存在",
@@ -261,7 +271,7 @@ class DependencyChecker(private val context: Context) {
         } else if (clientJar.length() == 0L) {
             results.add(DependencyStatus(
                 id = "client_jar",
-                name = "游戏客户端 ($versionId.jar)",
+                name = "游戏客户端 ($jarProviderId.jar)",
                 category = DependencyCategory.CLIENT_JAR,
                 status = CheckStatus.CORRUPTED,
                 message = "游戏客户端JAR文件为空",
@@ -291,7 +301,7 @@ class DependencyChecker(private val context: Context) {
             if (sha1Ok) {
                 results.add(DependencyStatus(
                     id = "client_jar",
-                    name = "游戏客户端 ($versionId.jar)",
+                    name = "游戏客户端 ($jarProviderId.jar)",
                     category = DependencyCategory.CLIENT_JAR,
                     status = CheckStatus.OK,
                     message = "游戏客户端文件完整 (${formatSize(clientJar.length())})",
@@ -310,7 +320,7 @@ class DependencyChecker(private val context: Context) {
 
                 results.add(DependencyStatus(
                     id = "client_jar",
-                    name = "游戏客户端 ($versionId.jar)",
+                    name = "游戏客户端 ($jarProviderId.jar)",
                     category = DependencyCategory.CLIENT_JAR,
                     status = CheckStatus.CORRUPTED,
                     message = "游戏客户端文件SHA1校验失败，文件已损坏",
@@ -465,6 +475,28 @@ class DependencyChecker(private val context: Context) {
         return results
     }
 
+    /**
+     * 沿 inheritsFrom 解析版本链（子 → 父，最多 6 层）。
+     * 加载器版本（fabric/forge/neoforge）的 json 是继承式：assetIndex / downloads.client /
+     * 原版库都在 base 版本里。此前的检查只看自身 json，导致加载器版本一律被误判为
+     * 「资源索引不存在 / 客户端 jar 缺失」而拦住启动（用户反馈：Fabric 装完打不开）。
+     */
+    private fun versionChain(versionId: String): List<Pair<String, JsonObject>> {
+        val chain = mutableListOf<Pair<String, JsonObject>>()
+        var id = versionId
+        var guard = 0
+        while (guard++ < 6) {
+            val f = File(gameDir, "versions/$id/$id.json")
+            if (!f.exists()) break
+            val obj = runCatching { gson.fromJson(f.readText(), JsonObject::class.java) }.getOrNull() ?: break
+            chain.add(id to obj)
+            val parent = obj.get("inheritsFrom")?.asString
+            if (parent.isNullOrBlank() || parent == id) break
+            id = parent
+        }
+        return chain
+    }
+
     fun checkAssets(versionId: String): List<DependencyStatus> {
         val results = mutableListOf<DependencyStatus>()
         val versionDir = File(gameDir, "versions/$versionId")
@@ -484,9 +516,12 @@ class DependencyChecker(private val context: Context) {
         }
 
         try {
-            val json = gson.fromJson(versionJson.readText(), JsonObject::class.java)
-            val assetIndex = json.getAsJsonObject("assetIndex")
-            val assetId = assetIndex?.get("id")?.asString ?: versionId
+            // 资源索引可能在继承链的任一环（加载器版本自身没有 assetIndex）
+            val chain = versionChain(versionId)
+            val idxEntry = chain.firstOrNull { it.second.getAsJsonObject("assetIndex") != null }
+                ?: return results
+            val assetIndex = idxEntry.second.getAsJsonObject("assetIndex")
+            val assetId = assetIndex.get("id")?.asString ?: idxEntry.first
             val indexFile = File(assetsDir, "indexes/$assetId.json")
             val objectsDir = File(assetsDir, "objects")
 

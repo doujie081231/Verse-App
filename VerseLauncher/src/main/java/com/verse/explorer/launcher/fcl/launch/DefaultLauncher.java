@@ -215,7 +215,11 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Dorg.lwjgl.vulkan.libname=", "libvulkan.so");
         res.addDefault("-Dorg.lwjgl.spvc.libname=", "spirv-cross-c-shared");
         res.addDefault("-Dsodium.checks.issue2561=", "false");
-        res.addDefault("-Djdk.lang.Process.launchMechanism=", "FORK");
+        // 宿主适配：FORK 机制 fork 整个 Android 应用进程（ART + 大量线程），在
+        // Android 15/16 上游戏内起子进程（ProcessImpl.forkAndExec）会 SIGSEGV
+        // （用户反馈实锤两台：V2238A/Android16、V2507A/Android15，hs_err 崩在
+        // __strlen_aarch64）。VFORK 不复制页表，是 JDK 在 Linux 上的标准机制。
+        res.addDefault("-Djdk.lang.Process.launchMechanism=", "VFORK");
         res.addDefault("-Dcpu.name=", FCLauncher.getSocName());
         NativeLibPlugin.getJVMEnv().forEach((k, v) -> res.addDefault(k + "=", v));
         File lwjglNatives = new File(getLwjglNativesDir());
