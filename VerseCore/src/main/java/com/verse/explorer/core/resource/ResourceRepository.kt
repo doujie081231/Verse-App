@@ -337,12 +337,18 @@ class ResourceRepository(
      * @param targetVersionIds 选中的游戏版本 id 列表
      * @return 各版本目录内的安装结果
      */
+    /**
+     * @param skipIfModIdInstalled 为 true 时（前置模组专用）：下载完成后先看目标版本里
+     *        是否已有**同 ModID** 的 jar（文件名/版本不同也算已装），有就不再复制，
+     *        避免同一个模组被装成两个文件。手动下载模组时保持 false，允许装新版本。
+     */
     suspend fun downloadVersionForVersions(
         projectType: String,
         version: ResourceVersion,
         targetVersionIds: List<String>,
         isCancelled: () -> Boolean = { false },
-        onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> }
+        onProgress: (downloaded: Long, total: Long, speed: Long) -> Unit = { _, _, _ -> },
+        skipIfModIdInstalled: Boolean = false
     ): Result<List<File>> = withContext(Dispatchers.IO) {
         runCatching {
             val primaryFile = version.primaryFile ?: version.files.firstOrNull()
@@ -392,10 +398,25 @@ class ResourceRepository(
 
                 val versionsDir = GameConfig.getVersionsDir(gameDir)
                 val installed = mutableListOf<File>()
+                // 前置模组：按 ModID 判「这个模组是否已在该版本里」，避免同名模组装两份
+                val newModIds = if (skipIfModIdInstalled && projectType == "mod") {
+                    ModJarInspector.readModIds(cacheFile)
+                } else {
+                    emptySet()
+                }
                 targetVersionIds.forEach { versionId ->
                     val targetFolder = File(File(versionsDir, versionId), folder)
                     targetFolder.mkdirs()
                     val targetFile = File(targetFolder, safeName)
+                    if (newModIds.isNotEmpty()) {
+                        val already = newModIds.any { id ->
+                            ModJarInspector.hasModId(targetFolder, id, excludeFile = targetFile)
+                        }
+                        if (already) {
+                            // 目标版本已有同一 ModID 的其它版本文件：保留原文件，不再复制
+                            return@forEach
+                        }
+                    }
                     if (targetFile.exists() && !targetFile.delete()) {
                         throw IOException("无法覆盖已存在的文件: ${targetFile.absolutePath}")
                     }

@@ -436,7 +436,19 @@ public class EditControlSideDialog extends SideDialogView {
 
         for (int i = 0; i < mKeycodeSpinners.length; ++i) {
             int finalI = i;
-            mKeycodeTextviews[i].setOnClickListener(v -> mKeycodeSpinners[finalI].performClick());
+            // 点「键值」栏：弹虚拟键盘直接点按键（原来是长下拉列表，要一个个往下滑）
+            mKeycodeTextviews[i].setOnClickListener(v ->
+                    KeyPickerDialog.show(
+                            v.getContext(),
+                            mSpecialArray.size(),
+                            mSpecialArray,
+                            mKeycodeSpinners[finalI].getSelectedItemPosition(),
+                            index -> mKeycodeSpinners[finalI].setSelection(index)));
+            // 长按仍保留原下拉：输入法键、媒体键等冷门键在这里还能选到
+            mKeycodeTextviews[i].setOnLongClickListener(v -> {
+                mKeycodeSpinners[finalI].performClick();
+                return true;
+            });
 
             mKeycodeSpinners[i].setOnItemSelectedListener((SimpleItemSelectedListener) (parent, view, position, id) -> {
                 // Side note, spinner listeners are fired later than all the other ones.

@@ -72,8 +72,18 @@ fun ModsScreen(
         }
     }
 
-    val loaders = listOf("全部", "Fabric", "Forge", "NeoForge", "Quilt")
-    val gameVersions = listOf("全部", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5")
+    val loaders = listOf("自动", "全部", "Fabric", "Forge", "NeoForge", "Quilt")
+    val gameVersions = listOf("自动", "全部", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.16.5")
+
+    // 「自动」筛选用当前实例的 MC 版本 + 已装加载器
+    LaunchedEffect(Unit) {
+        val versionId = settingsLastVersion()
+        if (versionId.isNullOrBlank()) return@LaunchedEffect
+        val filter = com.verse.explorer.app.game.ModFilterResolver.forVersion(
+            context.applicationContext, versionId
+        )
+        viewModel.setAutoFilter(filter.mcVersion, filter.loaders)
+    }
 
     Box(
         modifier = Modifier

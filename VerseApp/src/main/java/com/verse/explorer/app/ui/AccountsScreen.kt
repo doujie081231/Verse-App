@@ -20,8 +20,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,6 +57,7 @@ import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.app.viewmodel.MicrosoftLoginState
+import com.verse.explorer.app.viewmodel.VerseLoginState
 import com.verse.explorer.core.account.Account
 import com.verse.explorer.core.account.AccountType
 import com.verse.explorer.core.account.AsyncStatus
@@ -100,6 +104,31 @@ fun AccountsScreen(
     var showMsaWeb by remember { mutableStateOf(false) }
     var msaWebUrl by remember { mutableStateOf("") }
     var msaUserCode by remember { mutableStateOf("") }
+
+    // Verse 皮肤站快捷登录：内置浏览器 + 右下角识别码卡片（设备码由 ViewModel 管理）
+    val verseLoginState by viewModel.verseLoginState.collectAsState()
+    var showVerseWeb by remember { mutableStateOf(false) }
+    var verseErrorText by remember { mutableStateOf<String?>(null) }
+    var verseLoggedInName by remember { mutableStateOf<String?>(null) }
+    val verseWaiting = verseLoginState as? VerseLoginState.Waiting
+
+    LaunchedEffect(verseLoginState) {
+        when (val st = verseLoginState) {
+            is VerseLoginState.Waiting -> showVerseWeb = true
+            is VerseLoginState.Success -> {
+                showVerseWeb = false
+                verseLoggedInName = st.account.username
+                viewModel.resetVerseLogin()
+            }
+            is VerseLoginState.Failed -> {
+                showVerseWeb = false
+                verseErrorText = st.message
+                viewModel.resetVerseLogin()
+            }
+            is VerseLoginState.Cancelled -> showVerseWeb = false
+            else -> Unit
+        }
+    }
     var showDeleteConfirm by remember { mutableStateOf<Account?>(null) }
     var profileSelectData by remember { mutableStateOf<List<AuthlibProfile>?>(null) }
     var pendingAuthlibUrl by remember { mutableStateOf("") }
@@ -228,6 +257,12 @@ fun AccountsScreen(
             viewModel = viewModel,
             initialType = addSheetInitialType,
             onDismiss = { showAddSheet = false },
+            onVerseLogin = {
+                // 地址已预设，直接发起设备码；拿到后由上面的状态机弹出内置浏览器
+                showAddSheet = false
+                verseErrorText = null
+                viewModel.startVerseLogin()
+            },
             onMicrosoftWeb = { url, userCode ->
                 VerseLogger.info("账号页：准备打开内置浏览器验证页 url=${url.ifBlank { "<空!>" }}（长度=${url.length}）, userCode=$userCode", "MsaLogin")
                 if (url.isBlank()) {
@@ -453,7 +488,8 @@ fun AccountsScreen(
             viewModel.cancelMicrosoftLogin()
             showMsaWeb = false
         }
-        MicrosoftLoginScreen(
+        DeviceCodeBrowserScreen(
+            title = "微软登录",
             webUrl = msaWebUrl,
             userCode = msaUserCode,
             statusText = msaStatusText,
@@ -466,6 +502,172 @@ fun AccountsScreen(
                 showMsaWeb = false
             }
         )
+    }
+
+    // ===== Verse 皮肤站快捷登录：内置浏览器（识别码卡片在右下角，与微软登录一致）=====
+    AnimatedVisibility(
+        visible = showVerseWeb && verseWaiting != null,
+        modifier = Modifier.fillMaxSize(),
+        enter = slideInHorizontally(
+            animationSpec = tween(340, easing = FastOutSlowInEasing)
+        ) { it / 3 } + fadeIn(tween(220)),
+        exit = slideOutHorizontally(
+            animationSpec = tween(340, easing = FastOutSlowInEasing)
+        ) { it / 3 } + fadeOut(tween(220))
+    ) {
+        androidx.activity.compose.BackHandler {
+            viewModel.cancelVerseLogin()
+            showVerseWeb = false
+        }
+        val waiting = verseWaiting
+        DeviceCodeBrowserScreen(
+            title = "Verse 账号登录",
+            webUrl = waiting?.webUrl.orEmpty(),
+            userCode = waiting?.code?.userCode.orEmpty(),
+            statusText = waiting?.status.orEmpty(),
+            // 授权页没自动跳回来 / 验证码过期时，卡片上直接重新授权
+            showReauthorize = true,
+            // 皮肤站保留登录态：下次快捷登录不用再输一次网页账号
+            clearCookiesOnExit = false,
+            onReauthorize = { viewModel.restartVerseLogin() },
+            onCancel = {
+                viewModel.cancelVerseLogin()
+                showVerseWeb = false
+            },
+            onBack = {
+                viewModel.cancelVerseLogin()
+                showVerseWeb = false
+            }
+        )
+    }
+
+    // 正在申请设备码（短暂，给个加载态避免点了没反应）
+    if (verseLoginState is VerseLoginState.Requesting) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { viewModel.cancelVerseLogin() }) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(VerseColors.PcBgCard)
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = VerseColors.PcAccent
+                )
+                Spacer(Modifier.width(10.dp))
+                Text("正在向皮肤站申请授权码…", fontSize = 13.sp, color = VerseColors.PcTextSecondary)
+            }
+        }
+    }
+
+    // 登录成功 / 失败：同样用卡片提示（不弹 Toast）
+    verseLoggedInName?.let { name ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { verseLoggedInName = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(VerseColors.PcBgCard)
+                    .padding(18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.CheckCircle, null,
+                        Modifier.size(18.dp), VerseColors.PcGreen
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "已登录 Verse 账号",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = VerseColors.PcTextPrimary
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = VerseColors.PcBgTertiary,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Filled.AccountCircle, null,
+                            Modifier.size(28.dp), VerseColors.PcAccent
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                name,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VerseColors.PcTextPrimary
+                            )
+                            Text(
+                                "可直接启动游戏（authlib-injector 已注入）",
+                                fontSize = 10.sp,
+                                color = VerseColors.PcTextMuted
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    PcButton(
+                        text = "好",
+                        onClick = { verseLoggedInName = null },
+                        variant = PcButtonVariant.PRIMARY
+                    )
+                }
+            }
+        }
+    }
+
+    verseErrorText?.let { err ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { verseErrorText = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(VerseColors.PcBgCard)
+                    .padding(18.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Error, null, Modifier.size(18.dp), VerseColors.PcRed)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Verse 登录失败",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = VerseColors.PcTextPrimary
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(err, fontSize = 12.sp, color = VerseColors.PcTextSecondary)
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PcButton(
+                        text = "重试",
+                        onClick = {
+                            verseErrorText = null
+                            viewModel.startVerseLogin()
+                        },
+                        variant = PcButtonVariant.PRIMARY,
+                        modifier = Modifier.weight(1f)
+                    )
+                    PcButton(
+                        text = "关闭",
+                        onClick = { verseErrorText = null },
+                        variant = PcButtonVariant.OUTLINE,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
     }
 }
 

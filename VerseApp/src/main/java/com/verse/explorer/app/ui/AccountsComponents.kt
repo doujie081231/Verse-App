@@ -60,8 +60,15 @@ internal fun AddAccountSheet(
     initialType: String,
     onDismiss: () -> Unit,
     onMicrosoftWeb: (url: String, userCode: String) -> Unit = { _, _ -> },
+    /** Verse 皮肤站快捷登录：地址已预设，由账号页发起设备码并用内置浏览器打开授权页 */
+    onVerseLogin: () -> Unit = {},
     onProfilesAvailable: (serverUrl: String, username: String, password: String, profiles: List<AuthlibProfile>) -> Unit
 ) {
+    // Verse 皮肤站地址预设：外置登录表单默认填好，省去用户手输
+    val verseServer = com.verse.explorer.core.account.VerseQuickLogin.DEFAULT_SERVER
+    val verseHost = remember(verseServer) {
+        verseServer.removePrefix("https://").removePrefix("http://").substringBefore("/")
+    }
     // 方式选择卡片优先：initialType 为空时先进登录方式选择步骤（step 0），由用户挑选登录方式
     var step by remember { mutableStateOf(if (initialType.isBlank()) 0 else 1) }
     val scope = rememberCoroutineScope()
@@ -72,7 +79,7 @@ internal fun AddAccountSheet(
 
     var offlineUsername by remember { mutableStateOf("") }
     var offlineError by remember { mutableStateOf<String?>(null) }
-    var authlibServerUrl by remember { mutableStateOf("") }
+    var authlibServerUrl by remember { mutableStateOf(verseServer) }
     var authlibUsername by remember { mutableStateOf("") }
     var authlibPassword by remember { mutableStateOf("") }
 
@@ -84,6 +91,8 @@ internal fun AddAccountSheet(
     var serverInfo by remember { mutableStateOf<ServerInfo?>(null) }
     var isVerifying by remember { mutableStateOf(false) }
 
+    // Verse 皮肤站快捷登录：设备码由 ViewModel 统一请求并轮询，这里只负责发起；
+    // 授权页在账号页的内置浏览器里打开（识别码显示在右下角卡片），关闭本弹窗即可
     LaunchedEffect(msaLoginState) {
         when (val state = msaLoginState) {
             is MicrosoftLoginState.Polling -> {
@@ -481,6 +490,63 @@ internal fun AddAccountSheet(
                                             )
                                         }
                                     }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                // Verse 皮肤站快捷登录：地址已预设，直接在内置浏览器里授权，无需输密码
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = VerseColors.PcAccent.copy(alpha = 0.10f),
+                                    border = BorderStroke(1.dp, VerseColors.PcAccent.copy(alpha = 0.45f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onVerseLogin() }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Filled.AccountCircle, null, Modifier.size(18.dp), VerseColors.PcAccent)
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                "Verse 账号登录",
+                                                fontSize = 13.sp,
+                                                color = VerseColors.PcTextPrimary,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                "已预设 $verseHost，打开内置浏览器授权",
+                                                fontSize = 10.sp,
+                                                color = VerseColors.PcTextMuted
+                                            )
+                                        }
+                                        Text(
+                                            "一键登录",
+                                            fontSize = 11.sp,
+                                            color = VerseColors.PcAccent,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .height(1.dp)
+                                            .background(VerseColors.PcTextMuted.copy(alpha = 0.25f))
+                                    )
+                                    Text(
+                                        "  或使用账号密码登录  ",
+                                        fontSize = 10.sp,
+                                        color = VerseColors.PcTextMuted
+                                    )
+                                    Box(
+                                        Modifier
+                                            .weight(1f)
+                                            .height(1.dp)
+                                            .background(VerseColors.PcTextMuted.copy(alpha = 0.25f))
+                                    )
                                 }
                                 Spacer(Modifier.height(8.dp))
                                 OutlinedTextField(

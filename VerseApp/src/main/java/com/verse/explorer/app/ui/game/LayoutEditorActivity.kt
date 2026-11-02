@@ -20,6 +20,27 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import com.verse.explorer.app.ui.components.PcButton
 import com.verse.explorer.app.ui.components.PcButtonVariant
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -134,7 +155,39 @@ class LayoutEditorActivity : ComponentActivity() {
         onBack: () -> Unit
     ) {
         BackHandler { confirmExit() }
-        Box(Modifier.fillMaxSize()) {
+
+        // 工具条状态：可拖动 + 可收起。
+        // 原来固定在屏幕顶部，正压在布局顶部那排按键上（视角/调试等），挪不动也点不到，
+        // 用户反馈「挡住屏幕上方空白，严重影响修改按键」：工具做成
+        // 可拖动的悬浮件，随时挪开，也可以收成一个小球彻底让出画布。
+        var expanded by remember { mutableStateOf(true) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+        var barSize by remember { mutableStateOf(IntSize.Zero) }
+
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val maxWidthPx = constraints.maxWidth
+            val maxHeightPx = constraints.maxHeight
+            val marginPx = with(LocalDensity.current) { 8.dp.toPx() }
+
+            /** 把工具条约束在屏幕内（按当前测量到的尺寸夹取） */
+            fun clampOffset(raw: Offset): Offset {
+                if (barSize.width == 0 || barSize.height == 0) return raw
+                // 工具条以 TopCenter 为基准，offset.x 的正负各有一半可用空间
+                val maxShiftX = ((maxWidthPx - barSize.width) / 2f - marginPx).coerceAtLeast(0f)
+                val maxShiftY = (maxHeightPx - barSize.height - marginPx * 2).coerceAtLeast(0f)
+                return Offset(
+                    raw.x.coerceIn(-maxShiftX, maxShiftX),
+                    raw.y.coerceIn(0f, maxShiftY)
+                )
+            }
+
+            val dragModifier = Modifier.pointerInput(Unit) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    offset = clampOffset(offset + dragAmount)
+                }
+            }
+
             if (!loaded) {
                 Text(
                     "原布局加载失败，已切换为空白布局，保存时请使用新文件名",
@@ -145,20 +198,40 @@ class LayoutEditorActivity : ComponentActivity() {
                         .padding(bottom = 20.dp)
                 )
             }
-            // 顶部工具栏：悬浮胶囊，不遮挡画布整行
+
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = 12.dp)
+                    .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
+                    .onGloballyPositioned { barSize = it.size }
                     .background(VerseColors.PcBgCard.copy(alpha = 0.92f), RoundedCornerShape(14.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PcButton(text = "返回", onClick = onBack, variant = PcButtonVariant.SECONDARY)
-                PcButton(text = "添加按键", onClick = onAddButton, variant = PcButtonVariant.OUTLINE)
-                PcButton(text = "添加方向控制键", onClick = onAddJoystick, variant = PcButtonVariant.OUTLINE)
-                PcButton(text = "保存", onClick = onSave, variant = PcButtonVariant.PRIMARY)
+                // 拖动手柄：按住这里拖，整条工具跟着走（按钮本身保持原来的点击行为）
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(VerseColors.PcBgTertiary)
+                        .then(dragModifier)
+                        .clickable { expanded = !expanded },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Filled.DragIndicator else Icons.Filled.Settings,
+                        contentDescription = if (expanded) "收起工具条" else "展开工具条",
+                        tint = VerseColors.PcTextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                if (expanded) {
+                    PcButton(text = "返回", onClick = onBack, variant = PcButtonVariant.SECONDARY)
+                    PcButton(text = "添加按键", onClick = onAddButton, variant = PcButtonVariant.OUTLINE)
+                    PcButton(text = "添加方向控制键", onClick = onAddJoystick, variant = PcButtonVariant.OUTLINE)
+                    PcButton(text = "保存", onClick = onSave, variant = PcButtonVariant.PRIMARY)
+                }
             }
         }
     }

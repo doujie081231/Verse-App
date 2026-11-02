@@ -355,8 +355,19 @@ class DependencyChecker(private val context: Context) {
         }
 
         try {
-            val json = gson.fromJson(versionJson.readText(), JsonObject::class.java)
-            val libraries = json.getAsJsonArray("libraries") ?: return results
+            // 合并继承链上的全部库（加载器版本自身只有加载器库，原版库在 base 里）。
+            // 启动时 classpath 是沿链合并的，这里的检查必须同口径，否则漏检 base 库。
+            val mergedLibraries = com.google.gson.JsonArray()
+            val seenNames = HashSet<String>()
+            for ((_, chainJson) in versionChain(versionId)) {
+                val arr = chainJson.getAsJsonArray("libraries") ?: continue
+                for (libElement in arr) {
+                    val name = libElement.asJsonObject.get("name")?.asString
+                    if (name != null && !seenNames.add(name)) continue
+                    mergedLibraries.add(libElement)
+                }
+            }
+            val libraries = if (mergedLibraries.size() > 0) mergedLibraries else return results
 
             var missingCount = 0
             var corruptedCount = 0

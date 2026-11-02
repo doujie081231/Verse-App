@@ -83,6 +83,23 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
+/** 前置下载计划项（弹窗卡片与提交下载共用，避免名字/图标再查一遍） */
+private data class DepPlanItem(
+    val key: String,
+    val version: ResourceVersion,
+    val title: String,
+    val iconUrl: String?,
+    val filename: String
+)
+
+/** 下载完成卡片条目：本次装进去的资源（图标 + 名称 + 说明） */
+private data class InstallCard(
+    val title: String,
+    val subtitle: String,
+    val iconUrl: String?,
+    val failed: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModDetailScreen(
@@ -134,7 +151,7 @@ fun ModDetailScreen(
 
     var detailTab by remember { mutableStateOf("description") }
     var versionFilter by remember { mutableStateOf("") }
-    // 版本标签分组方式，对齐 PCL 的 GroupedDrop / GroupedOld（渐进退化，见 computeVersionTabs）
+    // 版本标签分组方式：按大版本聚合、老版本折叠（渐进退化，见 computeVersionTabs）
     var versionGroupByDrop by remember { mutableStateOf(false) }
     var versionGroupFoldOld by remember { mutableStateOf(false) }
     var versionTabKeys by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -162,6 +179,12 @@ fun ModDetailScreen(
 
     var showVersionPicker by remember { mutableStateOf(false) }
     var showNoVersionsWarning by remember { mutableStateOf(false) }
+    // 模组下载完成后的前置提示（只处理必要前置，确认后与主模组一起入队）
+    var showDepPrompt by remember { mutableStateOf(false) }
+    var pendingDepPlanned by remember { mutableStateOf<List<DepPlanItem>>(emptyList()) }
+    var pendingDepTargetIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    // 下载完成卡片：列出本次装进去的模组（图标 + 名称 + 文件名），替代原来的 Toast
+    var resultCards by remember { mutableStateOf<List<InstallCard>>(emptyList()) }
     var installedVersions by remember { mutableStateOf<List<MinecraftVersion>>(emptyList()) }
 
     var pickerMode by remember { mutableStateOf("main") }
@@ -223,7 +246,7 @@ fun ModDetailScreen(
     var galleryView by remember { mutableStateOf<String?>(null) }
 
     /**
-     * 构建「适用版本」标签 —— 完全对齐 PCL `PageDownloadCompDetail.Load_OnFinish`：
+     * 构建「适用版本」标签：
      * 先用精确小版本分组，标签数仍 >= 9 时依次退化为
      * 「按 Drop 桶」→「精确 + 折叠远古版」→「Drop + 折叠远古版」，
      * 第一次得到少于 9 个标签就停下。
@@ -551,6 +574,132 @@ fun ModDetailScreen(
     }
 
     /**
+     * 目标版本 mods 目录里已有的 ModID（归一化）。
+     * 判定「前置是否已装」用 ModID 而不是文件名：同一模组换版本后文件名完全不同，
+     * 按文件名判会把已装的判成没装，于是又装一份（用户反馈的重复安装）。
+     */
+    fun installedModIdsOf(targetVersions: List<MinecraftVersion>): Set<String> {
+        val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
+        val out = HashSet<String>()
+        targetVersions.forEach { tv ->
+            out.addAll(
+                com.verse.explorer.core.resource.ModJarInspector.installedModIds(
+                    File(File(versionsDir, tv.id), "mods")
+                )
+            )
+        }
+        return out
+    }
+
+    /** 兼容挑选：与宿主版本 gameVersions 有交集才算兼容，loaders 能精确匹配的候选优先 */
+    fun pickCompatible(list: List<ResourceVersion>): ResourceVersion? {
+        if (list.isEmpty()) return null
+        val root = selectedVersion
+        val rootGV = root?.gameVersions.orEmpty()
+        if (rootGV.isEmpty()) return list.firstOrNull()
+        val intersected = list.filter { v -> v.gameVersions.any { it in rootGV } }
+        if (intersected.isEmpty()) return list.firstOrNull()
+        val rootLoaders = root?.loaders.orEmpty()
+        if (rootLoaders.isEmpty()) return intersected.firstOrNull()
+        return intersected.firstOrNull { v -> v.loaders.any { it in rootLoaders } } ?: intersected.firstOrNull()
+    }
+
+    /** 必需前置（合并所有版本标签里标成 required 的项目，避免漏装） */
+    fun requiredDeps(): List<com.verse.explorer.core.resource.ResourceDependency> {
+        @Suppress("UNCHECKED_CAST")
+        val flat = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
+        val requiredIds = flat.filter { it.type == "required" }.map { it.projectId }.toSet()
+        return flat.distinctBy { it.projectId }.filter { it.projectId in requiredIds }
+    }
+
+    /**
+     * 模组本体下载完成后：解析必要前置，过滤已装/已入队，仍有剩余则弹确认框。
+     * 只处理 required，不自动勾选 optional。
+     * 弹窗里按模组卡片展示（图标 + 名称 + 文件名），不再是一串纯文本。
+     */
+    fun maybePromptDeps(targets: List<MinecraftVersion>) {
+        if (targets.isEmpty()) return
+        scope.launch {
+            val deps = requiredDeps()
+            if (deps.isEmpty()) return@launch
+            val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
+            val installedIds = withContext(Dispatchers.IO) { installedModIdsOf(targets) }
+            val planned = mutableListOf<DepPlanItem>()
+            val seen = mutableSetOf<String>()
+            for (d in deps) {
+                // 依赖详情用于卡片（标题/图标）和 ModID 判定；描述页还没拉到就现取
+                val info = depDetails[d.projectId]
+                    ?: runCatching { repository.getDetail(d.projectId, d.source) }.getOrNull()
+                // 目标版本里已经有这个模组（ModID / slug 命中）→ 不再提示、不再装第二份
+                val slugId = com.verse.explorer.core.resource.ModJarInspector.normalize(info?.slug.orEmpty())
+                if (slugId.isNotEmpty() && slugId in installedIds) continue
+                val ver = runCatching { pickCompatible(repository.getVersions(d.projectId, d.source)) }.getOrNull()
+                val primary = ver?.primaryFile ?: ver?.files?.firstOrNull()
+                if (ver == null || primary == null || primary.url.isBlank()) continue
+                val safeName = primary.filename.ifBlank { "${ver.id}.jar" }
+                    .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
+                if (!seen.add("$safeName:${primary.sha1}")) continue
+                if (isFileInstalledInTargets(versionsDir, targets, "mods", safeName, primary.sha1)) continue
+                val key = "dep:${projectId}:${d.projectId}"
+                if (DownloadCenter.findByKey(key) != null) continue
+                planned.add(
+                    DepPlanItem(
+                        key = key,
+                        version = ver,
+                        title = info?.title?.takeIf { it.isNotBlank() } ?: d.projectId,
+                        iconUrl = info?.iconUrl,
+                        filename = safeName
+                    )
+                )
+            }
+            if (planned.isEmpty()) return@launch
+            pendingDepPlanned = planned
+            pendingDepTargetIds = targets.map { it.id }
+            // 完成卡片先收起：前置确认弹窗要在最上层，避免两个 Dialog 叠在一起
+            downloadResult = null
+            resultCards = emptyList()
+            showDepPrompt = true
+        }
+    }
+
+    /** 把前置任务逐项提交到下载中心，全部结束后回调（已装成的条目 + 失败数） */
+    fun submitDepDownloads(
+        planned: List<DepPlanItem>,
+        versionIds: List<String>,
+        onAllDone: (installed: List<DepPlanItem>, failed: Int) -> Unit
+    ) {
+        val queued = AtomicInteger(0)
+        val done = AtomicInteger(0)
+        val failedKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        planned.forEach { item ->
+            DownloadCenter.submit(
+                key = item.key,
+                title = item.filename,
+                iconUrl = item.iconUrl,
+                onComplete = { success, _ ->
+                    Schedulers.androidUIThread().execute {
+                        if (!success) failedKeys.add(item.key)
+                        done.incrementAndGet()
+                        if (done.get() >= queued.get()) {
+                            onAllDone(
+                                planned.filter { it.key !in failedKeys },
+                                planned.count { it.key in failedKeys }
+                            )
+                        }
+                    }
+                },
+                task = { onProgress, isCancelled ->
+                    repository.downloadVersionForVersions(
+                        "mod", item.version, versionIds, isCancelled, onProgress,
+                        skipIfModIdInstalled = true
+                    ).isSuccess
+                }
+            )
+            queued.incrementAndGet()
+        }
+    }
+
+    /**
      * 将全部必需前置模组安装到选中的版本（隔离安装到各版本的 mods 文件夹）：
      * 依赖逐项解析后去重（项目 id + 本地文件名 + 本地已装文件 SHA1），再逐项
      * 提交到下载中心并发下载（各自独立进度），不再串行阻塞。
@@ -558,35 +707,27 @@ fun ModDetailScreen(
     fun startDepsForVersions(targetVersions: List<MinecraftVersion>) {
         if (downloading || targetVersions.isEmpty()) return
         val versionIds = targetVersions.map { it.id }
-        val appContext = context.applicationContext
         scope.launch {
-            // 同上：必需优先合并，避免漏掉被别的版本标成 required 的依赖
-            val flatDeps = versions.flatMap { it.dependencies }.filter { it.projectId.isNotBlank() }
-            val requiredIds = flatDeps.filter { it.type == "required" }.map { it.projectId }.toSet()
-            val deps = flatDeps.distinctBy { it.projectId }.filter { it.projectId in requiredIds }
+            val deps = requiredDeps()
             if (deps.isEmpty()) {
                 Toast.makeText(context, "没有需要安装的前置模组", Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            // 解析各依赖的最新版本文件（按依赖自身来源解析），并做去重/已装跳过
-            // gameVersions 与宿主版本有交集才兼容；loaders 能精确匹配的候选优先
-            val rootVersion = selectedVersion
-            fun pickCompatible(list: List<ResourceVersion>): ResourceVersion? {
-                if (list.isEmpty()) return null
-                val rootGV = rootVersion?.gameVersions.orEmpty()
-                if (rootGV.isEmpty()) return list.firstOrNull()
-                val intersected = list.filter { v -> v.gameVersions.any { it in rootGV } }
-                if (intersected.isEmpty()) return list.firstOrNull()
-                val rootLoaders = rootVersion?.loaders.orEmpty()
-                if (rootLoaders.isEmpty()) return intersected.firstOrNull()
-                return intersected.firstOrNull { v -> v.loaders.any { it in rootLoaders } } ?: intersected.firstOrNull()
-            }
-            val planned = mutableListOf<Pair<String, ResourceVersion>>() // (队列 key, 版本)
+            val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(context))
+            val installedIds = withContext(Dispatchers.IO) { installedModIdsOf(targetVersions) }
+            val planned = mutableListOf<DepPlanItem>()
             val seenFileKeys = mutableSetOf<String>()
             var skippedInstalled = 0
             var resolveFailed = 0
-            val versionsDir = GameConfig.getVersionsDir(GameConfig.getGameDir(appContext))
             for (d in deps) {
+                val info = depDetails[d.projectId]
+                    ?: runCatching { repository.getDetail(d.projectId, d.source) }.getOrNull()
+                // 已有同 ModID / slug 的模组 → 跳过（不算失败，计入「已安装」）
+                val slugId = com.verse.explorer.core.resource.ModJarInspector.normalize(info?.slug.orEmpty())
+                if (slugId.isNotEmpty() && slugId in installedIds) {
+                    skippedInstalled++
+                    continue
+                }
                 val ver = runCatching { pickCompatible(repository.getVersions(d.projectId, d.source)) }.getOrNull()
                 val primary = ver?.primaryFile ?: ver?.files?.firstOrNull()
                 if (ver == null || primary == null || primary.url.isBlank()) {
@@ -595,20 +736,22 @@ fun ModDetailScreen(
                 }
                 val safeName = (primary.filename.ifBlank { "${ver.id}.jar" })
                     .replace(Regex("""[^a-zA-Z0-9._\-]"""), "_")
-                // 批次内去重：同一文件（名+SHA1）只入队一次
-                val fileKey = "$safeName:${primary.sha1}"
-                if (!seenFileKeys.add(fileKey)) continue
-                // 本地已装去重：目标版本的 mods 中已有同名同 SHA1 文件时跳过
+                if (!seenFileKeys.add("$safeName:${primary.sha1}")) continue
                 if (isFileInstalledInTargets(versionsDir, targetVersions, "mods", safeName, primary.sha1)) {
                     skippedInstalled++
                     continue
                 }
-                planned.add("dep:$projectId:${d.projectId}" to ver)
+                planned.add(
+                    DepPlanItem(
+                        key = "dep:$projectId:${d.projectId}",
+                        version = ver,
+                        title = info?.title?.takeIf { it.isNotBlank() } ?: d.projectId,
+                        iconUrl = info?.iconUrl,
+                        filename = safeName
+                    )
+                )
             }
 
-            val queued = AtomicInteger(0)
-            val ok = AtomicInteger(0)
-            val fail = AtomicInteger(0)
             if (planned.isEmpty()) {
                 val msg = buildString {
                     if (skippedInstalled > 0) append("前置模组均已安装")
@@ -621,42 +764,19 @@ fun ModDetailScreen(
             downloadDone = false
             downloadError = null
             downloadText = "准备安装前置模组..."
-            planned.forEach { (key, ver) ->
-                if (DownloadCenter.findByKey(key) != null) {
-                    // 已在队列中，视为完成计数，避免汇总回调永不触发
-                    ok.incrementAndGet()
-                    return@forEach
+            submitDepDownloads(planned, versionIds) { installed, failed ->
+                downloadText = ""
+                resultCards = installed.map { InstallCard(it.title, it.filename, it.iconUrl) }
+                downloadDone = failed == 0
+                val extra = buildString {
+                    if (skippedInstalled > 0) append("（已跳过 $skippedInstalled 个已安装）")
+                    if (resolveFailed > 0) append("（$resolveFailed 个解析失败）")
                 }
-                val primary = ver.primaryFile ?: ver.files.firstOrNull()
-                DownloadCenter.submit(
-                    key = key,
-                    title = primary?.filename ?: ver.versionNumber,
-                    onComplete = { success, _ ->
-                        Schedulers.androidUIThread().execute {
-                            if (success) ok.incrementAndGet() else fail.incrementAndGet()
-                            if (ok.get() + fail.get() >= queued.get()) {
-                                if (fail.get() == 0) {
-                                    downloadDone = true
-                                    downloadText = ""
-                                    downloadResult = true to "前置模组已安装到 ${versionIds.size} 个版本"
-                                } else {
-                                    downloadText = ""
-                                    downloadResult = false to "前置模组安装完成：成功 ${ok.get()} 个 / 失败 ${fail.get()} 个"
-                                }
-                            }
-                        }
-                    },
-                    task = { onProgress, isCancelled ->
-                        repository.downloadVersionForVersions("mod", ver, versionIds, isCancelled, onProgress).isSuccess
-                    }
-                )
-                queued.incrementAndGet()
-            }
-            if (skippedInstalled > 0) {
-                Toast.makeText(appContext, "已跳过 $skippedInstalled 个已安装的前置模组", Toast.LENGTH_SHORT).show()
-            }
-            if (resolveFailed > 0) {
-                Toast.makeText(appContext, "$resolveFailed 个前置模组解析失败", Toast.LENGTH_SHORT).show()
+                downloadResult = when {
+                    failed > 0 -> false to "前置模组：成功 ${installed.size} 个，失败 $failed 个$extra"
+                    installed.isEmpty() -> true to "前置模组均已安装，无需重复下载$extra"
+                    else -> true to "前置模组已安装到 ${versionIds.size} 个版本$extra"
+                }
             }
         }
     }
@@ -689,7 +809,22 @@ fun ModDetailScreen(
                     if (success) {
                         downloadDone = true
                         downloadText = ""
+                        // 完成提示用卡片展示装了什么，不再弹 Toast
+                        val primaryFile = ver.primaryFile ?: ver.files.firstOrNull()
+                        resultCards = listOf(
+                            InstallCard(
+                                title = project?.title?.takeIf { it.isNotBlank() }
+                                    ?: primaryFile?.filename ?: ver.versionNumber,
+                                subtitle = buildString {
+                                    append(primaryFile?.filename ?: ver.versionNumber)
+                                    append(" · 已安装到 ${targetVersions.size} 个版本")
+                                },
+                                iconUrl = project?.iconUrl
+                            )
+                        )
                         downloadResult = true to "已安装到 ${targetVersions.size} 个版本"
+                        // 本体装完后若还有未装/未入队的必要前置，询问是否一起下载
+                        if (projectType == "mod") maybePromptDeps(targetVersions)
                     } else if (error != "已取消") {
                         downloadText = ""
                         downloadResult = false to (error ?: "下载失败")
@@ -1041,7 +1176,7 @@ fun ModDetailScreen(
                                                         }
                                                         Spacer(Modifier.height(6.dp))
                                                         // 前置模组行：与资源列表行同密度（紧凑单行），不展示描述
-                                                        // 必需 / 可选分开展示（PCL、ZL2 都是这样归类的），
+                                                        // 必需 / 可选分开展示（避免可选依赖被当成前置），
                                                         // 否则可选依赖会被一并当成"前置"塞给用户
                                                         listOf(
                                                             "必需" to deps.filter { it.type == "required" },
@@ -1220,6 +1355,95 @@ fun ModDetailScreen(
         if (showNoVersionsWarning) {
             NoInstalledVersionsDialog(onDismiss = { showNoVersionsWarning = false })
         }
+
+        // 前置模组确认：按模组卡片展示（图标 + 名称 + 文件名），确认后逐项入队
+        if (showDepPrompt) {
+            Dialog(onDismissRequest = { showDepPrompt = false }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // 整体限高 + 列表按权重收缩：前置多时只让列表滚动，
+                        // 「一起下载 / 不用了」永远留在弹窗底部可见
+                        .heightIn(max = 460.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(VerseColors.PcBgActive)
+                        .padding(18.dp)
+                ) {
+                    Text(
+                        text = "需要 ${pendingDepPlanned.size} 个前置模组",
+                        color = VerseColors.PcTextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "这些是本体运行所必需的模组，确认后一起加入下载队列。",
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 11.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        pendingDepPlanned.forEach { item ->
+                            DependencyRow(
+                                title = item.title,
+                                iconUrl = item.iconUrl,
+                                badge = "前置",
+                                badgeColor = VerseColors.PcGreen,
+                                meta = item.filename,
+                                onClick = {}
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(VerseColors.PcAccent)
+                                .padding(vertical = 11.dp)
+                                .clickable {
+                                    showDepPrompt = false
+                                    val planned = pendingDepPlanned
+                                    val targetIds = pendingDepTargetIds
+                                    pendingDepPlanned = emptyList()
+                                    pendingDepTargetIds = emptyList()
+                                    submitDepDownloads(planned, targetIds) { installed, failed ->
+                                        resultCards = installed.map {
+                                            InstallCard(it.title, it.filename, it.iconUrl)
+                                        }
+                                        downloadResult = when {
+                                            failed > 0 -> false to "前置模组：成功 ${installed.size} 个，失败 $failed 个"
+                                            installed.isEmpty() -> true to "前置模组均已安装，无需重复下载"
+                                            else -> true to "已安装 ${installed.size} 个前置模组"
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("一起下载", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(VerseColors.PcBgTertiary)
+                                .padding(vertical = 11.dp)
+                                .clickable { showDepPrompt = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("不用了", color = VerseColors.PcTextSecondary, fontSize = 14.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     val viewUrl = galleryView
@@ -1293,9 +1517,12 @@ fun ModDetailScreen(
         )
     }
 
-    // ===== 下载/安装结果弹窗（完成或失败 + 错误原因）=====
+    // ===== 下载/安装结果弹窗（完成或失败 + 已装资源卡片）=====
     downloadResult?.let { (success, message) ->
-        Dialog(onDismissRequest = { downloadResult = null }) {
+        Dialog(onDismissRequest = {
+            downloadResult = null
+            resultCards = emptyList()
+        }) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
                 color = VerseColors.PcBgActive,
@@ -1333,6 +1560,28 @@ fun ModDetailScreen(
                         fontSize = 13.sp,
                         color = if (success) VerseColors.PcTextSecondary else VerseColors.PcRed
                     )
+                    // 本次装进去的资源：按模组卡片列出（图标 + 名称 + 文件名），替代原来的 Toast
+                    if (resultCards.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            resultCards.forEach { card ->
+                                DependencyRow(
+                                    title = card.title,
+                                    iconUrl = card.iconUrl,
+                                    badge = if (card.failed) "失败" else "已安装",
+                                    badgeColor = if (card.failed) VerseColors.PcRed else VerseColors.PcGreen,
+                                    meta = card.subtitle,
+                                    onClick = {}
+                                )
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(16.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1340,7 +1589,10 @@ fun ModDetailScreen(
                     ) {
                         PcButton(
                             text = "知道了",
-                            onClick = { downloadResult = null },
+                            onClick = {
+                                downloadResult = null
+                                resultCards = emptyList()
+                            },
                             variant = PcButtonVariant.PRIMARY
                         )
                     }

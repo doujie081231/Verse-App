@@ -140,6 +140,70 @@ class GameLaunchController(private val context: Context) {
                     return@launch
                 }
 
+                // 库文件缺失/损坏先自动补齐（启动前做一次库完整性检查）：
+                // 加载器版本常出现「实例目录在、装载器 jar 没下全」的情况，直接启动会
+                // ClassNotFoundException: net.fabricmc.loader.impl.launch.knot.KnotClient
+                // （真机反馈 1.21.11 Fabric 秒崩）。补不齐再拦，避免带病启动。
+                val libIssues = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        com.verse.explorer.core.launch.DependencyChecker(context)
+                            .checkLibraries(version.id)
+                            .flatMap { it.subItems }
+                            .filter {
+                                it.status == com.verse.explorer.core.launch.CheckStatus.MISSING ||
+                                    it.status == com.verse.explorer.core.launch.CheckStatus.CORRUPTED
+                            }
+                    }.getOrDefault(emptyList())
+                }
+                if (libIssues.isNotEmpty()) {
+                    _launchState.value = LaunchState(
+                        phase = LaunchPhase.PREPARING,
+                        isLaunching = true,
+                        message = "正在补全缺失的库文件 (0/${libIssues.size})..."
+                    )
+                    VerseLogger.info("启动前补全库文件: ${libIssues.size} 个", "LaunchController")
+                    val client = com.verse.explorer.core.download.SmartDownloadClient(context)
+                    val failed = mutableListOf<String>()
+                    withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        libIssues.forEachIndexed { index, item ->
+                            val url = item.mirrorUrl?.takeIf { it.isNotBlank() } ?: item.downloadUrl
+                            val path = item.filePath
+                            if (url.isNullOrBlank() || path.isNullOrBlank()) {
+                                failed.add(item.name)
+                                return@forEachIndexed
+                            }
+                            val r = runCatching {
+                                client.download(
+                                    originalUrl = url,
+                                    targetFile = java.io.File(path),
+                                    expectedSha1 = item.expectedSha1
+                                )
+                            }.getOrNull()
+                            if (r == null || r.isFailure) failed.add(item.name)
+                            _launchState.value = LaunchState(
+                                phase = LaunchPhase.PREPARING,
+                                isLaunching = true,
+                                message = "正在补全缺失的库文件 (${index + 1}/${libIssues.size})..."
+                            )
+                        }
+                    }
+                    if (failed.isNotEmpty()) {
+                        _launchState.value = LaunchState(
+                            phase = LaunchPhase.FAILED,
+                            isLaunching = false,
+                            message = "库文件补全失败",
+                            errors = listOf(
+                                "以下库文件无法下载：${failed.take(5).joinToString("、")}" +
+                                    if (failed.size > 5) " 等 ${failed.size} 个" else "",
+                                "请检查网络后重试，或到「下载 → 已安装版本」里重新安装该版本"
+                            )
+                        )
+                        VerseLogger.warn("库文件补全失败: ${failed.size} 个", "LaunchController")
+                        return@launch
+                    }
+                    VerseLogger.info("库文件补全完成，继续启动", "LaunchController")
+                }
+
                 val verSettings = VersionSettingsRepository(context).getVersionSettings(version.id)
                 val verIndependent = !verSettings.usesGlobal
 

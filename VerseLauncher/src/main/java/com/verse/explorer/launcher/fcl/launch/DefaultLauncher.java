@@ -652,7 +652,75 @@ public class DefaultLauncher extends Launcher {
         // 实测在 libjvm 内 SIGSEGV（hs_err: GLFW.glfwSetWindowSize ← internalWindowSizeChanged）。
         // Forge 用 config/splash.properties 的 enabled 开关控制该画面，这里在启动前落地关闭。
         disableForgeSplash(repository.getRunDirectory(version.getId()));
+        // Forge 47.2+ / NeoForge 12+ 的新版早期加载屏（fmlearlydisplay DisplayWindow）：
+        // -Dfml.earlyprogresswindow 属性通道已失效，只能在 config/fml.toml 里关 earlyWindowControl。
+        // 该加载屏在启动扫描期调用 glfwInit → pojavInit，实测在 __strncmp_aarch64 SIGSEGV
+        // （用户反馈 1.3.2 + Forge 47.4.20，崩溃栈 DisplayWindow.initWindow ← glfwInit ← pojavInit）。
+        disableFmlEarlyWindow(repository.getRunDirectory(version.getId()), version);
         return FCLauncher.launchMinecraft(config);
+    }
+
+    /**
+     * 关闭 FML 的早期加载屏（新版 Forge/NeoForge）。
+     *
+     * Forge 47.2+ 引入的 DisplayWindow 早期加载屏不再读 -Dfml.earlyprogresswindow，
+     * 而是读 config/fml.toml 的 earlyWindowControl。它在启动扫描期就 glfwInit，
+     * 与启动器的 GLFW 桥抢时序，真机崩溃栈为
+     * DisplayWindow.initWindow ← org.lwjgl.glfw.GLFW.glfwInit ← pojavInit ← __strncmp_aarch64。
+     * 这里在启动前把 earlyWindowControl 写成 false（已为 false 则不动，保留用户/整合包配置）。
+     */
+    private void disableFmlEarlyWindow(File runDir, com.verse.explorer.launcher.fcl.game.Version version) {
+        if (runDir == null || version == null) return;
+        // 仅对 Forge 系版本处理（原版/Fabric/Quilt 不读 fml.toml）
+        String id = version.getId() == null ? "" : version.getId().toLowerCase();
+        String mainClass = version.getMainClass() == null ? "" : version.getMainClass().toLowerCase();
+        boolean forgeLike = id.contains("forge") || mainClass.contains("modlauncher")
+                || mainClass.contains("bootstraplauncher");
+        if (!forgeLike) return;
+        try {
+            File configDir = new File(runDir, "config");
+            File file = new File(configDir, "fml.toml");
+            String line = "earlyWindowControl = false";
+            if (file.isFile()) {
+                java.util.List<String> lines = java.nio.file.Files.readAllLines(
+                        file.toPath(), java.nio.charset.StandardCharsets.UTF_8);
+                String keyLine = null;
+                for (String l : lines) {
+                    if (l.trim().startsWith("earlyWindowControl")) {
+                        keyLine = l;
+                        break;
+                    }
+                }
+                if (keyLine != null) {
+                    String value = keyLine.substring(keyLine.indexOf('=') + 1)
+                            .split("#")[0].trim().replace("\"", "").replace("'", "");
+                    if (!"true".equalsIgnoreCase(value)) return; // 已是 false 或其它值：不动
+                    StringBuilder sb = new StringBuilder();
+                    for (String l : lines) {
+                        sb.append(l.equals(keyLine) ? keyLine.replaceFirst("(?i)true", "false") : l).append('\n');
+                    }
+                    java.nio.file.Files.write(file.toPath(),
+                            sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    diag("fml.toml -> earlyWindowControl=false (替换已有行)");
+                    return;
+                }
+                StringBuilder sb = new StringBuilder(line).append('\n');
+                for (String l : lines) sb.append(l).append('\n');
+                java.nio.file.Files.write(file.toPath(),
+                        sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                diag("fml.toml -> earlyWindowControl=false (追加)");
+                return;
+            }
+            if (!configDir.isDirectory() && !configDir.mkdirs()) return;
+            java.nio.file.Files.write(file.toPath(),
+                    ("# Written by Verse launcher: disable FML early loading window\n"
+                            + "# DisplayWindow calls glfwInit during startup scan and crashes the\n"
+                            + "# native GLFW bridge on some devices.\n"
+                            + line + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            diag("fml.toml -> earlyWindowControl=false (" + file.getAbsolutePath() + ")");
+        } catch (Exception e) {
+            diag("fml.toml write failed: " + e);
+        }
     }
 
     /**

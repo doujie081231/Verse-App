@@ -75,7 +75,8 @@ object RuntimeSetupManager {
         JAVA_8("Java 8", "Minecraft 1.7 - 1.16", "java/jre8", isJava = true),
         JAVA_17("Java 17", "Minecraft 1.18 - 1.20.4", "java/jre17", isJava = true),
         JAVA_21("Java 21", "Minecraft 1.20.5 - 1.21.x", "java/jre21", isJava = true),
-        JAVA_25("Java 25", "Minecraft 1.22+", "java/jre25", isJava = true, isOptional = true),
+        // 版本推断见 JavaRuntimeDetector：1.22+ 与 26.x（major>=22）都要求 Java 25
+        JAVA_25("Java 25", "Minecraft 1.22+ / 26.x", "java/jre25", isJava = true, isOptional = true),
         JNA("JNA", "Java 原生访问库", "jna", isJna = true)
     }
 

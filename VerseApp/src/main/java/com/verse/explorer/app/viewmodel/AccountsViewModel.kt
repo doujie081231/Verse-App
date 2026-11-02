@@ -45,6 +45,32 @@ sealed class MicrosoftLoginState {
     data object Cancelled : MicrosoftLoginState()
 }
 
+/**
+ * Verse 皮肤站快捷登录状态（设备码流程，与微软登录同构）。
+ *
+ * [Waiting] 附带设备码与授权页地址，账号页据此渲染内置浏览器 + 右下角识别码卡片。
+ */
+sealed class VerseLoginState {
+    data object Idle : VerseLoginState()
+
+    /** 正在向皮肤站申请设备码 */
+    data object Requesting : VerseLoginState()
+
+    /** 已拿到设备码，等待用户在浏览器里确认授权 */
+    data class Waiting(
+        val code: com.verse.explorer.core.account.VerseQuickLogin.DeviceCode,
+        val status: String,
+        /** 授权页地址（已带 user_code，网页端会预填验证码） */
+        val webUrl: String
+    ) : VerseLoginState()
+
+    data class Success(val account: Account) : VerseLoginState()
+
+    data class Failed(val message: String) : VerseLoginState()
+
+    data object Cancelled : VerseLoginState()
+}
+
 class AccountsViewModel(application: Application) : AndroidViewModel(application) {
 
     private val accountManager = VerseApplication.accountManager
@@ -201,6 +227,145 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
 
     suspend fun authenticateAuthlib(serverUrl: String, username: String, password: String): AuthResult {
         return authlibAuth.authenticate(serverUrl, username, password)
+    }
+
+    /** Verse 皮肤站快捷登录（设备码流程，见 VerseQuickLogin 的接口契约） */
+    private val verseQuickLogin = com.verse.explorer.core.account.VerseQuickLogin()
+
+    private val _verseLoginState = MutableStateFlow<VerseLoginState>(VerseLoginState.Idle)
+    val verseLoginState: StateFlow<VerseLoginState> = _verseLoginState.asStateFlow()
+
+    private var verseLoginJob: Job? = null
+
+    /**
+     * 发起 Verse 快捷登录：申请设备码 → 交给账号页用内置浏览器打开授权页 → 轮询 → 建档。
+     * 会话在 viewModelScope 里跑，用户退出浏览器页前轮询不受影响。
+     */
+    fun startVerseLogin(
+        serverUrl: String = com.verse.explorer.core.account.VerseQuickLogin.DEFAULT_SERVER
+    ) {
+        if (verseLoginJob?.isActive == true) {
+            VerseLogger.warn("Verse 登录：上次流程仍在进行，忽略重复启动", "VerseLogin")
+            return
+        }
+        val origin = verseQuickLogin.originOf(serverUrl)
+        if (origin.isBlank()) {
+            _verseLoginState.value = VerseLoginState.Failed("皮肤站地址无效")
+            return
+        }
+        _verseLoginState.value = VerseLoginState.Requesting
+        VerseLogger.info("Verse 登录：申请设备码 origin=$origin", "VerseLogin")
+        verseLoginJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val code = verseQuickLogin.requestDeviceCode(origin).getOrElse { e ->
+                    VerseLogger.error("Verse 登录：设备码申请失败 ${e.message}", "VerseLogin")
+                    _verseLoginState.value = VerseLoginState.Failed(e.message ?: "无法发起 Verse 快捷登录")
+                    return@launch
+                }
+                val webUrl = com.verse.explorer.core.account.VerseQuickLogin.authorizeUrl(code)
+                VerseLogger.info("Verse 登录：设备码 ${code.userCode} 授权页 $webUrl", "VerseLogin")
+                _verseLoginState.value = VerseLoginState.Waiting(code, "等待在浏览器中确认授权…", webUrl)
+
+                var intervalMs = code.intervalSec * 1000
+                val deadline = System.currentTimeMillis() + code.expiresInSec * 1000
+                var round = 0
+                while (true) {
+                    kotlinx.coroutines.delay(intervalMs)
+                    if (System.currentTimeMillis() > deadline) {
+                        _verseLoginState.value = VerseLoginState.Failed("授权码已过期，请点「重新授权」")
+                        return@launch
+                    }
+                    round++
+                    val result = verseQuickLogin.pollOnce(origin, serverUrl.trim(), code)
+                    when (result.state) {
+                        com.verse.explorer.core.account.VerseQuickLogin.PollState.PENDING -> {
+                            _verseLoginState.value = VerseLoginState.Waiting(
+                                code, "等待在浏览器中确认授权…（第 $round 次检查）", webUrl
+                            )
+                        }
+                        com.verse.explorer.core.account.VerseQuickLogin.PollState.SLOW_DOWN -> {
+                            intervalMs += 3000
+                            _verseLoginState.value = VerseLoginState.Waiting(
+                                code, "授权等待中（服务端要求放慢轮询）", webUrl
+                            )
+                        }
+                        com.verse.explorer.core.account.VerseQuickLogin.PollState.SUCCESS -> {
+                            val account = result.account?.account
+                            if (account == null) {
+                                _verseLoginState.value = VerseLoginState.Failed("登录失败：账号信息为空")
+                            } else {
+                                val saved = saveVerseAccount(account)
+                                VerseLogger.info(
+                                    "Verse 登录：成功 ${saved.username} (uuid=${saved.uuid})",
+                                    "VerseLogin"
+                                )
+                                _verseLoginState.value = VerseLoginState.Success(saved)
+                            }
+                            return@launch
+                        }
+                        else -> {
+                            _verseLoginState.value = VerseLoginState.Failed(
+                                result.message ?: "授权失败"
+                            )
+                            return@launch
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                VerseLogger.warn("Verse 登录：流程被取消", "VerseLogin")
+                _verseLoginState.value = VerseLoginState.Cancelled
+            } catch (e: Exception) {
+                VerseLogger.error("Verse 登录：异常 ${e.javaClass.simpleName}: ${e.message}", "VerseLogin")
+                _verseLoginState.value = VerseLoginState.Failed(e.message ?: "登录异常")
+            }
+        }
+    }
+
+    /** 重新授权：丢掉旧设备码重新申请（授权页打不开/验证码过期时用） */
+    fun restartVerseLogin(
+        serverUrl: String = com.verse.explorer.core.account.VerseQuickLogin.DEFAULT_SERVER
+    ) {
+        VerseLogger.info("Verse 登录：重新授权（重新申请设备码）", "VerseLogin")
+        verseLoginJob?.cancel()
+        verseLoginJob = null
+        _verseLoginState.value = VerseLoginState.Idle
+        startVerseLogin(serverUrl)
+    }
+
+    fun cancelVerseLogin() {
+        VerseLogger.warn("Verse 登录：取消（退出浏览器页）", "VerseLogin")
+        verseLoginJob?.cancel()
+        verseLoginJob = null
+        _verseLoginState.value = VerseLoginState.Cancelled
+    }
+
+    /** 复位状态，回到 Idle */
+    fun resetVerseLogin() {
+        if (verseLoginJob?.isActive != true) {
+            _verseLoginState.value = VerseLoginState.Idle
+        }
+    }
+
+    /** 同一角色已存在时更新令牌而不是重复添加 */
+    private suspend fun saveVerseAccount(account: Account): Account {
+        val existing = accounts.value.find {
+            it.uuid == account.uuid && it.type == AccountType.AUTHLIB
+        }
+        return if (existing != null) {
+            val merged = existing.copy(
+                username = account.username,
+                accessToken = account.accessToken,
+                serverUrl = account.serverUrl,
+                loginUsername = account.loginUsername,
+                skinUrl = account.skinUrl
+            )
+            accountManager.updateAccount(merged)
+            accountManager.selectAccount(existing.id)
+            merged
+        } else {
+            accountManager.addAccount(account.copy(selected = true))
+            account.copy(selected = true)
+        }
     }
 
     suspend fun verifyAuthlibServer(url: String): ServerInfo {
