@@ -43,6 +43,7 @@ private const val ICON_DECODE_SIZE_PX = 144
 @Composable
 internal fun ResourceSearchCard(
     hit: ModrinthSearchHit,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -61,7 +62,7 @@ internal fun ResourceSearchCard(
         }
     }
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(8.dp),

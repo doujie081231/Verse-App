@@ -68,7 +68,7 @@ object UpdateNotifier {
         )
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Verse Explorer X ${info.versionName} 已发布")
+            .setContentTitle("Verse App ${info.versionName} 已发布")
             .setContentText("快去更新体验吧！")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(

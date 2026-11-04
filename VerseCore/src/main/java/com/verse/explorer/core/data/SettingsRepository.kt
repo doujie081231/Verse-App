@@ -442,6 +442,14 @@ object SettingsRepository {
         prefs().edit().putString(KEY_GC_TYPE, gcType).apply()
     }
 
+    /** 已同意的协议版本（空串＝从未同意过） */
+    fun getAgreedAgreementVersion(): String =
+        prefs().getString("agreed_agreement_version", "") ?: ""
+
+    fun setAgreedAgreementVersion(version: String) {
+        prefs().edit().putString("agreed_agreement_version", version).apply()
+    }
+
     fun getCustomJvmArgs(): String = prefs().getString(KEY_CUSTOM_JVM_ARGS, DEFAULT_CUSTOM_JVM_ARGS) ?: DEFAULT_CUSTOM_JVM_ARGS
 
     fun setCustomJvmArgs(args: String) {

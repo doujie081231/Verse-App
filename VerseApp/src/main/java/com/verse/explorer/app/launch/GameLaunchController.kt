@@ -76,6 +76,12 @@ class GameLaunchController(private val context: Context) {
     private val _launchState = MutableStateFlow(LaunchState())
     val launchState: StateFlow<LaunchState> = _launchState.asStateFlow()
 
+    /** 清除上一次启动留下的失败状态（失败弹窗点「重试」时先复位） */
+    fun clearLaunchState() {
+        if (_launchState.value.isLaunching) return
+        _launchState.value = LaunchState()
+    }
+
     private val _vulkanGateDialog = MutableStateFlow<VulkanGateDialogState?>(null)
     /** 启动流程挂起等待的 Vulkan 对话框；非空时 UI 应展示对应对话框 */
     val vulkanGateDialog: StateFlow<VulkanGateDialogState?> = _vulkanGateDialog.asStateFlow()

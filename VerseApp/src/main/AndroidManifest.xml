@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 开机后重新排定版本更新检查（AlarmManager 定时在重启后被清空） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 后台更新检查：引导用户把应用加入电池优化白名单，否则定时闹钟会被系统限制 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -134,6 +136,11 @@
             android:process=":crash"
             android:hardwareAccelerated="true" />
 
+        <!-- 动效实验室（设置 → 关于 → 动效实验室）：仅用于查看 UI 动效效果 -->
+        <activity
+            android:name=".ui.lab.EffectsLabActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VerseExplorer" />
         <!-- 触控布局编辑器（设置 → 触控布局 → 本地布局「编辑」）：独立画布编辑布局 json -->
         <activity
             android:name=".ui.game.LayoutEditorActivity"

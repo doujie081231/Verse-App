@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil.compose.AsyncImage
 import com.verse.explorer.app.ui.components.RoseLoader
+import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
 import com.verse.explorer.app.ui.components.PcCompactSearchField
@@ -201,9 +203,10 @@ fun ModsScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
-                        items(display, key = { it.projectId }) { hit ->
+                        itemsIndexed(display, key = { _, it -> it.projectId }) { index, hit ->
                             ModListItem(
                                 hit = hit,
+                                modifier = Modifier.verseItemAppear(index),
                                 onClick = { navController.navigate("mod_detail/${hit.projectId}?source=${hit.source}") }
                             )
                         }
@@ -239,10 +242,12 @@ fun ModsScreen(
 @Composable
 private fun ModListItem(
     hit: ModrinthSearchHit,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     ResourceSearchCard(
         hit = hit,
+        modifier = modifier,
         onClick = onClick
     )
 }

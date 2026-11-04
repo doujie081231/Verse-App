@@ -267,6 +267,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                 _verseLoginState.value = VerseLoginState.Waiting(code, "等待在浏览器中确认授权…", webUrl)
 
                 var intervalMs = code.intervalSec * 1000
+                var consecutiveErrors = 0
                 val deadline = System.currentTimeMillis() + code.expiresInSec * 1000
                 var round = 0
                 while (true) {
@@ -279,6 +280,7 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                     val result = verseQuickLogin.pollOnce(origin, serverUrl.trim(), code)
                     when (result.state) {
                         com.verse.explorer.core.account.VerseQuickLogin.PollState.PENDING -> {
+                            consecutiveErrors = 0
                             _verseLoginState.value = VerseLoginState.Waiting(
                                 code, "等待在浏览器中确认授权…（第 $round 次检查）", webUrl
                             )
@@ -304,10 +306,25 @@ class AccountsViewModel(application: Application) : AndroidViewModel(application
                             return@launch
                         }
                         else -> {
-                            _verseLoginState.value = VerseLoginState.Failed(
-                                result.message ?: "授权失败"
+                            // 轮询期间的网络抖动不应直接判死（切网、锁屏、服务器瞬时 5xx）：
+                            // 连续失败 6 次（约 30 秒）才终止。只有明确的拒绝/过期才立即结束，
+                            // 这两类在上面分支已单独处理。
+                            consecutiveErrors++
+                            if (consecutiveErrors >= 6) {
+                                _verseLoginState.value = VerseLoginState.Failed(
+                                    result.message ?: "授权失败"
+                                )
+                                return@launch
+                            }
+                            VerseLogger.warn(
+                                "Verse 登录：轮询失败（第 $consecutiveErrors 次），继续重试 - ${result.message}",
+                                "VerseLogin"
                             )
-                            return@launch
+                            _verseLoginState.value = VerseLoginState.Waiting(
+                                code,
+                                "网络异常，正在重试（$consecutiveErrors/6）…",
+                                webUrl
+                            )
                         }
                     }
                 }

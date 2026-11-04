@@ -1193,6 +1193,27 @@ fun SettingsScreen(navController: NavHostController) {
                     item { AboutContent() }
 
                     item {
+                        PcCard(title = "动效实验室") {
+                            Column {
+                                Text(
+                                    text = "查看已接入的 UI 动效组件（骨架屏、模糊、彩带、拖拽排序、共享元素转场、Lottie）",
+                                    fontSize = 11.sp,
+                                    color = VerseColors.PcTextMuted
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                PcButton(
+                                    text = "打开动效实验室",
+                                    onClick = {
+                                        com.verse.explorer.app.ui.lab.EffectsLabActivity.start(context)
+                                    },
+                                    variant = PcButtonVariant.OUTLINE,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+
+                    item {
                         PcCard(title = "版本更新") {
                             Column {
                                 Text(
@@ -1200,6 +1221,47 @@ fun SettingsScreen(navController: NavHostController) {
                                     fontSize = 12.sp,
                                     color = VerseColors.PcTextSecondary
                                 )
+                                Spacer(Modifier.height(10.dp))
+                                // 后台检查状态：AlarmManager 每 6 小时唤醒一次。国产 ROM 常限制后台，
+                                // 未关闭电池优化时通知会被吞掉（反馈：只有打开应用才收到更新）
+                                val powerManager = context.getSystemService(android.content.Context.POWER_SERVICE)
+                                    as android.os.PowerManager
+                                var batteryIgnored by remember {
+                                    mutableStateOf(
+                                        runCatching {
+                                            powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                                        }.getOrDefault(false)
+                                    )
+                                }
+                                Text(
+                                    text = if (batteryIgnored) {
+                                        "后台更新检查：已允许（每 6 小时一次）"
+                                    } else {
+                                        "后台更新检查可能被系统限制，建议点下方按钮允许后台运行"
+                                    },
+                                    fontSize = 11.sp,
+                                    color = if (batteryIgnored) VerseColors.PcTextMuted else VerseColors.PcOrange
+                                )
+                                if (!batteryIgnored) {
+                                    Spacer(Modifier.height(8.dp))
+                                    PcButton(
+                                        text = "允许后台检查",
+                                        onClick = {
+                                            runCatching {
+                                                context.startActivity(
+                                                    android.content.Intent(
+                                                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                                        android.net.Uri.parse("package:${context.packageName}")
+                                                    )
+                                                )
+                                            }
+                                            batteryIgnored = runCatching {
+                                                powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                                            }.getOrDefault(false)
+                                        },
+                                        variant = PcButtonVariant.OUTLINE
+                                    )
+                                }
                                 Spacer(Modifier.height(10.dp))
                                 PcButton(
                                     text = if (checkingUpdate) "检查中..." else "检查更新",

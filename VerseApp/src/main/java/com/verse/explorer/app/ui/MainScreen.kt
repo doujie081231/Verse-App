@@ -295,6 +295,43 @@ fun MainScreen(
             importSource = shareImportUri,
             onHandled = onShareImportHandled
         )
+        // 协议门：首次使用与协议更新后强制确认，覆盖整个界面（不可取消）
+        var agreementReady by remember { mutableStateOf(isAgreementAccepted()) }
+        AgreementGate(onAgreed = { agreementReady = true })
+
+        // 月度赞助者感谢：每月只弹一次，延后 1.2s 等首屏稳定
+        val sponsorMonth = remember {
+            com.verse.explorer.app.data.SponsorRepository.load(context)
+        }
+        var sponsorToShow by remember {
+            mutableStateOf<com.verse.explorer.app.data.SponsorMonth?>(null)
+        }
+        LaunchedEffect(sponsorMonth, agreementReady) {
+            // 协议还没同意时先不弹：两个全屏弹窗叠在一起会互相遮挡
+            if (!agreementReady) return@LaunchedEffect
+            val month = sponsorMonth ?: return@LaunchedEffect
+            if (com.verse.explorer.app.data.SponsorRepository.shouldShowThisMonth(context, month.month)) {
+                kotlinx.coroutines.delay(1200)
+                sponsorToShow = month
+            }
+        }
+        sponsorToShow?.let { month ->
+            SponsorDialog(
+                month = month,
+                onDismiss = {
+                    com.verse.explorer.app.data.SponsorRepository.markShown(context, month.month)
+                    sponsorToShow = null
+                },
+                onGoSponsor = {
+                    com.verse.explorer.app.data.SponsorRepository.markShown(context, month.month)
+                    sponsorToShow = null
+                    runCatching {
+                        com.verse.explorer.app.util.IntentHelper.openUrl(context, SPONSOR_URL)
+                    }
+                }
+            )
+        }
+
         // 全局下载浮层:底部总进度条 + 可展开任务面板，任意页面可见；
         // 点任务卡片可跳回任务所属页面（版本/整合包下载弹窗支持最小化-恢复）
         DownloadDock(navController = navController)

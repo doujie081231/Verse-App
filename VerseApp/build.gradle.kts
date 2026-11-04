@@ -28,8 +28,8 @@ android {
         applicationId = "com.verse.explorer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 107
-        versionName = "1.3.3"
+        versionCode = 115
+        versionName = "1.3.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -208,6 +208,15 @@ dependencies {
     implementation("io.github.fornewid:material-motion-compose-core:1.2.1")
     // SVG 渲染支持(用于矢量图标):coil-svg 与 androidsvg 均在运行时解析,无需预转换资源
     implementation("io.coil-kt:coil-svg:2.7.0")
+    // ===== UI 动效组件库（先全部接入做效果验证）=====
+    // 骨架屏微光
+    implementation("com.valentinilk.shimmer:compose-shimmer:1.4.0")
+    // 纯 Kotlin 渲染的 Lottie 动效（不依赖原生 lottie）
+    implementation("io.github.alexzhirkevich:compottie:2.1.0")
+    // 彩带庆祝动效
+    implementation("io.github.vinceglb:confettikit:0.8.0")
+    // 列表/网格拖拽排序
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
     implementation("com.caverock:androidsvg-aar:1.4")
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

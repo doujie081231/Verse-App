@@ -174,7 +174,17 @@ fun HomeScreen(
         ) {
             PcLaunchOverlay(
                 launchState = launchState,
-                onDismiss = { launchOverlayDismissed = true }
+                onDismiss = { launchOverlayDismissed = true },
+                onRetry = {
+                    // 重试前清掉已关闭标记，新一轮启动重新显示过程
+                    launchOverlayDismissed = false
+                    launchController.clearLaunchState()
+                    launchController.launchGame(selectedVersionId)
+                },
+                onFeedback = {
+                    launchOverlayDismissed = true
+                    runCatching { navController.navigate(Screen.Console.route) }
+                }
             )
         }
 

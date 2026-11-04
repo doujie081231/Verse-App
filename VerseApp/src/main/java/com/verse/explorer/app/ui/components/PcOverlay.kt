@@ -100,7 +100,11 @@ fun PcLaunchOverlay(
     launchState: LaunchState,
     modifier: Modifier = Modifier,
     /** 游戏已进入创建窗口阶段时允许关闭提示（关闭后启动继续在后台进行） */
-    onDismiss: () -> Unit = {}
+    onDismiss: () -> Unit = {},
+    /** 启动失败后重新尝试启动 */
+    onRetry: () -> Unit = {},
+    /** 启动失败后携带日志提交反馈 */
+    onFeedback: () -> Unit = {}
 ) {
     val alphaAnim = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
@@ -131,8 +135,14 @@ fun PcLaunchOverlay(
     val showLog = launchState.phase == LaunchPhase.LAUNCHING
 
     Dialog(
-        onDismissRequest = {},
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        // 启动进行中不允许误关；失败后必须能退出——之前写死空实现，
+        // 返回键和点击外部都无效，用户只能强杀应用（反馈：启动报错无法关闭）
+        onDismissRequest = { if (isFailed) onDismiss() },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = isFailed,
+            dismissOnClickOutside = isFailed
+        )
     ) {
         Surface(
             modifier = modifier
@@ -272,11 +282,28 @@ fun PcLaunchOverlay(
                             maxLines = 4,
                             overflow = TextOverflow.Ellipsis
                         )
-                        PcButton(
-                            text = "导出日志",
-                            onClick = {},
-                            variant = PcButtonVariant.OUTLINE
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            PcButton(
+                                text = "重试",
+                                onClick = onRetry,
+                                variant = PcButtonVariant.PRIMARY,
+                                modifier = Modifier.weight(1f)
+                            )
+                            PcButton(
+                                text = "提交反馈",
+                                onClick = onFeedback,
+                                variant = PcButtonVariant.OUTLINE,
+                                modifier = Modifier.weight(1f)
+                            )
+                            PcButton(
+                                text = "关闭",
+                                onClick = onDismiss,
+                                variant = PcButtonVariant.OUTLINE
+                            )
+                        }
                     }
                 }
             }
@@ -307,7 +334,7 @@ fun PcLaunchOverlay(
                         )
                         PcButton(
                             text = "修复",
-                            onClick = {},
+                            onClick = onFeedback,
                             variant = PcButtonVariant.PRIMARY
                         )
                     }
