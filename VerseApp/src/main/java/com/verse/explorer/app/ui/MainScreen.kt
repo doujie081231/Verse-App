@@ -236,6 +236,7 @@ fun MainScreen(
             composable(Screen.Shaders.route) { ShadersScreen(navController) }
             composable(Screen.Settings.route) { SettingsScreen(navController) }
             composable(Screen.Accounts.route) { AccountsScreen(navController) }
+            composable("skin_library") { SkinLibraryScreen(navController) }
             composable(Screen.Lan.route) { LanScreen(navController) }
             composable(Screen.Transfer.route) { TransferScreen() }
             composable(Screen.Java.route) { JavaScreen(navController) }

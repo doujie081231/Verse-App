@@ -52,6 +52,14 @@ object Crit1 {
             if (lm.contains("The driver does not appear to support OpenGL")) {
                 CrashUtils.appendReason(reasons, CrashReason.GpuNoOpenGL, null)
             }
+            // Forge / NeoForge 的模块扫描器用 URI 打开模组 jar，路径里含 % # ? 等字符时
+            // java.nio 的 UnixUriUtils.fromUri 会抛 IllegalArgumentException: Bad escape。
+            // 文案复用已有的「无效路径」原因，指向同一个处置动作：改掉路径里的特殊字符。
+            if (lm.contains("Bad escape")
+                && (lm.contains("UnixUriUtils") || lm.contains("ModDirTransformerDiscoverer"))
+            ) {
+                CrashUtils.appendReason(reasons, CrashReason.InvalidPath, null)
+            }
             if (lm.contains("java.lang.ClassCastException: java.base/jdk")
                 || lm.contains("java.lang.ClassCastException: class jdk.")
             ) {

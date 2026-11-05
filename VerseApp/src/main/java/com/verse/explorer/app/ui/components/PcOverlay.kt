@@ -279,9 +279,23 @@ fun PcLaunchOverlay(
                             text = errorMessage,
                             fontSize = 12.sp,
                             color = VerseColors.PcTextSecondary,
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis
+                            // 长报错不再截断成 4 行：小屏上信息看不全等于没有错误信息，
+                            // 这里限高后允许滚动查看
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 132.dp)
+                                .verticalScroll(rememberScrollState())
                         )
+                        // 已知失败模式的处置建议：日志里的原始报错对玩家没有可操作性，
+                        // 这里只挑能对症的动作（换渲染器 / 换 Java 版本），不做臆测性的判断
+                        launchFailureAdvice(errorMessage)?.let { advice ->
+                            Text(
+                                text = advice,
+                                fontSize = 11.sp,
+                                color = VerseColors.PcTextMuted,
+                                lineHeight = 16.sp
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -360,5 +374,36 @@ fun PcLaunchOverlay(
             }
         }
         }
+    }
+}
+
+/**
+ * 把已知的失败特征映射成一条可操作的建议。
+ *
+ * 只覆盖两类在反馈里反复出现、且有明确处置动作的情况：
+ *  1. 渲染后端不可用（游戏要求 Vulkan 1.2 / 更高 OpenGL，设备驱动不满足）；
+ *  2. JRE 在设备上直接崩（SIGILL in System.registerNatives，CPU 指令不兼容）。
+ * 其余错误返回 null，不猜原因。
+ */
+private fun launchFailureAdvice(message: String): String? {
+    val m = message.lowercase()
+    return when {
+        m.contains("no supported graphics backend") ||
+            m.contains("does not support vulkan") ||
+            m.contains("device missing capabilities") ||
+            m.contains("glgeterror mismatch") ->
+            "诊断：该游戏版本要求 Vulkan 1.2（dynamicRendering / synchronization2），当前系统驱动不满足。" +
+                "可在「设置 → Vulkan 驱动器」切换为 Turnip（Adreno 专用），" +
+                "或在「设置 → 渲染器」更换渲染驱动后重试。"
+
+        m.contains("sigill") || m.contains("registernatives") || m.contains("hs_err") ->
+            "诊断：Java 运行时在该设备上崩溃（SIGILL，CPU 指令不兼容）。" +
+                "可在「设置 → Java 版本」改为 Java 21（或 25）后重试。"
+
+        m.contains("bad escape") || m.contains("unixuriutils") ->
+            "诊断：Forge 无法解析当前文件路径（Bad escape）。" +
+                "请把实例目录名与模组文件名中的 % # ? 等特殊字符去掉，改成英文或数字后重试。"
+
+        else -> null
     }
 }

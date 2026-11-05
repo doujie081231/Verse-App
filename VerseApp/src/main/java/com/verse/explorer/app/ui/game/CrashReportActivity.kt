@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.GridLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -82,8 +83,11 @@ class CrashReportActivity : Activity() {
 
     private fun buildLayout(): View {
         val density = resources.displayMetrics.density
+        val screenWidthDp = resources.configuration.screenWidthDp
+        // 宽屏（平板/横屏）保留左右分栏；窄屏改上下布局，避免右侧固定栏把左侧文字挤没
+        val wide = screenWidthDp >= 600
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = if (wide) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = 14 * density
                 setColor(VerseColors.PcBgPrimary.toArgb())
@@ -91,7 +95,7 @@ class CrashReportActivity : Activity() {
             setPadding((10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt(), (10 * density).toInt())
         }
 
-        // ===== 左侧：分析内容 =====
+        // ===== 分析内容 =====
         scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = true
         }
@@ -101,17 +105,19 @@ class CrashReportActivity : Activity() {
         scroll.addView(contentColumn, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ))
-        root.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
-            marginEnd = (10 * density).toInt()
-        })
 
         val actions = card(VerseColors.PcBgSecondary.toArgb(), 10f, 10f).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
-        actions.addView(text("崩溃分析", 16f, VerseColors.PcTextPrimary.toArgb(), bold = true).apply {
+        // 这里是「报告」的标题，不是按钮：原先写成「崩溃分析」，玩家会以为点了才分析
+        actions.addView(text("崩溃报告", 16f, VerseColors.PcTextPrimary.toArgb(), bold = true).apply {
             gravity = Gravity.CENTER
-            setPadding(0, (4 * density).toInt(), 0, (10 * density).toInt())
+            setPadding(0, (4 * density).toInt(), 0, (2 * density).toInt())
+        })
+        actions.addView(text("已自动分析，无需手动操作", 10f, VerseColors.PcTextMuted.toArgb()).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, (8 * density).toInt())
         })
 
         fun actionButton(label: String, accent: Boolean, onClick: () -> Unit): Button =
@@ -125,23 +131,67 @@ class CrashReportActivity : Activity() {
                     setColor(if (accent) VerseColors.PcAccent.toArgb() else VerseColors.PcBgTertiary.toArgb())
                 }
                 setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (8 * density).toInt() }
+                minHeight = 0
+                minimumHeight = 0
                 setOnClickListener { onClick() }
             }
 
-        actions.addView(
-            if (appCrash) actionButton("重新启动应用", true) { restartApp() }
-            else actionButton("重启游戏", true) { restartGame() }
-        )
-        actions.addView(actionButton("导出分析日志", false) { exportReport() })
-        actions.addView(actionButton("复制分析结果", false) { copyReport() })
-        actions.addView(actionButton("退出", false) {
-            // 当前进程里的 JVM 已失效，结束进程避免下次在同一进程重复创建 JVM
-            finishAffinity()
-            killProcessSoon()
-        })
+        val reanalyze = actionButton("重新分析", false) {
+            contentColumn.removeAllViews()
+            startAnalysis()
+        }
+
+        if (wide) {
+            val primary = if (appCrash) {
+                actionButton("重新启动应用", true) { restartApp() }
+            } else {
+                actionButton("重启游戏", true) { restartGame() }
+            }
+            actions.addView(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            })
+            actions.addView(reanalyze, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            })
+            actions.addView(actionButton("导出分析日志", false) { exportReport() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            })
+            actions.addView(actionButton("复制分析结果", false) { copyReport() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = (8 * density).toInt()
+            })
+            actions.addView(actionButton("退出", false) {
+                finishAffinity()
+                killProcessSoon()
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else {
+            // 窄屏：两列网格，五个按钮压到三行，避免按钮区把正文顶出去
+            val grid = GridLayout(this).apply {
+                columnCount = 2
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            fun put(label: String, accent: Boolean, onClick: () -> Unit) {
+                val b = actionButton(label, accent, onClick)
+                val lp = GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1, 1f)
+                    setMargins(0, 0, (6 * density).toInt(), (6 * density).toInt())
+                }
+                grid.addView(b, lp)
+            }
+            if (appCrash) put("重新启动应用", true) { restartApp() } else put("重启游戏", true) { restartGame() }
+            put("重新分析", false) {
+                contentColumn.removeAllViews()
+                startAnalysis()
+            }
+            put("导出分析日志", false) { exportReport() }
+            put("复制分析结果", false) { copyReport() }
+            put("退出", false) {
+                finishAffinity()
+                killProcessSoon()
+            }
+            actions.addView(grid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
 
         val tip = text(
             "提示：崩溃日志已保存，重启前可先导出分析结果。\n重启游戏将重新启动当前版本。",
@@ -149,7 +199,20 @@ class CrashReportActivity : Activity() {
         )
         actions.addView(tip)
 
-        root.addView(actions, LinearLayout.LayoutParams((150 * density).toInt(), ViewGroup.LayoutParams.MATCH_PARENT))
+        if (wide) {
+            root.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginEnd = (10 * density).toInt()
+            })
+            val sideWidth = minOf((150 * density).toInt(), (resources.displayMetrics.widthPixels * 0.34f).toInt())
+            root.addView(actions, LinearLayout.LayoutParams(sideWidth, ViewGroup.LayoutParams.MATCH_PARENT))
+        } else {
+            root.addView(scroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+            ))
+            root.addView(actions, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = (8 * density).toInt() })
+        }
         return root
     }
 

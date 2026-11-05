@@ -205,6 +205,15 @@ fun AccountsScreen(
                         onSelectAccount = { id -> scope.launch { viewModel.selectAccount(id) } }
                     )
                 }
+                // 皮肤库入口：仅对 Verse 皮肤站账号有意义（页面内会校验并给出说明）
+                PcButton(
+                    text = "皮肤库",
+                    onClick = { navController.navigate("skin_library") },
+                    variant = PcButtonVariant.SECONDARY,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = 10.dp)
+                )
                 Text(
                     text = "← 左右拖动切换账号，最左侧可添加 →",
                     fontSize = 12.sp,
@@ -475,14 +484,14 @@ fun AccountsScreen(
     AnimatedVisibility(
         visible = showMsaWeb,
         modifier = Modifier.fillMaxSize(),
+        // 只做位移、不做 alpha 淡入：WebView 是独立图层，整页参与 alpha 合成时
+        // 首帧会露出白底（打开授权页闪屏的根因之一）
         enter = slideInHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
-        ) { it / 3 } +
-            fadeIn(tween(220)),
+        ) { it / 3 },
         exit = slideOutHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
-        ) { it / 3 } +
-            fadeOut(tween(220))
+        ) { it / 3 }
     ) {
         androidx.activity.compose.BackHandler {
             viewModel.cancelMicrosoftLogin()
@@ -508,12 +517,13 @@ fun AccountsScreen(
     AnimatedVisibility(
         visible = showVerseWeb && verseWaiting != null,
         modifier = Modifier.fillMaxSize(),
+        // 同微软登录：只做位移、不做 alpha 淡入，避免 WebView 首帧白底闪屏
         enter = slideInHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
-        ) { it / 3 } + fadeIn(tween(220)),
+        ) { it / 3 },
         exit = slideOutHorizontally(
             animationSpec = tween(340, easing = FastOutSlowInEasing)
-        ) { it / 3 } + fadeOut(tween(220))
+        ) { it / 3 }
     ) {
         androidx.activity.compose.BackHandler {
             viewModel.cancelVerseLogin()

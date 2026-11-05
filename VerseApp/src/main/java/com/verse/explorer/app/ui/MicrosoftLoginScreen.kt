@@ -23,6 +23,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -108,6 +109,11 @@ fun DeviceCodeBrowserScreen(
     // 当前页面地址（顶栏展示用）；加载中的地址变化只影响显示
     var currentUrl by remember { mutableStateOf(webUrl) }
     var isWebLoading by remember { mutableStateOf(true) }
+    // 页面首帧是否已真正绘制：为 false 时用不透明底色遮住 WebView。
+    // WebView 在加载/重定向前会先出一帧白底，这是"打开登录页闪屏/白闪"的根因；
+    // onPageCommitVisible 是系统为此提供的回调（页面内容已提交到合成器），
+    // 收到后再淡出遮罩，遮罩本身是纯色、不参与 WebView 图层合成。
+    var webContentReady by remember { mutableStateOf(false) }
     val webViewHolder = remember { mutableStateOf<WebView?>(null) }
 
     // 父级换了新授权页地址（重新授权拿到新设备码）时，直接在同一个 WebView 里重载
@@ -116,6 +122,7 @@ fun DeviceCodeBrowserScreen(
         if (webUrl.isNotBlank() && wv.url != webUrl) {
             VerseLogger.info("浏览器页：授权页地址更新，重新加载 $webUrl", BROWSER_LOG_TAG)
             isWebLoading = true
+            webContentReady = false
             runCatching { wv.loadUrl(webUrl) }
         }
     }
@@ -231,6 +238,16 @@ fun DeviceCodeBrowserScreen(
                                     VerseLogger.info("浏览器页：onPageFinished url=${url ?: "<null>"}（页面加载完成标志：若始终没有这条日志，则页面从未加载成功=打不开）", BROWSER_LOG_TAG)
                                     currentUrl = url ?: ""
                                     isWebLoading = false
+                                    // 兜底：个别页面不会回调 onPageCommitVisible，
+                                    // 加载完成即可认为可以展示真实内容
+                                    webContentReady = true
+                                }
+
+                                // API 23+：首帧内容已提交到合成器，是撤掉白屏遮罩的最佳时机
+                                override fun onPageCommitVisible(view: WebView?, url: String?) {
+                                    super.onPageCommitVisible(view, url)
+                                    VerseLogger.info("浏览器页：onPageCommitVisible url=${url ?: "<null>"}（首帧可见，撤掉遮罩）", BROWSER_LOG_TAG)
+                                    webContentReady = true
                                 }
 
                                 // API 23+：主框架/子资源加载出错（含 ERR_ 系列错误码）
@@ -331,6 +348,21 @@ fun DeviceCodeBrowserScreen(
                     // 不在此处重复加载 url
                 }
             )
+
+            // 首帧遮罩：纯色不透明层盖住 WebView，等页面内容真正提交后淡出。
+            // 遮罩只画底色，不与 WebView 图层做 alpha 合成，因此不会引入二次闪屏。
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !webContentReady,
+                modifier = Modifier.fillMaxSize(),
+                enter = fadeIn(tween(120)),
+                exit = fadeOut(tween(200))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(VerseColors.PcBgPrimary)
+                )
+            }
 
             // 加载进度：固定 3dp 覆盖层 + 透明度渐变，始终不改变 WebView 的布局尺寸
             val barAlpha by animateFloatAsState(

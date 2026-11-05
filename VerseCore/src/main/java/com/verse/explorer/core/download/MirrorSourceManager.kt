@@ -84,11 +84,21 @@ object MirrorSourceManager {
         if (source == "mojang") return listOf(originalUrl)
 
         val bmclapiUrl = applyMirror(originalUrl, MOJANG_TO_BMCLAPI)
+        // BMCLAPI 会把文件 302 到各地 CDN 节点，个别节点在部分运营商网络下不可达
+        // （实测 26.3 的 jtracy 在移动网络下跳转到境外节点后连接超时，
+        //  官方源又极慢，导致"所有镜像均不可用"）。
+        // bmclapi.bangbang93.com 与 bmclapi2 是不同入口，会分配到不同节点，
+        // 作为同一文件的备用候选——任一入口给出可达节点即可下完。
+        val bmclapiAltUrl = bmclapiUrl.replace(
+            "https://bmclapi2.bangbang93.com",
+            "https://bmclapi.bangbang93.com"
+        )
         val aliyunUrl = applyMirror(originalUrl, LIBRARIES_TO_ALIYUN)
         val resourceUrl = applyResourceMirror(originalUrl)
 
         val mirrorUrls = mutableListOf<String>()
         if (bmclapiUrl != originalUrl) mirrorUrls.add(bmclapiUrl)
+        if (bmclapiAltUrl != bmclapiUrl && bmclapiAltUrl !in mirrorUrls) mirrorUrls.add(bmclapiAltUrl)
         if (aliyunUrl != originalUrl && aliyunUrl !in mirrorUrls) mirrorUrls.add(aliyunUrl)
         if (resourceUrl != originalUrl && resourceUrl !in mirrorUrls) mirrorUrls.add(resourceUrl)
 
