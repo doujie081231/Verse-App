@@ -191,6 +191,16 @@ fun ModDetailScreen(
 
     // ===== 整合包下载/安装弹窗状态（已提升为 ModpackInstallSession，可最小化后从小窗恢复） =====
     val modpackState by ModpackInstallSession.state.collectAsState()
+    val ownModpackState = modpackState.takeIf {
+        projectType == "modpack" && selectedVersion?.let { "$modpackKeyPrefix${it.id}" } == it.downloadKey &&
+            ModpackInstallSession.belongsTo(projectId)
+    }
+    val modpackResultText = when (ownModpackState?.phase) {
+        ModpackInstallPhase.DONE -> "整合包安装完成"
+        ModpackInstallPhase.FAILED -> ownModpackState.error ?: "整合包安装失败"
+        ModpackInstallPhase.CANCELLED -> "已取消"
+        else -> null
+    }
     val minimizedKeys by DownloadCenter.minimizedKeys.collectAsState()
     /** 本页整合包详情的导航路由（小窗点击任务跳回） */
     val modpackRoute = "modpack_detail/$projectId?source=$source"
@@ -329,43 +339,12 @@ fun ModDetailScreen(
         scope.launch { fetchData() }
     }
 
-    fun runModpackInstall(
-        appContext: android.content.Context,
-        file: File?,
-        name: String?,
-        ver: ResourceVersion?,
-        iconFile: File?
-    ) {
-        if (file == null || !file.exists()) return
-        // 安装链路整体迁入 ModpackInstallSession（页面退出后弹窗状态仍存活，
-        // 并向下载中心提交独占镜像条目驱动小窗的总安装百分比）
-        ModpackInstallSession.onFinished = { success, error ->
-            Schedulers.androidUIThread().execute {
-                if (success) {
-                    downloadDone = true
-                    downloadText = "整合包安装完成"
-                } else {
-                    downloadError = error ?: "整合包安装失败"
-                    downloadText = downloadError ?: "整合包安装失败"
-                }
-            }
-        }
-        ModpackInstallSession.beginInstall(
-            appContext = appContext,
-            file = file,
-            name = name,
-            iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() },
-            zipCache = file,
-            iconCache = iconFile
-        )
-    }
-
     /**
      * 整合包下载 + 安装（像下载版本一样弹出下载弹窗）：
      * 1. 整合包 .mrpack 文件提交到下载中心下载（应用级协程，退出页面不中断），
      *    弹窗第一阶段"下载整合包文件"订阅队列条目进度；
      *    下载完成后同步取整合包项目图标，供安装后作为版本图标；
-     * 2. 下载完成后走安装链路（见 runModpackInstall），每个阶段以任务事件形式
+     * 2. 下载完成后走安装链路（见 ModpackInstallSession.beginInstall），每个阶段以任务事件形式
      *    逐阶段展示在弹窗中；下载源由引擎（BMCLAPI）负责，不自研。
      *
      * @param name 版本名（命名弹窗确认值；为 null 时默认取整合包标题）
@@ -387,6 +366,7 @@ fun ModDetailScreen(
             DownloadCenterState.RUNNING -> {
                 ModpackInstallSession.beginDownloadPhase(
                     projectId = projectId,
+                    downloadKey = itemKey,
                     route = modpackRoute,
                     title = project?.title ?: ver.versionNumber,
                     iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
@@ -406,19 +386,31 @@ fun ModDetailScreen(
         downloadText = "准备下载整合包..."
         ModpackInstallSession.beginDownloadPhase(
             projectId = projectId,
+            downloadKey = itemKey,
             route = modpackRoute,
             title = project?.title ?: ver.versionNumber,
             iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
         )
         val appContext = context.applicationContext
         val runName = name ?: project?.title?.trim()?.takeIf { it.isNotBlank() }
+        val installIconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
         val zipRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
         val iconRef = java.util.concurrent.atomic.AtomicReference<File?>(null)
         DownloadCenter.submit(
             key = itemKey,
             title = project?.title ?: ver.versionNumber,
             // 待安装动作：下载完成后（本页自动续接或重新进入本页时）执行安装
-            installAction = Runnable { runModpackInstall(appContext, zipRef.get(), runName, ver, iconRef.get()) },
+            installAction = Runnable {
+                val file = zipRef.get()?.takeIf { it.exists() } ?: return@Runnable
+                ModpackInstallSession.beginInstall(
+                    appContext = appContext,
+                    file = file,
+                    name = runName,
+                    iconUrl = installIconUrl,
+                    zipCache = file,
+                    iconCache = iconRef.get()
+                )
+            },
             cleanupAction = Runnable {
                 runCatching { zipRef.get()?.delete() }
                 runCatching { iconRef.get()?.delete() }
@@ -445,11 +437,10 @@ fun ModDetailScreen(
                 result.getOrNull()?.let { zipRef.set(it) }
                 if (result.isSuccess) {
                     // 整合包项目图标：下载阶段取得，安装后作为版本图标（失败不影响安装）
-                    val iconUrl = project?.iconUrl?.takeIf { it.isNotBlank() }
-                    if (iconUrl != null) {
+                    if (installIconUrl != null) {
                         iconRef.set(
                             repository.downloadIcon(
-                                url = iconUrl,
+                                url = installIconUrl,
                                 destFile = File(appContext.cacheDir, "modpack_icon_${ver.id}.png"),
                                 isCancelled = isCancelled
                             )
@@ -1057,7 +1048,8 @@ fun ModDetailScreen(
                                                     selectedVersion = version
                                                     if (isSelected && !downloading) beginInstall()
                                                 },
-                                                selected = isSelected && !downloading && !downloadDone,
+                                                selected = isSelected && !downloading && !downloadDone &&
+                                                    ownModpackState?.phase != ModpackInstallPhase.DONE,
                                                 downloading = centerItem?.state == DownloadCenterState.RUNNING,
                                                 downloadProgress = centerItem?.progress?.coerceAtLeast(0f) ?: 0f,
                                                 downloadText = centerItem?.let {
@@ -1068,7 +1060,7 @@ fun ModDetailScreen(
                                                             append(formatSpeed(it.speed))
                                                         }
                                                     }
-                                                } ?: (if (isSelected) downloadText else ""),
+                                                } ?: (if (isSelected) modpackResultText ?: downloadText else ""),
                                                 downloadDone = false,
                                                 downloadError = null,
                                                 onDownload = { beginInstall() },

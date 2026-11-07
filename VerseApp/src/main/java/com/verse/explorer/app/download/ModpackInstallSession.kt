@@ -54,9 +54,6 @@ object ModpackInstallSession {
     private var zipFile: java.io.File? = null
     private var iconFile: java.io.File? = null
 
-    /** 安装完成回调（页面刷新版本列表等），主线程调用 */
-    var onFinished: ((success: Boolean, error: String?) -> Unit)? = null
-
     init {
         VerseApplication.instance.appScope.launch {
             for (ev in events) {
@@ -74,6 +71,7 @@ object ModpackInstallSession {
      */
     fun beginDownloadPhase(
         projectId: String,
+        downloadKey: String,
         route: String?,
         title: String,
         iconUrl: String?
@@ -83,6 +81,7 @@ object ModpackInstallSession {
         this.dialogKey = "modpack-install:$projectId"
         _state.value = ModpackInstallUiState(
             visible = true,
+            downloadKey = downloadKey,
             title = title,
             iconUrl = iconUrl,
             phase = ModpackInstallPhase.DOWNLOAD_FILE
@@ -129,6 +128,7 @@ object ModpackInstallSession {
         // 弹窗标题沿用下载阶段设定的项目标题；zip 直装（无下载阶段）时退回安装名
         _state.value = ModpackInstallUiState(
             visible = !DownloadCenter.isMinimized(dialogKey ?: ""),
+            downloadKey = _state.value.downloadKey,
             title = _state.value.title.ifBlank { name ?: "整合包" },
             iconUrl = iconUrl ?: _state.value.iconUrl,
             phase = ModpackInstallPhase.DOWNLOAD_FILE
@@ -202,7 +202,6 @@ object ModpackInstallSession {
         result.fold(
             onSuccess = {
                 _state.update { it.copy(phase = ModpackInstallPhase.DONE) }
-                onFinished?.invoke(true, null)
             },
             onFailure = { e ->
                 val cancelled = e is ModpackInstallCancelledException ||
@@ -214,7 +213,6 @@ object ModpackInstallSession {
                         error = e.message ?: "整合包安装失败"
                     )
                 }
-                onFinished?.invoke(false, if (cancelled) "已取消" else e.message ?: "整合包安装失败")
             }
         )
     }

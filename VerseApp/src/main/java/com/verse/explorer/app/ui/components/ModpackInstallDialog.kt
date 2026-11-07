@@ -82,7 +82,8 @@ data class ModpackInstallUiState(
     /** 整合包文件下载阶段的实时速度（字节/秒，来自下载中心条目上报） */
     val downloadSpeed: Long = 0,
     val rows: List<ModpackStageRow> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val downloadKey: String? = null
 ) {
     /**
      * 总进度：固定权重加权（阶段未开始记 0，完成记满）——
