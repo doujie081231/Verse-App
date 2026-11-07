@@ -10,7 +10,7 @@ import com.verse.explorer.app.download.DownloadCenter
 import com.verse.explorer.app.ui.VerseLogger
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
-import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.launcher.adapter.install.ModpackInstaller
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.version.VersionManager
 import com.tungsten.fclcore.task.Schedulers
@@ -76,7 +76,7 @@ fun ModpackImportFlow(
                     false
                 } else {
                     val title = try {
-                        ModpackInstaller.readModpack(file).name.trim()
+                        ModpackInstaller.readName(file).trim()
                     } catch (e: Exception) {
                         VerseLogger.warn("整合包格式识别失败: ${e.message}", "ModpackImport")
                         ""

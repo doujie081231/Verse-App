@@ -8,7 +8,7 @@ import com.verse.explorer.app.ui.components.ModpackRowStatus
 import com.verse.explorer.app.ui.components.applyTaskEvent
 import com.verse.explorer.app.ui.components.withFixedStageRows
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
-import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.launcher.adapter.install.ModpackInstaller
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay

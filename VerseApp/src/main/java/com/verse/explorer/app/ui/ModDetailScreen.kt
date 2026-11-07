@@ -61,7 +61,7 @@ import com.verse.explorer.app.ui.components.VersionNamingDialog
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.install.modpack.ModpackInstallCancelledException
-import com.verse.explorer.core.install.modpack.ModpackInstaller
+import com.verse.explorer.launcher.adapter.install.ModpackInstaller
 import com.verse.explorer.core.install.modpack.ModpackTaskEvent
 import com.verse.explorer.core.resource.ResourceDetail
 import com.verse.explorer.core.resource.ResourceRepository

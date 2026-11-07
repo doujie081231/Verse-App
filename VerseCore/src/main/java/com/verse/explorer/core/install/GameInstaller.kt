@@ -51,7 +51,10 @@ enum class InstallStage {
     FAILED
 }
 
-class GameInstaller(private val context: Context) {
+class GameInstaller(
+    private val context: Context,
+    private val loaderBackend: com.verse.explorer.core.install.loader.LoaderInstallBackend
+) {
 
     private val gameDir = GameConfig.getGameDir(context)
     private val versionsDir = GameConfig.getVersionsDir(gameDir)
@@ -477,7 +480,7 @@ class GameInstaller(private val context: Context) {
                         "安装 $loaderType $loaderVersion...",
                         0.92f
                     ))
-                    val loaderResult = com.verse.explorer.core.install.loader.FclLoaderInstaller.installFcl(
+                    val loaderResult = loaderBackend.install(
                         gameDir = gameDir,
                         versionId = version.id,
                         loaderType = loaderType,

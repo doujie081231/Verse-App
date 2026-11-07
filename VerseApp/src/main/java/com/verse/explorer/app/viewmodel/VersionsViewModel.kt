@@ -54,7 +54,7 @@ class VersionsViewModel(application: Application) : AndroidViewModel(application
     private val versionManager: VersionManager
         get() = VersionManager(gameDir)
 
-    private val gameInstaller = GameInstaller(application)
+    private val gameInstaller = GameInstaller(application, com.verse.explorer.launcher.adapter.install.FclLoaderInstaller)
 
     private val _uiState = MutableStateFlow(VersionsUiState())
     val uiState: StateFlow<VersionsUiState> = _uiState.asStateFlow()
