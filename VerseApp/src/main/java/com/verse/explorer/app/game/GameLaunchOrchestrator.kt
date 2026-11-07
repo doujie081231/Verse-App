@@ -25,7 +25,9 @@ import com.tungsten.fcl.game.sdl.SdlBridge
 import com.tungsten.fcl.setting.MenuSetting
 import com.tungsten.fclauncher.bridge.FCLBridge
 import com.tungsten.fclauncher.bridge.FCLBridgeCallback
+import com.verse.explorer.core.launch.GameSessionLifecycle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 class GameLaunchOrchestrator(
     private val activity: ComponentActivity,
@@ -59,14 +62,9 @@ class GameLaunchOrchestrator(
     private var launchParams: GameLaunchParams? = null
     private var currentGameDir: File? = null
     private var currentVersionId: String? = null
-    private var hasLaunched = false
-    private var isLaunching = false
-
-    /** 崩溃分析页是否已拉起：退出回调与协程两条路径只允许拉起一次 */
-    @Volatile
-    private var crashPageShown = false
-    // JVM 是否已启动过（bridge.execute 已调用）：用于保护 stopGame/release 中的 nativeSetInputReady(false)，
-    private var jvmStarted = false
+    private val lifecycle = GameSessionLifecycle()
+    private var launchJob: Job? = null
+    private val crashPageShown = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val surfaceDeferred = CompletableDeferred<Surface>()
@@ -109,32 +107,23 @@ class GameLaunchOrchestrator(
             return
         }
 
-        if (hasLaunched) {
-            VerseLogger.warn("重复调用 startLaunch，已忽略", TAG)
+        if (!lifecycle.beginLaunch()) {
+            VerseLogger.warn("会话已开始或已停止，忽略启动请求", TAG)
             return
         }
-        if (isLaunching) {
-            VerseLogger.warn("正在启动中，忽略重复调用", TAG)
-            return
-        }
-
-        hasLaunched = true
-        isLaunching = true
-        crashPageShown = false
 
         statusOverlay.show()
         statusOverlay.setTitle("正在启动游戏...")
         statusOverlay.setMessage("版本: ${params.versionId}")
         statusOverlay.setIndeterminate(true)
 
-        scope.launch {
+        launchJob = scope.launch {
             try {
                 launchGameInternal(params)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
                 VerseLogger.error("启动异常: ${e.message}", TAG)
-                isLaunching = false
                 if (isActivityAlive()) {
                     withContext(Dispatchers.Main) {
                         statusOverlay.setTitle("启动失败")
@@ -152,7 +141,6 @@ class GameLaunchOrchestrator(
     }
 
     fun handleGameExit(code: Int) {
-        isLaunching = false
         VerseLogger.info("游戏退出，code=$code", TAG)
 
         // 退出码 6/-1 这类原生崩溃，latest.log 里只有一行被截断的堆栈摘要，
@@ -164,8 +152,7 @@ class GameLaunchOrchestrator(
         // JVM 退出后 native 的 exit trap 立刻把 :game 进程带走，协程还没切到主线程
         // 进程就没了（真机日志停在“游戏退出，code=-1”，崩溃页从未出现）。
         // 崩溃页运行在独立 :crash 进程，这里只发出一次 startActivity 即可。
-        if (code != 0 && !crashPageShown) {
-            crashPageShown = true
+        if (code != 0 && crashPageShown.compareAndSet(false, true)) {
             runCatching { showCrashReportPage(code) }
                 .onSuccess { VerseLogger.info("崩溃分析页已拉起（同步，退出码 $code）") }
                 .onFailure { VerseLogger.error("拉起崩溃分析页失败: ${it.message}") }
@@ -193,9 +180,9 @@ class GameLaunchOrchestrator(
 
                 val crashReport = currentGameDir?.let { CrashDetector.getLatestCrashReport(it) }
 
-                if (isActivityAlive() && !crashPageShown) {
+                if (code != 0 && isActivityAlive()) {
                     withContext(Dispatchers.Main) {
-                        crashPageShown = true
+                        if (!crashPageShown.compareAndSet(false, true)) return@withContext
                         showCrashReportPage(code)
                         VerseLogger.info("崩溃分析页已展示（crashReport=${crashReport != null}）")
                     }
@@ -209,57 +196,27 @@ class GameLaunchOrchestrator(
     }
 
     fun stopGame() {
-        VerseLogger.info("stopGame 被调用", TAG)
-        try {
-            JvmLauncherAPI.nativeDestroyJVM()
-        } catch (e: Exception) {
-            VerseLogger.warn("nativeDestroyJVM 失败: ${e.message}", TAG)
-        }
-        try {
-            fclBridge?.thread?.interrupt()
-        } catch (e: Exception) {
-            VerseLogger.warn("中断游戏线程失败: ${e.message}", TAG)
-        }
-        try {
-            // 仅当 JVM 已启动过才复位输入：类从未初始化时调用 nativeSetInputReady 会触发
-            if (jvmStarted) {
-                CallbackBridge.nativeSetInputReady(false)
-            }
-        } catch (e: Exception) {
-            VerseLogger.warn("nativeSetInputReady 失败: ${e.message}", TAG)
-        }
-        isLaunching = false
+        val action = lifecycle.stop()
+        if (action == GameSessionLifecycle.Stop.ALREADY_STOPPED) return
+        launchJob?.cancel()
+        surfaceDeferred.cancel()
+        if (action == GameSessionLifecycle.Stop.BEFORE_JVM) return
+
+        runCatching { JvmLauncherAPI.nativeDestroyJVM() }
+            .onFailure { VerseLogger.warn("nativeDestroyJVM 失败: ${it.message}", TAG) }
+        runCatching { fclBridge?.thread?.interrupt() }
+            .onFailure { VerseLogger.warn("中断游戏线程失败: ${it.message}", TAG) }
+        runCatching { CallbackBridge.nativeSetInputReady(false) }
+            .onFailure { VerseLogger.warn("复位输入失败: ${it.message}", TAG) }
     }
 
     fun release() {
-        try {
-            stopGame()
-        } catch (e: Throwable) {
-            VerseLogger.error("stopGame failed: ${e.message}")
-        }
-        try {
-            scope.cancel()
-        } catch (e: Throwable) {
-            VerseLogger.error("scope.cancel failed: ${e.message}")
-        }
-        try {
-            fclBridge?.thread?.interrupt()
-        } catch (e: Throwable) {
-            VerseLogger.error("fclBridge interrupt failed: ${e.message}")
-        }
-        try {
-            if (jvmStarted) {
-                CallbackBridge.nativeSetInputReady(false)
-            }
-        } catch (e: Throwable) {
-            VerseLogger.error("nativeSetInputReady failed: ${e.message}")
-        }
-        try {
-            if (jvmStarted) {
-                CallbackBridge.setFCLBridge(null)
-            }
-        } catch (e: Throwable) {
-            VerseLogger.error("setFCLBridge failed: ${e.message}")
+        if (!lifecycle.beginRelease()) return
+        stopGame()
+        scope.cancel()
+        if (lifecycle.hasStartedJvm()) {
+            runCatching { CallbackBridge.setFCLBridge(null) }
+                .onFailure { VerseLogger.warn("清理 FCL 桥失败: ${it.message}", TAG) }
         }
         try {
             // SDL 渲染路径（MC 26.3+）：复位桥接状态，防止旧 Surface/旧初始化残留
@@ -563,7 +520,6 @@ class GameLaunchOrchestrator(
         }
         fclBridge = bridge
 
-        isLaunching = false
         VerseLogger.info("[8/9 JVM启动] bridge 返回: $bridge (isValid=${bridge != null}), 总耗时=${System.currentTimeMillis() - t0}ms", TAG)
 
         // 9) JVM 启动完成，把 Surface 交给游戏渲染线程
@@ -594,7 +550,6 @@ class GameLaunchOrchestrator(
             bridge.setSurfaceTexture(surfaceTexture)
         }
         VerseLogger.info("[9/9 渲染接入] bridge.execute(surface=$surface, callback) ...", TAG)
-        jvmStarted = true
         // SDLSurface 初始化（mWidth=CallbackBridge.windowWidth）依赖该字段，缺失时窗口尺寸 0
         // 导致 SDL/Vulkan surface 尺寸 0，进世界渲染 abort（SIGABRT 退出码 6）。
         // 失败兜底忽略（execute 后 pushEventWindow 仍会经 sendUpdateWindowSize 更新）。
@@ -604,9 +559,10 @@ class GameLaunchOrchestrator(
         }.onFailure {
             VerseLogger.warn("[9/9 渲染接入] 预置 CallbackBridge.windowWidth/Height 失败: ${it.message}", TAG)
         }
-        withContext(Dispatchers.Main) {
-            bridge.execute(surface, bridgeCallback)
+        val started = withContext(Dispatchers.Main) {
+            lifecycle.startJvm { bridge.execute(surface, bridgeCallback) }
         }
+        if (!started) return
         // 游戏 JVM 侧 org.lwjgl.glfw.CallbackBridge.sendUpdateWindowSize 更新 windowWidth/Height
         // 并触发 GLFW 窗口尺寸回调 → MC 按新尺寸重建渲染目标/swapchain。
         // 时序：必须在 execute 之后（JVM 已启动、CallbackBridge 已初始化），execute 前调用

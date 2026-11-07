@@ -427,18 +427,12 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         } catch (e: Throwable) {
             VerseLogger.error("Terracotta setWaiting failed: ${e.message}")
         }
-        stopGame()
         try {
             if (::orchestrator.isInitialized) {
                 orchestrator.release()
             }
         } catch (e: Throwable) {
             VerseLogger.error("orchestrator.release() failed: ${e.message}")
-        }
-        // 仅当输入已安全启用过才复位：类从未初始化时调用会触发首次 loadLibrary（见 inputReady 注释）。
-        if (inputReady) {
-            CallbackBridge.nativeSetInputReady(false)
-            CallbackBridge.setFCLBridge(null)
         }
         if (touchProxyEnabled) {
             TouchControllerProxy.clearPointers()
