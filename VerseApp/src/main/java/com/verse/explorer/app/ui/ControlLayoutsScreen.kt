@@ -270,17 +270,37 @@ fun ControlLayoutsContent() {
                 body ?: error("下载布局文件失败")
                 // 校验为合法布局 json 后落盘
                 repoGson.fromJson(body, Map::class.java) ?: error("布局文件内容无效")
+                // 仓库里也有 ZL2 格式（layers + editorVersion）的布局：直接落盘会被
+                // FCL 的 ControlLayout 当成空布局解析，表现为按键全部堆叠、大多不可用。
+                // 这里与本地导入走同一套转换，保证下载下来就能直接用。
+                val converted = if (CcConverter.isZl2Layout(body)) {
+                    runCatching {
+                        CcConverter.convertZlToFcl(
+                            JsonParser.parseString(body).asJsonObject,
+                            stripMeta = true
+                        ).toString()
+                    }.getOrElse { error ->
+                        error("布局格式转换失败：${error.message ?: "格式不受支持"}")
+                    }
+                } else {
+                    body
+                }
                 val dest = File(Tools.CTRLMAP_PATH, sanitizeFileName(item.name) + ".json")
                 val tmp = File(Tools.CTRLMAP_PATH, dest.name + ".tmp")
-                tmp.writeText(body)
+                tmp.writeText(converted)
                 if (dest.exists()) dest.delete()
                 if (!tmp.renameTo(dest)) error("写入布局文件失败")
-                dest
+                dest to (converted != body)
             }
             withContext(Dispatchers.Main) {
                 downloadingId = null
-                result.onSuccess { ToastCompat.show(context, "已下载「${item.name}」") }
-                    .onFailure { ToastCompat.show(context, "下载失败：${it.message}") }
+                result.onSuccess { (_, converted) ->
+                    ToastCompat.show(
+                        context,
+                        if (converted) "已下载「${item.name}」并转换为可识别格式"
+                        else "已下载「${item.name}」"
+                    )
+                }.onFailure { ToastCompat.show(context, "下载失败：${it.message}") }
                 refreshLocal()
             }
         }
