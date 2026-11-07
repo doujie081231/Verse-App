@@ -51,7 +51,7 @@ class SegmentedDownloadTest {
 
     @Test
     fun `支持 Range 时分段下载内容完全一致`() {
-        val data = payload(3 * 1024 * 1024 + 123)
+        val data = payload(5 * 1024 * 1024 + 123)
         val srv = MiniHttpServer(data, supportsRange = true).also { server = it; it.start() }
         val downloaded = download(srv.port)
         assertEquals(data.size, downloaded.size)
@@ -61,7 +61,7 @@ class SegmentedDownloadTest {
 
     @Test
     fun `服务端忽略 Range 时回退单连接且内容正确`() {
-        val data = payload(2 * 1024 * 1024 + 7)
+        val data = payload(5 * 1024 * 1024 + 7)
         val srv = MiniHttpServer(data, supportsRange = false).also { server = it; it.start() }
         val downloaded = download(srv.port)
         assertArrayEquals(data, downloaded)
