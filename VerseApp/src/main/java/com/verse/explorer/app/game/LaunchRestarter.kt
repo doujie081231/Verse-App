@@ -57,6 +57,7 @@ class LaunchRestarter(private val activity: ComponentActivity) {
             putExtra("accessToken", params.accessToken)
             putExtra("userType", params.userType)
             putExtra("authlibServerUrl", params.authlibServerUrl)
+            putExtra("authlibPrefetchedMeta", params.authlibPrefetchedMeta)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         }
     }

@@ -107,6 +107,12 @@ class GameInstaller(private val context: Context) {
     // assets 小文件并发数（官方 CDN 实测可扛 128 路；Dispatcher/连接池已同步放开）
     private val concurrentAssets = 128
 
+    /**
+     * 整批零成功时，连续多少个资源彻底失败判定为系统性故障
+     * （对齐 ZL2 `BatchDownloader.SYSTEMIC_FAILURE_LIMIT`）
+     */
+    private val systemicFailureLimit = 5
+
     @Volatile
     var cancelled = false
 
@@ -814,12 +820,26 @@ class GameInstaller(private val context: Context) {
         val completed = AtomicInteger(0)
         val semaphore = Semaphore(concurrentAssets)
 
+        // 系统性故障熔断（与 ZL2 BatchDownloader 的 SYSTEMIC_FAILURE_LIMIT 同语义）：
+        // 「整批还没有任何一个文件成功」且「连续 5 个文件彻底失败」时判为确定性故障
+        // （镜像与官方全挂、网络不可用、DNS 被劫持等）。此时继续跑只是把剩下几万个
+        // 资源各重试 5 次，用户看到的就是「安装中」几十分钟不动。
+        // 只要有任意一个文件成功，计数立刻清零；单个文件失败仍按原有逻辑跳过，
+        // 不影响「少数资源缺失但要能启动」的容错。
+        val consecutiveFailures = AtomicInteger(0)
+        val anySuccess = java.util.concurrent.atomic.AtomicBoolean(false)
+        val systemicAbort = java.util.concurrent.atomic.AtomicBoolean(false)
+        val abortDetail = java.util.concurrent.atomic.AtomicReference("")
+
         coroutineScope {
             val worker = this
             assets.forEach { (url, assetPath) ->
                 worker.launch {
                     semaphore.withPermit {
                         checkCancelled()
+                        if (systemicAbort.get()) {
+                            throw IOException("资源下载已中止：${abortDetail.get()}")
+                        }
                         // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
                         // 源顺序完全跟随 MirrorSourceManager 的用户设置（auto/bmclapi =
                         // 镜像在前）。此前强制官方源排最前，但用户网络（本条反馈实测）
@@ -854,6 +874,7 @@ class GameInstaller(private val context: Context) {
                             }
                             if (success) break
                         }
+                        var finalSuccess = success
                         if (!success) {
                             // 全部镜像直连失败：回退多源镜像重试
                             try {
@@ -862,11 +883,25 @@ class GameInstaller(private val context: Context) {
                                     targetFile = assetPath,
                                     isCancelled = { cancelled }
                                 ) { p -> downloadAgg.report(assetPath.name, p.downloaded) }
-                                if (result.isFailure) {
+                                finalSuccess = result.isSuccess
+                                if (!finalSuccess) {
                                     Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${result.exceptionOrNull()?.message}")
                                 }
                             } catch (e2: Exception) {
                                 Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${e2.message}")
+                            }
+                        }
+                        // 熔断计数：同 ZL2，只要有一个文件成功就不再判为系统性故障
+                        if (finalSuccess) {
+                            anySuccess.set(true)
+                            consecutiveFailures.set(0)
+                        } else if (!anySuccess.get()) {
+                            val fails = consecutiveFailures.incrementAndGet()
+                            if (fails >= systemicFailureLimit && systemicAbort.compareAndSet(false, true)) {
+                                val reason = "连续 $fails 个资源下载失败，且整批还没有任何文件成功（最后失败：${assetPath.name}）"
+                                abortDetail.set(reason)
+                                Log.e("GameInstaller", "系统性下载故障，中止剩余资源：$reason")
+                                throw IOException("资源下载已中止：$reason")
                             }
                         }
                         val done = completed.incrementAndGet()

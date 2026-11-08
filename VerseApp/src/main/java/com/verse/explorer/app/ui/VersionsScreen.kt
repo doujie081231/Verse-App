@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -172,23 +174,27 @@ fun VersionsScreen(
                 ) {
                     // 稳定 key + contentType：切换「正式版/快照版」等页签时复用行实例，
                     // 避免整列表重建导致的一次性大批量组合
-                    items(
+                    itemsIndexed(
                         items = displayVersions,
-                        key = { it.id },
-                        contentType = { "version" }
-                    ) { version ->
-                        VersionItem(
-                            version = version,
-                            isInInstalledTab = selectedTab == 4,
-                            onClick = {
-                                if (selectedTab == 4) {
-                                    navController.navigate("version_settings/${version.id}")
-                                } else {
-                                    navController.navigate("version_detail/${version.id}?type=${version.type.name.lowercase()}&url=${java.net.URLEncoder.encode(version.url, "UTF-8")}")
-                                }
-                            },
-                            onDelete = { showDeleteConfirm = version.id }
-                        )
+                        key = { _, it -> it.id },
+                        contentType = { _, _ -> "version" }
+                    ) { index, version ->
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.verseItemAppear(index)
+                        ) {
+                            VersionItem(
+                                version = version,
+                                isInInstalledTab = selectedTab == 4,
+                                onClick = {
+                                    if (selectedTab == 4) {
+                                        navController.navigate("version_settings/${version.id}")
+                                    } else {
+                                        navController.navigate("version_detail/${version.id}?type=${version.type.name.lowercase()}&url=${java.net.URLEncoder.encode(version.url, "UTF-8")}")
+                                    }
+                                },
+                                onDelete = { showDeleteConfirm = version.id }
+                            )
+                        }
                     }
                 }
             }

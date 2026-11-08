@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -172,8 +174,10 @@ fun ShadersScreen(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
-                    items(results, key = { it.projectId }) { hit ->
-                        ShaderCard(hit, onClick = { navController.navigate("shader_detail/${hit.projectId}?source=${hit.source}") })
+                    itemsIndexed(results, key = { _, it -> it.projectId }) { index, hit ->
+                        androidx.compose.foundation.layout.Box(Modifier.verseItemAppear(index)) {
+                            ShaderCard(hit, onClick = { navController.navigate("shader_detail/${hit.projectId}?source=${hit.source}") })
+                        }
                     }
 
                     if (uiState.isLoading && results.isNotEmpty()) {

@@ -766,6 +766,7 @@ class GameLaunchOrchestrator(
             .setServerIp(verSettings.serverIp)
             .setDebugLog(debugLog)
             .setAuthlibServerUrl(params.authlibServerUrl)
+            .setAuthlibPrefetchedMeta(params.authlibPrefetchedMeta)
             .create()
     }
 

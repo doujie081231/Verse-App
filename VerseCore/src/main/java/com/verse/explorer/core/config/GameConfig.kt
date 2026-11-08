@@ -17,6 +17,10 @@ object GameConfig {
         MojangMirror("Mojang 官方", "https://piston-meta.mojang.com", 2, isOfficial = true)
     )
 
+    /** 默认目录解析结果缓存：避免每次取目录都写一次探针文件 */
+    @Volatile
+    private var cachedDefaultDir: File? = null
+
     fun getGameDir(context: Context): File {
         activeDirPath(context)?.let { path ->
             val dir = File(path)
@@ -25,20 +29,52 @@ object GameConfig {
         return getDefaultGameDir(context)
     }
 
-    /** 内置默认游戏目录 */
+    /**
+     * 内置默认游戏目录。
+     *
+     * 取舍（两个目录都实测过）：
+     *  - 内部私有 `files/VerseExplorerX`：读写最稳，但文件管理器**完全看不到**，用户没法自己放
+     *    mod、取存档 —— 这是反馈里反复出现的「目录里没有文件」；
+     *  - 应用专属外部 `Android/data/<包名>/files/VerseExplorerX`：读写实测可用（带写入探针兜底），
+     *    MT 管理器、部分文件管理器可以直接进，是 FCL/ZL2 的默认做法。
+     *
+     * 所以：**已有游戏数据的老用户继续留在内部目录**（几十 GB 不做静默搬迁，避免升级后版本「消失」），
+     * 新装用户直接落在外部目录；想搬的老用户可以在设置里显式触发迁移（带进度，不删源）。
+     */
     fun getDefaultGameDir(context: Context): File {
-        // 曾用共享根 /sdcard/VerseExplorerX 与外部私有 /sdcard/Android/data/...，
-        // 二者在部分设备（ColorOS 等）的 FUSE 挂载上不可靠：共享根读取报
-        // Permission denied（JVM 载不到主类 => 启动 exit 6），外部私有写入报
-        // EACCES（分块下载 open failed）。内部 files 目录由系统保障读写，无上述问题。
-        val internal = File(context.filesDir, GAME_DIR_NAME)
-        try {
-            internal.mkdirs()
-            return internal
-        } catch (_: Exception) {
-            return getExternalGameDir(context)
+        cachedDefaultDir?.let { cached ->
+            if (cached.isDirectory || cached.mkdirs()) return cached
         }
+
+        val internal = File(context.filesDir, GAME_DIR_NAME)
+        val resolved = when {
+            // 老用户：内部已有 versions/libraries/assets，保持原位
+            hasGameData(internal) -> internal
+            // 新装：优先外部可见目录
+            isWritable(getExternalGameDir(context)) -> getExternalGameDir(context)
+            // 外部不可写（个别 ROM 的 FUSE 挂载异常）回退内部
+            else -> internal
+        }
+        runCatching { resolved.mkdirs() }
+        cachedDefaultDir = resolved
+        return resolved
     }
+
+    /** 版本/库/资源任一存在即视为「已有游戏数据」 */
+    private fun hasGameData(dir: File): Boolean {
+        if (!dir.isDirectory) return false
+        return File(dir, "versions").isDirectory ||
+            File(dir, "libraries").isDirectory ||
+            File(dir, "assets").isDirectory
+    }
+
+    /** 目录可写探针：外部目录在个别 ROM 上 mkdir 成功但写入 EACCES */
+    private fun isWritable(dir: File): Boolean = runCatching {
+        if (!dir.exists() && !dir.mkdirs()) return false
+        val probe = File(dir, ".write_probe")
+        probe.writeText("1")
+        probe.delete()
+    }.getOrDefault(false)
 
     /** 当前激活的自定义游戏目录路径；未设置（使用内置目录）时为 null */
     fun activeDirPath(context: Context): String? =

@@ -273,6 +273,15 @@ public class DefaultLauncher extends Launcher {
         if (authlibServerUrl != null && !authlibServerUrl.isEmpty()) {
             res.add("-javaagent:" + FCLPath.AUTHLIB_INJECTOR + "=" + authlibServerUrl);
             res.add("-Dauthlibinjector.side=client");
+            // 预取 metadata（FCL/HMCL 的做法）：agent 在启动阶段就不必再联网拉取，
+            // 拉不到时会跳过注入、退回 Mojang 端点——玩家看到的就是「外置账号进不去服务器」。
+            String prefetched = options.getAuthlibPrefetchedMeta();
+            if (prefetched != null && !prefetched.isEmpty()) {
+                String encoded = android.util.Base64.encodeToString(
+                        prefetched.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        android.util.Base64.NO_WRAP);
+                res.add("-Dauthlibinjector.yggdrasil.prefetched=" + encoded);
+            }
         }
 
         Set<String> classpath = repository.getClasspath(version);

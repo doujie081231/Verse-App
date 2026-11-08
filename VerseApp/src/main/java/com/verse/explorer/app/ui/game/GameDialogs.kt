@@ -37,10 +37,25 @@ internal fun GameActivity.showRedstoneDialog() {
     }
 
 internal fun GameActivity.showQuickInput() {
-        touchCharInput?.let {
-            it.visibility = View.VISIBLE
-            it.bringToFront()
-            it.requestFocus()
-            it.switchKeyboardState()
+        val input = touchCharInput ?: return
+        input.visibility = View.VISIBLE
+        input.bringToFront()
+
+        // MC 26.3+ 走 SDL 渲染时由 SDL 自己的输入法接管，GLFW 字符通道无效
+        if (com.tungsten.fcl.game.sdl.SdlBridge.sdlEnabled
+            && com.tungsten.fcl.game.sdl.SdlBridge.isSdlRenderActive()
+        ) {
+            if (!org.libsdl.app.SDLActivity.isSDLEditKeyboardShown()) {
+                org.libsdl.app.SDLActivity.enableSDLEditKeyboard()
+            }
+            return
         }
+
+        // 这里必须「只开不切」：原先调用的是 TouchCharInput.switchKeyboardState()，
+        // 而上面刚 requestFocus 过，它检测到 hasFocus() 为真就走关闭分支，
+        // 结果玩家点「键盘」键永远弹不出输入法。
+        input.requestFocus()
+        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+            as? android.view.inputmethod.InputMethodManager
+        imm?.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
     }

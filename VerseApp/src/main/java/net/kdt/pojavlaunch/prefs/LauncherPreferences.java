@@ -41,5 +41,30 @@ public class LauncherPreferences {
         if (DEFAULT_PREF.contains("defaultCtrl")) {
             PREF_DEFAULTCTRL_PATH = DEFAULT_PREF.getString("defaultCtrl", null);
         }
+        remapDefaultCtrlPathIfMoved(ctx);
+    }
+
+    /**
+     * 布局目录从内部私有目录迁到外部目录后，这里保存的绝对路径会失效，
+     * 表现是启动时加载不到布局、按键全丢。按前缀把旧路径改写到新位置。
+     */
+    private static void remapDefaultCtrlPathIfMoved(Context ctx) {
+        String pref = PREF_DEFAULTCTRL_PATH;
+        if (pref == null || pref.isEmpty()) {
+            return;
+        }
+        String newPrefix = net.kdt.pojavlaunch.Tools.CTRLMAP_PATH;
+        if (newPrefix == null || newPrefix.isEmpty()) {
+            return;
+        }
+        String oldPrefix = new java.io.File(ctx.getFilesDir(), "control_layouts").getAbsolutePath();
+        if (newPrefix.equals(oldPrefix) || !pref.startsWith(oldPrefix)) {
+            return;
+        }
+        String updated = newPrefix + pref.substring(oldPrefix.length());
+        PREF_DEFAULTCTRL_PATH = updated;
+        if (DEFAULT_PREF != null) {
+            DEFAULT_PREF.edit().putString("defaultCtrl", updated).apply();
+        }
     }
 }

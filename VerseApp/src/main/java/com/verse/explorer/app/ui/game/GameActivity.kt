@@ -198,6 +198,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             val accessToken = intent.getStringExtra("accessToken") ?: "0"
             val userType = intent.getStringExtra("userType") ?: "mojang"
             val authlibServerUrl = intent.getStringExtra("authlibServerUrl")
+            val authlibPrefetchedMeta = intent.getStringExtra("authlibPrefetchedMeta")
 
             VerseLogger.info("GameActivity.onCreate: intent 参数", "GameActivity")
             VerseLogger.info("  versionId=$versionId, gameDir=$gameDirPath", "GameActivity")
@@ -317,6 +318,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                     accessToken = accessToken,
                     userType = userType,
                     authlibServerUrl = authlibServerUrl,
+                    authlibPrefetchedMeta = authlibPrefetchedMeta,
                     mcVersion = mcVersion
                 )
             )

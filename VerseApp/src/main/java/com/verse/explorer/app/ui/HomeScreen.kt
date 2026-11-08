@@ -376,24 +376,37 @@ private fun HomePageContent(
     gridState: com.verse.explorer.cardgrid.state.CardGridState
 ) {
     val homeScrollState = rememberScrollState()
-    var screenBoundsHeightPx by remember { mutableStateOf(0f) }
+    // 视口高度（滚动容器「外」测到的父约束高度）。
+    // 原实现用滚动容器内部内容的 onSizeChanged 当屏幕高度传给网格，而网格高度又依赖这个值，
+    // 结果是「内容高 → 边界变高 → 内容更高」，主页就被撑得能一直往下滑。
+    var viewportHeightPx by remember { mutableStateOf(0f) }
     // 忽略刘海/全屏时状态栏隐藏，statusBars 内边距会归零导致内容贴到屏幕顶端；
     // 这里保留最小顶部留白，使全屏开关前后主页顶部的间距保持一致
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val topPadding = if (statusBarTop < 24.dp) 24.dp else statusBarTop
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val topPaddingPx = with(density) { topPadding.toPx() }
+    val contentPaddingPx = with(density) { 20.dp.toPx() } // 上下各 10dp
+    val gridViewportPx = (viewportHeightPx - topPaddingPx - contentPaddingPx).coerceAtLeast(0f)
+
+    // 主页是「卡片桌面」而不是列表：卡片没有超出一屏时不该能上下拖动。
+    // 只有内容确实放不下（需要往下排卡片）时才启用滚动，拖拽自动滚动也因此仍可用。
+    val canScroll = gridViewportPx > 0f && gridState.gridHeightPx() > gridViewportPx + 1f
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { viewportHeightPx = it.height.toFloat() }
             .padding(top = topPadding)
-            .verticalScroll(homeScrollState)
+            .verticalScroll(homeScrollState, enabled = canScroll)
             .padding(horizontal = 24.dp, vertical = 10.dp)
-            .onSizeChanged { screenBoundsHeightPx = it.height.toFloat() }
     ) {
         VerseHomeGrid(
             state = gridState,
             outerScrollState = homeScrollState,
             modifier = Modifier.fillMaxWidth(),
-            screenBoundsHeightPx = screenBoundsHeightPx
+            screenBoundsHeightPx = gridViewportPx
         )
         // 底部留出品牌标识（左下角 Verse App）的高度，避免卡片贴到它上面
         Spacer(Modifier.height(26.dp))

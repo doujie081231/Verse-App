@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -343,9 +345,9 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             state = listState,
                         ) {
-                            items(displayedVersions, key = { it.id }) { version ->
+                            itemsIndexed(displayedVersions, key = { _, it -> it.id }) { index, version ->
                                 VersionItemLayout(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().verseItemAppear(index),
                                     version = version,
                                     selected = version.id == currentLaunchVersionId,
                                     meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),

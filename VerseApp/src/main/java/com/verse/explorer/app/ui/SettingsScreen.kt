@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -33,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -442,6 +444,9 @@ fun SettingsScreen(navController: NavHostController) {
                                 "启动器沉浸式全屏（隐藏状态栏与导航栏）；刘海区域是否延伸由上方「忽略刘海屏」单独决定",
                                 VersePersonalization.launcherFullScreen
                             ) { VersePersonalization.applyLauncherFullScreen(it) }
+
+                            Spacer(Modifier.height(8.dp))
+                            GameStorageSection()
                         }
                     }
 
@@ -1371,6 +1376,150 @@ fun SettingsScreen(navController: NavHostController) {
                     SettingsRepository.setThemeAccent(String.format("%08X", argb))
                     showColorPicker = false
                 }
+            )
+        }
+    }
+}
+
+/**
+ * 游戏目录所在位置与迁移入口。
+ *
+ * 老版本把游戏目录放在应用私有目录（/data/user/0/<包名>/files/VerseExplorerX），
+ * 文件管理器完全看不到；这里让用户一键搬到 Android/data/<包名>/files/VerseExplorerX，
+ * 那里 MT 管理器之类的工具能直接进。迁移只复制、不删源，随时可以再切回来。
+ */
+@androidx.compose.runtime.Composable
+private fun GameStorageSection() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    var currentDir by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(
+            com.verse.explorer.core.config.GameConfig.getGameDir(context)
+        )
+    }
+    var migrating by androidx.compose.runtime.mutableStateOf(false)
+    var progress by androidx.compose.runtime.mutableStateOf<com.verse.explorer.core.config.GameDirMigrator.Progress?>(null)
+    var message by androidx.compose.runtime.mutableStateOf<String?>(null)
+
+    val externalRoot = androidx.compose.runtime.remember {
+        com.verse.explorer.core.config.GameConfig.getExternalGameDir(context).absolutePath
+    }
+    val isExternal = currentDir.absolutePath.startsWith(externalRoot)
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(
+            "游戏目录",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = VerseColors.PcTextPrimary
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            currentDir.absolutePath,
+            fontSize = 11.sp,
+            color = VerseColors.PcTextMuted,
+            lineHeight = 15.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            if (isExternal) {
+                "位于应用专属外部目录，MT 管理器等工具可直接进入，可自行放入 mod、取出存档"
+            } else {
+                "位于应用私有目录，文件管理器看不到。迁移到可访问目录后即可直接管理文件"
+            },
+            fontSize = 11.sp,
+            color = VerseColors.PcTextMuted,
+            lineHeight = 15.sp
+        )
+
+        val p = progress
+        if (migrating && p != null) {
+            Spacer(Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(VerseColors.PcBgTertiary)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(p.percent / 100f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(VerseColors.PcAccent)
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${p.percent}% · ${p.copiedFiles}/${p.totalFiles} 个文件 · ${p.currentName}",
+                fontSize = 10.sp,
+                color = VerseColors.PcTextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "迁移期间请保持前台，游戏目录较大时需要几分钟",
+                fontSize = 10.sp,
+                color = VerseColors.PcTextMuted
+            )
+        }
+
+        message?.let { text ->
+            Spacer(Modifier.height(6.dp))
+            Text(text, fontSize = 11.sp, color = VerseColors.PcTextSecondary, lineHeight = 15.sp)
+        }
+
+        if (!isExternal) {
+            Spacer(Modifier.height(10.dp))
+            PcButton(
+                text = if (migrating) "迁移中…" else "迁移到可访问目录",
+                onClick = {
+                    if (migrating) return@PcButton
+                    val from = currentDir
+                    val target = java.io.File(externalRoot)
+                    migrating = true
+                    message = null
+                    progress = null
+                    scope.launch {
+                        val result = com.verse.explorer.core.config.GameDirMigrator.migrate(
+                            from = from,
+                            to = target,
+                            isCancelled = { false },
+                            onProgress = { snapshot ->
+                                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                    progress = snapshot
+                                }
+                            }
+                        )
+                        migrating = false
+                        result.onSuccess { r ->
+                            // 迁移完成后再切指针：中途失败时不会把用户导到一个空目录
+                            com.verse.explorer.core.config.GameConfig.setActiveDirPath(
+                                context, target.absolutePath
+                            )
+                            currentDir = target
+                            message = "已迁移 ${r.copiedFiles} 个文件（${r.copiedBytes / 1024 / 1024} MB），" +
+                                "跳过 ${r.skippedFiles} 个已存在文件。旧目录仍保留在 ${from.absolutePath}，" +
+                                "确认新目录能正常启动后再自行删除。下次启动游戏生效。"
+                        }.onFailure {
+                            message = "迁移失败：${it.message}（原目录未做任何修改）"
+                        }
+                    }
+                },
+                variant = PcButtonVariant.PRIMARY
+            )
+        } else {
+            Spacer(Modifier.height(10.dp))
+            PcButton(
+                text = "切回应用私有目录",
+                onClick = {
+                    com.verse.explorer.core.config.GameConfig.setActiveDirPath(context, null)
+                    currentDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
+                    message = "已切回内置目录，下次启动游戏生效。"
+                },
+                variant = PcButtonVariant.OUTLINE
             )
         }
     }

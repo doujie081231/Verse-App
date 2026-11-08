@@ -87,6 +87,25 @@ class AuthlibAuthenticator {
         return apiRootCache[key] ?: locateServer(serverUrl).also { apiRootCache[key] = it.apiUrl }.apiUrl
     }
 
+    /**
+     * 取验证服务器元数据原文，供 authlib-injector 的 `-Dauthlibinjector.yggdrasil.prefetched` 使用。
+     *
+     * 为什么不靠 agent 自己拉：authlib-injector 在**游戏启动时**才去取 metadata，取不到（网络抖动、
+     * 证书、DNS）就跳过注入、退回 Mojang 端点，玩家表现就是「外置账号进不去服务器」。
+     * FCL/HMCL 的做法是在登录后预取元数据、启动时用 base64 传进 agent，这里对齐该做法。
+     * 拿不到就返回 null，调用方不加这个参数（等同于现状），不会让启动变脆。
+     */
+    suspend fun fetchMetadata(serverUrl: String): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val apiRoot = resolveApiRoot(serverUrl)
+            val body = httpGetString(apiRoot).body
+            // 必须是 JSON 对象：这个值会被 agent 在 premain 阶段解析，
+            // 塞进去一段 HTML 错误页会让 JVM 直接起不来，宁可退回「自己拉」的旧行为
+            val json = runCatching { gson.fromJson(body, JsonObject::class.java) }.getOrNull()
+            if (json == null || json.entrySet().isEmpty()) null else body
+        }.getOrNull()
+    }
+
     suspend fun verifyServer(url: String): ServerInfo {
         return withContext(Dispatchers.IO) {
             try {

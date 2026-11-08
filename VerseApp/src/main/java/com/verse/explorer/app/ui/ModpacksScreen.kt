@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -197,8 +199,10 @@ fun ModpacksScreen(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(bottom = 8.dp)
                 ) {
-                    items(results) { hit ->
-                        ModpackCard(hit, onClick = { navController.navigate("modpack_detail/${hit.projectId}?source=${hit.source}") })
+                    itemsIndexed(results) { index, hit ->
+                        androidx.compose.foundation.layout.Box(Modifier.verseItemAppear(index)) {
+                            ModpackCard(hit, onClick = { navController.navigate("modpack_detail/${hit.projectId}?source=${hit.source}") })
+                        }
                     }
                     if (uiState.isLoading) {
                         item {

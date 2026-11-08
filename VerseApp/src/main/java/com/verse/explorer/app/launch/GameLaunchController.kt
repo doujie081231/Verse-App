@@ -274,10 +274,20 @@ class GameLaunchController(private val context: Context) {
                         else -> "mojang"
                     })
                     // 外置登录：把验证服务器 API 根透传给启动链，供 authlib-injector 注入
-                    putExtra(
-                        "authlibServerUrl",
-                        if (account.type.name == "AUTHLIB") account.serverUrl else null
-                    )
+                    val authlibUrl = if (account.type.name == "AUTHLIB") account.serverUrl else null
+                    putExtra("authlibServerUrl", authlibUrl)
+                    // 预取 metadata 一起带过去（FCL/HMCL 的做法）：agent 在启动阶段不再联网拉取，
+                    // 拉取失败时它会跳过注入、退回 Mojang 端点，玩家看到的就是「外置账号进不去服务器」。
+                    // 取不到就不加该参数，退回旧行为，不让启动变脆。
+                    if (!authlibUrl.isNullOrBlank()) {
+                        val meta = withTimeoutOrNull(6000) {
+                            com.verse.explorer.core.account.AuthlibAuthenticator()
+                                .fetchMetadata(authlibUrl)
+                        }
+                        if (!meta.isNullOrBlank()) {
+                            putExtra("authlibPrefetchedMeta", meta)
+                        }
+                    }
                     if (multiplayerArgs != null) {
                         putExtra("multiplayerMode", true)
                         multiplayerArgs.forEach { (k, v) -> putExtra(k, v) }

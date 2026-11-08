@@ -44,6 +44,8 @@ public class LaunchOptions implements Serializable {
     private String uuid;
     private boolean debugLog;
     private String authlibServerUrl;
+    /** 外置登录服务器 metadata 原文（JSON），用于 authlib-injector 的预取参数 */
+    private String authlibPrefetchedMeta;
 
     public File getGameDir() { return gameDir; }
 
@@ -83,6 +85,9 @@ public class LaunchOptions implements Serializable {
 
     /** 外置登录（authlib-injector）验证服务器 API 根；非外置账号为 null */
     public String getAuthlibServerUrl() { return authlibServerUrl; }
+
+    /** 外置登录服务器 metadata 原文；可能为 null（没预取到） */
+    public String getAuthlibPrefetchedMeta() { return authlibPrefetchedMeta; }
 
     /** 详细启动参数摘要（诊断日志用） */
     public String fullSummary() {
@@ -140,5 +145,7 @@ public class LaunchOptions implements Serializable {
         public Builder setDebugLog(boolean debugLog) { options.debugLog = debugLog; return this; }
 
         public Builder setAuthlibServerUrl(String authlibServerUrl) { options.authlibServerUrl = authlibServerUrl; return this; }
+
+        public Builder setAuthlibPrefetchedMeta(String meta) { options.authlibPrefetchedMeta = meta; return this; }
     }
 }
