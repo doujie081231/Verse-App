@@ -79,6 +79,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         captureViewProvider = { touchOverlay },
         menuVisibleProvider = { inGameControl?.isOverlayVisible() == true }
     )
+
+    /** 手柄摇杆软件映射：直通开关关闭时由它把摇杆转成 WASD / 视角 */
+    private val gamepadSticks by lazy { GamepadStickHandler(inputHandler) }
     private lateinit var orchestrator: GameLaunchOrchestrator
     internal lateinit var textureView: TextureView
     private var surface: Surface? = null
@@ -816,6 +819,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
     /** 外接键鼠兜底：物理鼠标 hover/按钮/滚轮在 Activity 层统一接入，避免被视图拦截 */
     override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
         if (consumeGamepadMotion(event)) return true
+        // 直通关闭时用手柄摇杆软件映射（左摇杆 WASD、右摇杆视角），
+        // 否则摇杆事件会被整块丢弃，玩家看到的就是"摇杆没反应"
+        if (!org.lwjgl.glfw.CallbackBridge.sGamepadDirectInput && gamepadSticks.handle(event)) return true
         if (inputHandler.handleGenericMotion(event)) return true
         return super.dispatchGenericMotionEvent(event)
     }

@@ -49,16 +49,26 @@ class SkinLibraryApi(
         .build()
 ) {
 
+    /**
+     * 拉公开皮肤列表。
+     *
+     * 列表接口现在要求携带 API Key（与 CurseForge 的 x-api-key 一致），
+     * [apiKey] 为空时用启动器内置的应用级 key；玩家填了自己的账号 key 时优先用它，
+     * 这样调用量能统计到具体账号。
+     */
     suspend fun list(
         origin: String,
         page: Int,
         limit: Int = 24,
-        sort: String = "new"
+        sort: String = "new",
+        apiKey: String = ""
     ): Result<SkinPage> = withContext(Dispatchers.IO) {
         runCatching {
             require(origin.isNotBlank()) { "服务器地址为空" }
+            val key = apiKey.ifBlank { SkinLibraryAppKey.value() }
             val request = Request.Builder()
                 .url("$origin/api/verse-skins?page=$page&limit=$limit&sort=$sort")
+                .header("X-Api-Key", key)
                 .get()
                 .build()
             client.newCall(request).execute().use { resp ->
@@ -66,6 +76,7 @@ class SkinLibraryApi(
                 if (!resp.isSuccessful) {
                     error(
                         when (resp.code) {
+                            401 -> "缺少或无效的 API Key：请到皮肤站「开发者中心」申请"
                             404 -> "该皮肤站未开放皮肤库接口"
                             429 -> "请求过于频繁，请稍后再试"
                             else -> "获取皮肤库失败（HTTP ${resp.code}）"
@@ -99,6 +110,79 @@ class SkinLibraryApi(
             }
         }
     }
+
+    /**
+     * 用开发者 API Key 应用皮肤。
+     *
+     * 与 [apply] 的区别只在凭据：API Key 与「用哪种账号进游戏」无关，
+     * 微软账号、离线账号也能用它把皮肤挂到皮肤站角色上。
+     */
+    suspend fun applyWithKey(
+        origin: String,
+        apiKey: String,
+        uuid: String,
+        tid: Int
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            require(origin.isNotBlank()) { "皮肤站地址为空" }
+            require(apiKey.isNotBlank()) { "还没有填写 API Key" }
+            val payload = JSONObject().apply {
+                put("tid", tid)
+                if (uuid.isNotBlank()) put("uuid", uuid)
+            }
+            val request = Request.Builder()
+                .url("${origin.trimEnd('/')}/api/verse-skins/apply")
+                .post(payload.toString().toRequestBody(JSON))
+                .header("X-Api-Key", apiKey.trim())
+                .build()
+            client.newCall(request).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val json = runCatching { JSONObject(text) }.getOrNull()
+                if (!resp.isSuccessful) {
+                    val msg = json?.optString("message").orEmpty()
+                    error(msg.ifBlank {
+                        when (resp.code) {
+                            401 -> "API Key 无效或已被撤销，请到皮肤站开发者页面重新生成"
+                            403 -> "该 Key 所属账号下没有这个角色"
+                            404 -> "该皮肤已下架或未公开"
+                            429 -> "操作过于频繁，请稍后再试"
+                            else -> "应用皮肤失败（HTTP ${resp.code}）"
+                        }
+                    })
+                }
+                json?.optString("player").orEmpty().ifBlank { "角色" }
+            }
+        }
+    }
+
+    /** API Key 归属校验：返回账号下的角色名列表，用于填完 Key 立刻确认「这是谁的 Key」 */
+    suspend fun verifyKey(origin: String, apiKey: String): Result<List<String>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val request = Request.Builder()
+                    .url("${origin.trimEnd('/')}/api/verse-skins/me")
+                    .header("X-Api-Key", apiKey.trim())
+                    .build()
+                client.newCall(request).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    val json = runCatching { JSONObject(text) }.getOrNull()
+                    if (!resp.isSuccessful) {
+                        error(
+                            json?.optString("message").orEmpty().ifBlank {
+                                if (resp.code == 401) "API Key 无效或已被撤销" else "校验失败（HTTP ${resp.code}）"
+                            }
+                        )
+                    }
+                    val players = json?.optJSONArray("players") ?: return@use emptyList()
+                    buildList {
+                        for (i in 0 until players.length()) {
+                            val name = players.optJSONObject(i)?.optString("name").orEmpty()
+                            if (name.isNotBlank()) add(name)
+                        }
+                    }
+                }
+            }
+        }
 
     /** 把库里的皮肤挂到自己的角色上；返回被作用的角色名 */
     suspend fun apply(

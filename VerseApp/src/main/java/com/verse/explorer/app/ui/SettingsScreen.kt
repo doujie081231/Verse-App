@@ -6,6 +6,14 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -316,24 +324,40 @@ fun SettingsScreen(navController: NavHostController) {
         }
 
         // 右侧内容区：PcBgPrimary 背景，卡片间间距 16dp
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .background(VerseColors.PcBgPrimary),
+        // 子页切换：标题与内容一起做轻量横向位移 + 淡入淡出。
+        // 位移量只有页宽的 1/7，够看出方向感又不拖慢点击响应。
+        AnimatedContent(
+            targetState = selectedPage,
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            transitionSpec = {
+                val forward = targetState > initialState
+                val enterSpec = slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { w ->
+                    if (forward) w / 7 else -w / 7
+                } + fadeIn(tween(200))
+                val exitSpec = slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { w ->
+                    if (forward) -w / 7 else w / 7
+                } + fadeOut(tween(160))
+                enterSpec togetherWith exitSpec
+            },
+            label = "settingsPage"
+        ) { page ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(VerseColors.PcBgPrimary),
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
                 Text(
-                    pages[selectedPage],
+                    pages[page],
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = VerseColors.PcTextPrimary
                 )
             }
 
-            when (selectedPage) {
+            when (page) {
                 // 启动设置子页：合并原常规/视频/Java/启动器设置
                 0 -> {
                     item {
@@ -1311,7 +1335,7 @@ fun SettingsScreen(navController: NavHostController) {
             }
 
             // 保存设置按钮（关于页为纯展示信息，不提供保存操作；控制设置/手柄设置各项即时生效并持久化）
-            if (selectedPage != 5) item {
+            if (page != 5) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -1325,6 +1349,7 @@ fun SettingsScreen(navController: NavHostController) {
             }
 
             item { Spacer(Modifier.height(20.dp)) }
+        }
         }
     }
 

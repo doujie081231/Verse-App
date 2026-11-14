@@ -28,6 +28,49 @@ object AvatarRepository {
     private val cache = ConcurrentHashMap<String, Bitmap>()
 
     /**
+     * 取账号的**完整皮肤**位图（64×64 / 64×32 原图，不裁头部），供账号卡片的 3D 全身预览使用。
+     *
+     * 与 [getAvatar] 的区别：头像是裁好的方图，全身预览需要整张皮肤图自己去摆模型。
+     * 顺序与头像一致：本地皮肤文件 → 外置登录的纹理接口 → 微软账号的用户名换肤接口。
+     */
+    suspend fun getFullSkin(context: Context, account: Account): Bitmap? = withContext(Dispatchers.IO) {
+        val cacheKey = "full_${account.id}_${account.skinFile}_${account.skinUrl}"
+        if (account.id != 0) cache[cacheKey]?.let { return@withContext it }
+
+        val bitmap = runCatching {
+            // 1) 本地皮肤文件（离线自定义 / 外置落地 / 皮肤库应用后落盘）
+            account.skinFile?.takeIf { it.isNotBlank() }?.let { skinFile ->
+                resolveSkinFile(context, skinFile)?.takeIf { it.exists() }?.let { file ->
+                    BitmapFactory.decodeFile(file.absolutePath)?.let { return@runCatching it }
+                }
+            }
+            // 2) 账号记录的皮肤直链
+            account.skinUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                downloadBitmap(url)?.let { return@runCatching it }
+            }
+            // 3) 外置登录：向验证服务器取当前纹理
+            if (account.type == AccountType.AUTHLIB && !account.serverUrl.isNullOrBlank()) {
+                val textureUrl = runCatching {
+                    com.verse.explorer.core.account.AuthlibServices.authlibAuthenticator
+                        .fetchSkinTextureUrl(account.serverUrl!!, account.uuid)
+                }.getOrNull()
+                if (!textureUrl.isNullOrBlank()) {
+                    downloadBitmap(textureUrl)?.let { return@runCatching it }
+                }
+            }
+            // 4) 微软账号：按 UUID 取原图（返回的不是完整皮肤时丢弃）
+            if (account.type == AccountType.MICROSOFT && account.uuid.isNotBlank()) {
+                val url = "https://mc-heads.net/skin/${account.uuid.replace("-", "")}"
+                downloadBitmap(url)?.takeIf { SkinHeadCrop.isFullSkin(it) }?.let { return@runCatching it }
+            }
+            null
+        }.getOrNull()
+
+        if (bitmap != null && account.id != 0) cache[cacheKey] = bitmap
+        bitmap
+    }
+
+    /**
      * 根据账号解析可用于头像展示的位图。
      * - 离线/外置：优先本地皮肤文件，否则网络皮肤 URL
      * - 微软/外置网络皮肤：下载完整皮肤后裁剪头部

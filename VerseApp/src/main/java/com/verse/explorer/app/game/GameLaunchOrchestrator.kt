@@ -4,6 +4,7 @@ import android.graphics.SurfaceTexture
 import android.view.Surface
 import androidx.activity.ComponentActivity
 import com.verse.explorer.app.VerseApplication
+import com.verse.explorer.core.account.LocalSkinServer
 import com.verse.explorer.core.data.SettingsRepository
 import com.verse.explorer.app.domain.model.launch.GameLaunchParams
 import com.verse.explorer.app.ui.VerseLogger
@@ -704,7 +705,33 @@ class GameLaunchOrchestrator(
             }.getOrNull()
             if (textures.isNullOrEmpty()) "{}" else """{"textures":["$textures"]}"""
         } else {
-            "{}"
+            // 离线账号没有服务端身份，但玩家在启动器里选过的皮肤不能白选：
+            // 把本地 PNG 通过 127.0.0.1 的临时服务暴露成 URL，再按 authlib 的 textures 结构塞进
+            // --userProperties，游戏就会去拉这张图。只影响客户端自己看到的皮肤，联机时别人看到的仍由服务器决定。
+            runCatching<String?> {
+                val account = VerseApplication.accountManager.accounts.value
+                    .firstOrNull { it.uuid.equals(params.uuid, ignoreCase = true) }
+                val skinFile = account?.skinFile
+                if (account == null || skinFile.isNullOrBlank()) {
+                    null
+                } else {
+                    // skinFile 存的是文件名（custom_xxx.png），实际文件在 filesDir/skins 下
+                    val file = java.io.File(
+                        java.io.File(VerseApplication.instance.filesDir, "skins"), skinFile
+                    )
+                    LocalSkinServer.publish(
+                        account.uuid.ifBlank { account.username }, file
+                    )?.let { url ->
+                        val value = LocalSkinServer.buildTexturesValue(
+                            uuid = account.uuid.replace("-", ""),
+                            name = account.username,
+                            url = url,
+                            slim = account.skinModel.equals("slim", ignoreCase = true)
+                        )
+                        """{"textures":["$value"]}"""
+                    }
+                }
+            }.getOrNull() ?: "{}"
         }
         return AuthInfo(
             params.username,

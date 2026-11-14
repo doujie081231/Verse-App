@@ -102,6 +102,61 @@ fun FCLSkinViewer(
     }
 }
 
+/**
+ * 直接用皮肤网络地址渲染 3D 预览（皮肤库用）。
+ *
+ * 与 [FCLSkinViewer] 的区别：那边是从「账号」反解皮肤来源，这里拿到的就是一张库内皮肤，
+ * 直接把 URL 下下来贴到同一个渲染器上；触摸拖动/缩放手感完全一致。
+ */
+@Composable
+fun SkinPreviewViewer(
+    skinUrl: String,
+    modifier: Modifier = Modifier,
+    background: Color = Color.Transparent
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current.density
+    var renderer by remember { mutableStateOf<SkinRenderer?>(null) }
+    var viewer by remember { mutableStateOf<SkinViewer?>(null) }
+    var bitmap by remember(skinUrl) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(skinUrl) {
+        bitmap = withContext(Dispatchers.IO) {
+            runCatching {
+                skinClient.newCall(Request.Builder().url(skinUrl).build()).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    val bytes = response.body?.bytes() ?: return@use null
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+            }.getOrNull()
+        }
+    }
+
+    LaunchedEffect(bitmap) {
+        val bmp = bitmap
+        val r = renderer
+        if (bmp != null && r != null) {
+            r.setTexture(bmp, null)
+            viewer?.requestRender()
+        }
+    }
+
+    Box(modifier = modifier.background(background), contentAlignment = Alignment.Center) {
+        AndroidView(
+            factory = { ctx ->
+                SkinViewer(ctx).apply {
+                    val r = SkinRenderer(ctx)
+                    renderer = r
+                    setRenderer(r, density)
+                    viewer = this
+                }
+            },
+            update = { },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
 /** 完整皮肤位图解析：外置登录真实纹理 → 本地皮肤文件 → 网络皮肤 URL → 默认 al 皮肤 */
 private suspend fun loadFullSkin(context: Context, account: Account): Bitmap? {
     // 外置登录：验证服务器的 session profile 里带真实皮肤纹理，

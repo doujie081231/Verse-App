@@ -70,6 +70,9 @@ private val AcctsCardWidth = 180.dp
 private val AcctsCardHeight = 240.dp
 private val AcctsCardGap = 24.dp
 
+/** 轻扫翻页的最小水平速度（px/s）：超过它就不看拖拽距离，直接翻到相邻卡片 */
+private const val FLING_VELOCITY_PX = 900f
+
 /**
  * 暗色主题卡片颜色；
  * 浅色主题回落到默认玻璃白（rgba(255,255,255,0.08/0.12) + 白边框），消除白底下的灰板块。
@@ -151,6 +154,10 @@ fun AccountsScreen(
                 }
             },
             onDelete = { showDeleteConfirm = detailAccount },
+            onOpenSkinLibrary = {
+                selectedDetailAccount = null
+                navController.navigate("skin_library")
+            },
             onRefreshSkin = {
                 scope.launch {
                     viewModel.loadAccounts()
@@ -205,15 +212,6 @@ fun AccountsScreen(
                         onSelectAccount = { id -> scope.launch { viewModel.selectAccount(id) } }
                     )
                 }
-                // 皮肤库入口：仅对 Verse 皮肤站账号有意义（页面内会校验并给出说明）
-                PcButton(
-                    text = "皮肤库",
-                    onClick = { navController.navigate("skin_library") },
-                    variant = PcButtonVariant.SECONDARY,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(bottom = 10.dp)
-                )
                 Text(
                     text = "← 左右拖动切换账号，最左侧可添加 →",
                     fontSize = 12.sp,
@@ -704,19 +702,40 @@ private fun AccountCarousel(
     val cards = remember(accounts) { listOf<Account?>(null) + accounts }
     val maxIndex = cards.size - 1
 
-    // 选中索引初值：选中+1；无选中但有账户 -> 1；无账户 -> 0
-    var currentIndex by remember(accounts, selectedAccount?.id) {
+    // 选中索引初值：选中+1；无选中但有账户 -> 1；无账户 -> 0。
+    // 这里只按「账号数量」重建：以前把 selectedAccount.id 也作为 key，
+    // 切换账号时 remember 会被重新初始化，配合拖拽偏移一起算就会出现卡片弹回第一位。
+    var currentIndex by remember(accounts.size) {
         mutableIntStateOf(
             accounts.indexOfFirst { it.id == selectedAccount?.id }
                 .let { if (it >= 0) it + 1 else if (accounts.isNotEmpty()) 1 else 0 }
         )
     }
 
+
     // 轨道额外偏移：拖动手势期间为拖拽量，松手后动画吸附
     var dragOffset by remember { mutableFloatStateOf(0f) }
     var dragAccumX by remember { mutableFloatStateOf(0f) }
     var dragAccumY by remember { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    // 最近一次拖动的水平速度（px/s）：松手时用来判断"轻扫翻页"，并作为吸附动画的初速度，
+    // 否则快速轻扫只会被位置吸附拉回原卡片，手感发钝
+    var dragVelocity by remember { mutableFloatStateOf(0f) }
+    var lastDragAt by remember { mutableLongStateOf(0L) }
+    // 吸附动画进行中：此时别用外部选中状态去改 currentIndex，否则轨道基准中途跳变会闪
+    var animating by remember { mutableStateOf(false) }
+    // 外部选中变化（点卡片、别处切号）时平滑跟随，而不是把整个状态重置
+    LaunchedEffect(accounts.size, selectedAccount?.id) {
+        if (dragging || animating) return@LaunchedEffect
+        val idx = accounts.indexOfFirst { it.id == selectedAccount?.id }
+        if (idx >= 0) {
+            val target = idx + 1
+            if (target != currentIndex) {
+                currentIndex = target
+                dragOffset = 0f
+            }
+        }
+    }
 
     // 上滑删除：选中卡片沿 z 轴翻飞，动画结束后弹删除确认
     var ejectIndex by remember { mutableStateOf(-1) }
@@ -724,14 +743,23 @@ private fun AccountCarousel(
 
     val scope = rememberCoroutineScope()
 
-    // 从 from 平滑吸附到 to（每帧回写 dragOffset 状态驱动重组）
-    suspend fun animateOffsetTo(from: Float, to: Float) {
+    // 从 from 平滑吸附到 to（每帧回写 dragOffset 状态驱动重组）。
+    // 用弹簧而不是固定补间：初速度接上手势，松手那一刻不会先"顿"一下再走。
+    suspend fun animateOffsetTo(from: Float, to: Float, velocity: Float = 0f) {
         if (from == to) {
             dragOffset = to
             return
         }
         val anim = Animatable(from)
-        anim.animateTo(to, animationSpec = tween(380, easing = FastOutSlowInEasing)) {
+        anim.animateTo(
+            targetValue = to,
+            animationSpec = androidx.compose.animation.core.spring(
+                dampingRatio = 0.85f,
+                stiffness = 420f,
+                visibilityThreshold = 0.5f
+            ),
+            initialVelocity = velocity
+        ) {
             dragOffset = value
         }
         dragOffset = to
@@ -775,9 +803,18 @@ private fun AccountCarousel(
                         dragging = true
                         dragAccumX = 0f
                         dragAccumY = 0f
+                        dragVelocity = 0f
+                        lastDragAt = 0L
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
+                        val now = android.os.SystemClock.uptimeMillis()
+                        if (lastDragAt != 0L) {
+                            val dt = (now - lastDragAt).coerceAtLeast(1L)
+                            // 简单低通：新采样占七成，避免单帧抖动主导末速度
+                            dragVelocity = dragVelocity * 0.3f + (dragAmount.x / dt * 1000f) * 0.7f
+                        }
+                        lastDragAt = now
                         dragAccumX += dragAmount.x
                         dragAccumY += dragAmount.y
                         dragOffset = dampedOffset(dragAccumX)
@@ -798,21 +835,37 @@ private fun AccountCarousel(
                             }
                             return@detectDragGestures
                         }
-                        // 松手吸附到最近卡片
+                        // 松手吸附：轻扫（速度够快）直接翻一页，否则按位置吸到最近卡片
                         val eff = (currentIndex - dragAccumX / stepPx).coerceIn(0f, maxIndex.toFloat())
-                        val target = eff.roundToInt()
+                        val target = when {
+                            dragVelocity <= -FLING_VELOCITY_PX -> (currentIndex + 1)
+                            dragVelocity >= FLING_VELOCITY_PX -> (currentIndex - 1)
+                            else -> eff.roundToInt()
+                        }.coerceIn(0, maxIndex)
                         val finalDelta = (currentIndex - target) * stepPx
-                        scope.launch {
-                            animateOffsetTo(dragOffset, finalDelta)
-                            if (target != currentIndex) {
-                                currentIndex = target
-                                val id = cards.getOrNull(target)
-                                if (id == null) {
-                                    onAddAccount()
-                                } else {
-                                    onSelectAccount(id.id)
-                                }
+                        val velocityForAnim = dragVelocity
+                        val switching = target != currentIndex
+                        val targetCard = cards.getOrNull(target)
+
+                        // 先把「切换账号」这件事立刻落地：写入 DB 不依赖动画，
+                        // 以前等吸附动画跑完才切，动画一旦被打断账号就切不过去（表现为「还是原来的角色」）
+                        if (switching) {
+                            if (targetCard == null) {
+                                onAddAccount()
+                            } else {
+                                onSelectAccount(targetCard.id)
                             }
+                        }
+
+                        scope.launch {
+                            animating = true
+                            animateOffsetTo(dragOffset, finalDelta, velocityForAnim)
+                            if (switching) {
+                                currentIndex = target
+                                // 切页后轨道基准 baseX 已按新下标重算，清零临时拖拽量避免二次平移
+                                dragOffset = 0f
+                            }
+                            animating = false
                         }
                     },
                     onDragCancel = {
@@ -877,7 +930,18 @@ private fun AccountCarousel(
                             card = card,
                             selected = isSel,
                             onAdd = onAddAccount,
-                            onOpen = onOpenDetail
+                            onOpen = onOpenDetail,
+                            onSelect = {
+                                if (card != null && i != currentIndex) {
+                                    scope.launch {
+                                        val delta = (currentIndex - i) * stepPx
+                                        animateOffsetTo(dragOffset, delta)
+                                        currentIndex = i
+                                        dragOffset = 0f
+                                        onSelectAccount(card.id)
+                                    }
+                                }
+                            }
                         )
                     }
                 }
@@ -892,12 +956,18 @@ private fun EjectCardContent(
     card: Account?,
     selected: Boolean,
     onAdd: () -> Unit,
-    onOpen: (Account) -> Unit
+    onOpen: (Account) -> Unit,
+    onSelect: () -> Unit = {}
 ) {
     if (card == null) {
         AddAccountCard(selected = selected, onClick = onAdd)
     } else {
-        AccountCardView(account = card, selected = selected, onClick = { onOpen(card) })
+        // 选中卡点开详情，未选中的卡点一下直接切过去 —— 拖动偶尔不跟手时还有这条路
+        AccountCardView(
+            account = card,
+            selected = selected,
+            onClick = { if (selected) onOpen(card) else onSelect() }
+        )
     }
 }
 

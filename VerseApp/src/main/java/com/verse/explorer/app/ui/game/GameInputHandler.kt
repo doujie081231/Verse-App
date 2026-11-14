@@ -205,6 +205,9 @@ class GameInputHandler(
 
     /** 模拟键盘：直接向游戏窗口发送 GLFW 按键（按住/抬起） */
     fun sendVirtualKey(keycode: Int, press: Boolean) = sendKeyEvent(keycode, press)
+    /** 供手柄右摇杆等外部输入源注入视角增量（与鼠标移动同一条通路） */
+    fun sendMouseDelta(dx: Float, dy: Float) = applyMouseDelta(dx, dy)
+
 
     private fun sendKeyEvent(keycode: Int, press: Boolean) {
         val bridge = bridgeProvider() ?: return

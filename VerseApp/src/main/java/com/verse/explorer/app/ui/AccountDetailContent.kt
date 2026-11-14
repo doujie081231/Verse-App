@@ -67,6 +67,7 @@ fun AccountDetailContent(
     onSelect: () -> Unit,
     onDelete: () -> Unit,
     onRefreshSkin: () -> Unit,
+    onOpenSkinLibrary: () -> Unit,
     viewModel: AccountsViewModel,
     modifier: Modifier = Modifier
 ) {
@@ -242,6 +243,43 @@ fun AccountDetailContent(
                 }
 
                 Spacer(Modifier.height(8.dp))
+
+                // 皮肤库入口放在详情侧栏里：换肤路径变成「账户 → 详情 → 皮肤库」，
+                // 比原先在账户页底部单独摆一个按钮更贴近「这是给这个账号换肤」的语义
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = VerseColors.PcBgCard,
+                    border = BorderStroke(1.dp, VerseColors.PcBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onOpenSkinLibrary
+                        )
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "皮肤库",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = VerseColors.PcTextPrimary
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            text = "给这个账号换皮肤",
+                            fontSize = 11.sp,
+                            color = VerseColors.PcTextMuted,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(text = "›", fontSize = 18.sp, color = VerseColors.PcTextMuted)
+                    }
+                }
+
+                Spacer(Modifier.height(4.dp))
 
                 DetailField(label = "UUID") {
                     Row(verticalAlignment = Alignment.CenterVertically) {

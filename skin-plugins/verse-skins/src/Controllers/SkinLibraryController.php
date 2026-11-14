@@ -7,6 +7,7 @@ use App\Models\Texture;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use VerseSkins\Support\ApiKey;
 use Yggdrasil\Models\Token;
 
 /**
@@ -46,6 +47,15 @@ class SkinLibraryController
 
     public function index(Request $request)
     {
+        // 列表也要 key（和 CurseForge 的 x-api-key 一致）：应用级 key 或账号级 key 都可以。
+        // 这样第三方接接口必须先申请，运维也能按 key 看调用量、按 key 限流。
+        if ($this->keyRecord($request) === null) {
+            return response()->json([
+                'error' => 'unauthorized',
+                'message' => '缺少或无效的 API Key：请在皮肤站「开发者中心」申请后通过 X-Api-Key 请求头传入',
+            ], 401);
+        }
+
         $limit = (int) $request->query('limit', 24);
         $limit = max(1, min($limit, self::MAX_LIMIT));
         $page = max(1, (int) $request->query('page', 1));
@@ -165,21 +175,102 @@ class SkinLibraryController
     }
 
     /**
-     * 从 Bearer token 反查账号。
-     * token 由 yggdrasil-api 签发，owner 存的是账号邮箱。
+     * 从请求里反查账号，支持两种凭据：
+     *
+     *  1. `Authorization: Bearer vk_xxx`（或 `X-Api-Key: vk_xxx`）—— 开发者页面签发的账号级 Key。
+     *     微软/离线账号没有 Yggdrasil token，只能走这条；
+     *  2. `Authorization: Bearer <Yggdrasil accessToken>` —— 游戏登录链路签发的 token，
+     *     用于外置登录账号，保持兼容。
+     */
+    /**
+     * 取出请求里的 key 记录（应用级或账号级），无效返回 null。
+     */
+    private function keyRecord(Request $request): ?object
+    {
+        // 前缀 vk_ 是保留的，不会与 Yggdrasil 的 UUID 型 token 冲突
+        $apiKey = $request->header('X-Api-Key');
+        $bearer = $request->bearerToken();
+        if (empty($apiKey) && !empty($bearer) && str_starts_with((string) $bearer, ApiKey::PREFIX)) {
+            $apiKey = $bearer;
+        }
+
+        return empty($apiKey) ? null : ApiKey::resolve((string) $apiKey);
+    }
+
+    /**
+     * 反查「具体账号」，用于换肤这类必须落在某个人名下的操作。
+     *
+     * 应用级 key（kind=app，uid=0）只代表启动器本身，不映射任何账号，这里返回 null。
      */
     private function resolveUser(Request $request): ?User
     {
-        $accessToken = $request->bearerToken();
-        if (empty($accessToken)) {
+        $record = $this->keyRecord($request);
+        if ($record !== null) {
+            $uid = (int) $record->uid;
+
+            return $uid > 0 ? User::find($uid) : null;
+        }
+
+        $bearer = $request->bearerToken();
+        if (empty($bearer)) {
             return null;
         }
 
-        $token = Token::find($accessToken);
+        $token = Token::find($bearer);
         if ($token === null || !$token->isValid() || empty($token->owner)) {
             return null;
         }
 
         return User::where('email', $token->owner)->first();
+    }
+
+    /**
+     * 当前凭据对应的账号与角色列表。
+     *
+     * 启动器用它在填完 Key 后确认「这个 Key 是谁的、下面有哪些角色」，
+     * 避免玩家把皮肤应用到错的账号上。
+     */
+    public function me(Request $request)
+    {
+        $record = $this->keyRecord($request);
+        if ($record !== null && (int) $record->uid === 0) {
+            // 应用级 key：没有角色，但要让开发者能确认这把 key 生效了
+            return response()->json([
+                'ok' => true,
+                'kind' => 'app',
+                'uid' => 0,
+                'players' => [],
+            ]);
+        }
+
+        $user = $this->resolveUser($request);
+        if ($user === null) {
+            return response()->json([
+                'error' => 'unauthorized',
+                'message' => 'API Key 或 accessToken 缺失、无效或已撤销',
+            ], 401);
+        }
+
+        $players = Player::where('uid', $user->uid)
+            ->orderBy('pid')
+            ->get(['name', 'tid_skin', 'tid_cape']);
+
+        $list = [];
+        foreach ($players as $player) {
+            $uuid = DB::table('uuid')->where('name', $player->name)->value('uuid');
+            $list[] = [
+                'name' => (string) $player->name,
+                'uuid' => $uuid !== null ? (string) $uuid : null,
+                'tid_skin' => $player->tid_skin !== null ? (int) $player->tid_skin : null,
+                'tid_cape' => $player->tid_cape !== null ? (int) $player->tid_cape : null,
+            ];
+        }
+
+        return response()->json([
+            'ok' => true,
+            'kind' => 'account',
+            'uid' => (int) $user->uid,
+            'players' => $list,
+        ]);
     }
 }
