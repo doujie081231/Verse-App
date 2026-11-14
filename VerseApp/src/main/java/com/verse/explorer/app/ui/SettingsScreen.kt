@@ -6,13 +6,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -36,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -91,7 +88,28 @@ fun SettingsScreen(navController: NavHostController) {
     // 鼠标指针自定义图片与热点的持久化目录（幂等）
     MousePointerSetting.init(context.filesDir)
     // 左侧子页索引：0=启动设置 1=个性化 2=触控布局 3=控制设置 4=手柄设置 5=关于（原"其他"页已并入关于）
-    var selectedPage by remember { mutableIntStateOf(0) }
+    // 点击只改 targetPage，displayedPage 在退场动画结束的那一帧才切换。
+    // 过渡期间只组合一棵内容树：原先 AnimatedContent 会把新旧两棵重量级设置页
+    // 同时留在组合树里测量/绘制，切页瞬间明显掉帧。
+    var targetPage by remember { mutableIntStateOf(0) }
+    var displayedPage by remember { mutableIntStateOf(0) }
+    // 0 = 静止；0→1 = 旧页退场；-1→0 = 新页入场
+    val pageMotion = remember { Animatable(0f) }
+    var pageDirection by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(targetPage) {
+        if (targetPage == displayedPage) {
+            pageMotion.snapTo(0f)
+            return@LaunchedEffect
+        }
+        pageDirection = if (targetPage > displayedPage) 1 else -1
+        // 连点打断上一次入场动画时先收回静止位，避免留下半透明残影
+        if (pageMotion.value < 0f) pageMotion.snapTo(0f)
+        pageMotion.animateTo(1f, tween(90, easing = FastOutLinearInEasing))
+        displayedPage = targetPage
+        pageMotion.snapTo(-1f)
+        pageMotion.animateTo(0f, tween(170, easing = LinearOutSlowInEasing))
+    }
     val pages = listOf("启动设置", "个性化", "触控布局", "控制设置", "手柄设置", "关于")
     var renderScale by remember { mutableIntStateOf((MenuSetting.windowScale * 100).toInt().coerceIn(25, 300)) }
     // 保留的原有状态变量
@@ -303,14 +321,14 @@ fun SettingsScreen(navController: NavHostController) {
             )
             Spacer(Modifier.height(8.dp))
             pages.forEachIndexed { index, label ->
-                val selected = selectedPage == index
+                val selected = targetPage == index
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = if (selected) VerseColors.PcAccent.copy(alpha = 0.1f) else Color.Transparent,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp, vertical = 2.dp)
-                        .clickable { selectedPage = index }
+                        .clickable { targetPage = index }
                 ) {
                     Text(
                         label,
@@ -324,23 +342,31 @@ fun SettingsScreen(navController: NavHostController) {
         }
 
         // 右侧内容区：PcBgPrimary 背景，卡片间间距 16dp
-        // 子页切换：标题与内容一起做轻量横向位移 + 淡入淡出。
-        // 位移量只有页宽的 1/7，够看出方向感又不拖慢点击响应。
-        AnimatedContent(
-            targetState = selectedPage,
-            modifier = Modifier.weight(1f).fillMaxHeight(),
-            transitionSpec = {
-                val forward = targetState > initialState
-                val enterSpec = slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { w ->
-                    if (forward) w / 7 else -w / 7
-                } + fadeIn(tween(200))
-                val exitSpec = slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { w ->
-                    if (forward) -w / 7 else w / 7
-                } + fadeOut(tween(160))
-                enterSpec togetherWith exitSpec
-            },
-            label = "settingsPage"
-        ) { page ->
+        // 子页切换：退场 → 换内容 → 入场 的序列过渡。
+        // 位移/透明度/缩放都在 graphicsLayer 里按帧求值，只重绘图层、不重组内容树；
+        // 同一时刻只有一棵设置页参与组合，避免双树同时测量/绘制造成的掉帧。
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .graphicsLayer {
+                    val p = pageMotion.value
+                    val exit = p.coerceAtLeast(0f)
+                    val enter = (-p).coerceAtLeast(0f)
+                    val amount = exit + enter
+                    translationX = if (enter > 0f) {
+                        pageDirection * size.width * 0.06f * enter
+                    } else {
+                        -pageDirection * size.width * 0.06f * exit
+                    }
+                    alpha = 1f - amount * 0.88f
+                    val scale = 1f - amount * 0.015f
+                    scaleX = scale
+                    scaleY = scale
+                }
+        ) {
+            // 各子页独立持有 item 状态（展开的菜单、输入焦点等），切页不互相串用
+            key(displayedPage) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -350,14 +376,14 @@ fun SettingsScreen(navController: NavHostController) {
         ) {
             item {
                 Text(
-                    pages[page],
+                    pages[displayedPage],
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = VerseColors.PcTextPrimary
                 )
             }
 
-            when (page) {
+            when (displayedPage) {
                 // 启动设置子页：合并原常规/视频/Java/启动器设置
                 0 -> {
                     item {
@@ -1335,7 +1361,7 @@ fun SettingsScreen(navController: NavHostController) {
             }
 
             // 保存设置按钮（关于页为纯展示信息，不提供保存操作；控制设置/手柄设置各项即时生效并持久化）
-            if (page != 5) item {
+            if (displayedPage != 5) item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -1349,9 +1375,10 @@ fun SettingsScreen(navController: NavHostController) {
             }
 
             item { Spacer(Modifier.height(20.dp)) }
-        }
-        }
-    }
+        }   // LazyColumn 内容
+            }   // key(displayedPage)
+        }       // 右侧内容区 Box
+    }           // 左右分栏 Row
 
         aboutUpdateInfo?.let { info ->
             UpdateDialog(

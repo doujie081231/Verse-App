@@ -399,6 +399,8 @@ class GameLaunchOrchestrator(
         val repository = DefaultGameRepository(gameDir)
         repository.setRunDirectoryIsolated(verSettings.usesGlobal || verSettings.isolateGameDir)
         repository.refreshVersions()
+        // 对齐 FCL 启动链：模板生成必须早于 injectOnboardingSkip（后者会创建 options.txt）
+        optionsInjector.ensureFclOptions(repository, fclVersion)
         optionsInjector.injectOnboardingSkip(repository, params.versionId)
         optionsInjector.injectGameLanguage(repository, fclVersion)
         optionsInjector.injectGraphicsBackend(

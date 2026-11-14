@@ -13,10 +13,15 @@ import java.io.File
 /**
  * 启动前 options.txt 注入器。
  *
- * 职责：每次启动前把启动器侧策略写入版本运行目录的 options.txt——
- * 跳过首次欢迎引导、强制中文、渲染后端键。只追加/替换目标键，不整写模板，
- * 规避旧格式行被 MC 选项解析器跳过引发的启动期异常；
- * 视距/平滑光照/mipmap/垂直同步等画面设置交还游戏内设置，启动不覆盖。
+ * 职责：把 FCL 启动链对 options.txt 的处理落到版本运行目录——
+ * 1) 文件不存在时用 FCL 内置模板生成（`FCLGameLauncher.generateOptionsTxt()`）；
+ *    已存在但由 MC 自行生成的，一次性把渲染键对齐到模板值；
+ * 2) 跳过首次欢迎引导、强制中文、渲染后端键；
+ * 3) 每次启动补 `startedCleanly` / `touchscreen`（FCL LauncherHelper / fixOptions）。
+ *
+ * 只追加/替换目标键，不整写旧模板，规避旧格式行被 MC 选项解析器跳过引发的
+ * 启动期异常。对齐过一次后视距/平滑光照/mipmap/垂直同步等交还游戏内设置，
+ * 玩家调好的画面设置不会被启动器反复重置。
  *
  * 与 GameLaunchOrchestrator 共用同一个日志 TAG，保持 logcat 过滤契约不变。
  */
@@ -24,6 +29,48 @@ class OptionsInjector(private val activity: Context) {
 
     companion object {
         private const val TAG = "GameLaunchOrchestrator"
+    }
+
+    /**
+     * 对齐 FCL `FCLGameLauncher.generateOptionsTxt()`：options.txt 不存在时
+     * 从 `assets/options.txt`（与 FCL 原版逐字节一致）生成；已存在但此前由 MC
+     * 自行生成时（mipmapLevels:4 / renderDistance:12 / enableVsync:true 等），
+     * 一次性把渲染键对齐到 FCL 模板值。
+     *
+     * 仓库历史里 `6fa838b` / `49d677a` 两次修过水体贴图错乱，但那两个提交只在
+     * `origin/refactor/architecture` 分支，从未合并进当前主线；当前启动链缺的
+     * 正是 FCL 的模板文件与这段生成逻辑。对齐标记按版本运行目录记录，避免
+     * 每次启动都重置玩家之后在游戏内调好的画质。
+     *
+     * 必须在 injectOnboardingSkip 之前调用——后者会按需创建 options.txt，
+     * 抢先创建会让模板生成分支永远走不到。
+     */
+    fun ensureFclOptions(repository: DefaultGameRepository, version: Version) {
+        runCatching {
+            val runDir = repository.getRunDirectory(version.id)
+            val template = activity.assets.open("options.txt").bufferedReader().use { it.readText() }
+            val prefs = activity.getSharedPreferences("verse_fcl_options", Context.MODE_PRIVATE)
+            val alignKey = "fcl_template_v1_${runDir.absolutePath}"
+            val alreadyAligned = prefs.getBoolean(alignKey, false)
+
+            val outcome = OptionsFileWriter.ensureFclOptions(
+                runDir, template, alignExisting = !alreadyAligned
+            )
+            if (outcome.createdFromTemplate || outcome.alignedExisting) {
+                prefs.edit().putBoolean(alignKey, true).apply()
+            }
+            VerseLogger.info(
+                "options.txt 已对齐 FCL 模板: " +
+                    when {
+                        outcome.createdFromTemplate -> "新建（assets/options.txt 全文）"
+                        outcome.alignedExisting -> "补齐渲染键（mipmapLevels:0 / renderDistance:2 / fancyGraphics:false / ao:0 / enableVsync:false）"
+                        else -> "已对齐，保留玩家画质设置"
+                    } + "，目录=${runDir.absolutePath}",
+                TAG
+            )
+        }.onFailure {
+            VerseLogger.warn("对齐 FCL options.txt 模板失败: ${it.message}", TAG)
+        }
     }
 
     /**
@@ -84,9 +131,8 @@ class OptionsInjector(private val activity: Context) {
      *   （"Failed to query window size in pixels: Invalid window"），或直接初始化崩溃；
      * - Zink / Freedreno 等 Vulkan 渲染器按用户选择（版本级优先，其次全局）；
      * - 未显式选择时，只有该版本确实检测到可用 Vulkan 才写 "vulkan"，否则 "default" 交给游戏探测。
-     * 注意：不整写旧版 options 模板——MC 26.2 的选项解析器对无引号旧格式行
-     * （fov:0.0/clouds:true 等）报 "Skipping bad option"，可能引发启动期异常；
-     * options.txt 首次由 MC 自行生成，这里只追加/更新 backend 键。
+     * 注意：只追加/更新 backend 键，不整写旧模板。options.txt 首次由
+     * [ensureFclOptions] 用 FCL 模板生成，渲染画质键在那里一次性对齐。
      */
     fun injectGraphicsBackend(
         repository: DefaultGameRepository,
@@ -125,8 +171,8 @@ class OptionsInjector(private val activity: Context) {
                 else -> "default"
             }
 
-            // 只写入渲染后端键；视距/平滑光照/mipmap/垂直同步等交给游戏内设置，
-            // 每次启动强制覆盖会导致玩家在游戏里调好的画面设置下一局被重置。
+            // 只写入渲染后端键；画质键由 ensureFclOptions 按 FCL 模板一次性对齐，
+            // 对齐之后交还游戏内设置，避免每次启动重置玩家调好的画面。
             OptionsFileWriter.writeBackend(runDir, OptionsFileWriter.backendEntries(isMobileGlues, backend))
             // 游戏内 GUI 缩放：快捷栏自动判定要用它算 9 格尺寸（0 = 跟随自动，-1 = 读不到）。
             // 对齐 ZL2 的 MCOptions.get("guiScale")。

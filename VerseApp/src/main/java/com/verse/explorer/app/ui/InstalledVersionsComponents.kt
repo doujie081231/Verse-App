@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.AddBox
@@ -77,6 +78,8 @@ internal fun VersionItemLayout(
     meta: VersionMetaRepository.VersionMeta,
     pinnedToHome: Boolean,
     modifier: Modifier = Modifier,
+    /** 由 ReorderableItem 作用域提供（含 draggableHandle）；null = 不显示拖动手柄 */
+    dragHandleModifier: Modifier? = null,
     influencedByBackground: Boolean = true,
     color: Color = cardColor(influencedByBackground),
     contentColor: Color = onCardColor(),
@@ -110,6 +113,22 @@ internal fun VersionItemLayout(
                 .padding(all = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 拖拽排序手柄：仅在「全部」分类且可排序时由列表页传入，
+            // 36dp 的触摸区比 20dp 图标本身更好按，长按即可拖动。
+            if (dragHandleModifier != null) {
+                Box(
+                    modifier = dragHandleModifier.size(36.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DragHandle,
+                        contentDescription = "长按拖动排序",
+                        modifier = Modifier.size(20.dp),
+                        tint = onCardColor().copy(alpha = 0.6f)
+                    )
+                }
+            }
+
             RadioButton(
                 selected = selected,
                 onClick = {

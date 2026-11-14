@@ -90,6 +90,12 @@ public class ControlLayout extends FrameLayout {
 	public void loadLayout(CustomControls controlLayout) {
 		boolean sanitizedModified = false;
 		if(controlLayout != null) {
+			// 任何来源（v8 / ZL2 转换 / 仓库布局）都可能缺列表字段：默认布局 JSON 里
+			// 就没有 mJoystickDataList。必须在 sanitize 之前补齐，否则下面遍历直接 NPE，
+			// 表现为「添加方向控制键后保存，重载布局整个失败」。
+			if (controlLayout.mControlDataList == null) controlLayout.mControlDataList = new ArrayList<>();
+			if (controlLayout.mDrawerDataList == null) controlLayout.mDrawerDataList = new ArrayList<>();
+			if (controlLayout.mJoystickDataList == null) controlLayout.mJoystickDataList = new ArrayList<>();
 			sanitizedModified = LayoutSanitizer.sanitizeLayout(controlLayout);
 		}
 		if(mActionRow == null){
@@ -128,8 +134,17 @@ public class ControlLayout extends FrameLayout {
 			for (CustomControls.ControlGroupData group : groups) {
 				if (group.visible || mModifiable) createGroupJoystickViews(group);
 			}
+			// 未归入任何控件组的摇杆 / 按键（编辑器里新添加的）也必须渲染。
+			// 参考 ZL2：所有 widget 都参与渲染，分组只决定显隐。此前只遍历组内成员，
+			// 新加的方向键保存后重载就被丢掉，表现为「添加后保存直接消失」。
+			for (ControlJoystickData joystick : mLayout.mJoystickDataList) {
+				if (joystick != null && mGroupData.get(joystick.groupId) == null) addJoystickView(joystick);
+			}
 			for (CustomControls.ControlGroupData group : groups) {
 				if (group.visible || mModifiable) createGroupButtonViews(group);
+			}
+			for (ControlData button : mLayout.mControlDataList) {
+				if (button != null && mGroupData.get(button.groupId) == null) addControlView(button);
 			}
 		} else {
 			// Joystick(s) first, to workaround the touch dispatch
@@ -328,6 +343,9 @@ public class ControlLayout extends FrameLayout {
 		}
 		addView(view);
 		registerGroupView(data, view);
+		// 与 addControlView 对齐：新增摇杆也是布局变更，否则编辑器/保存流程
+		// 认为「未修改」，保存后新加的方向键不会写进 JSON。
+		setModified(true);
 	}
 
 
@@ -533,6 +551,42 @@ public class ControlLayout extends FrameLayout {
 					return;
 				}
 
+			}
+		}
+	}
+
+	/**
+	 * 参考 ZL2 的 PointerEventBus / ObservableJoystickData.activePointer：
+	 * 指针抬起必须通知摇杆释放方向键，且不能依赖「抬起坐标仍命中摇杆」。
+	 * 游戏内触摸是手动分发的（GameActivity 会合成单指事件），UP 时手指常已滑出
+	 * 摇杆矩形，JoystickView 收不到 UP，onMove 不再回调，最后按下的方向（常见为右）
+	 * 就一直保持按下。这里在父容器层兜底派发释放。
+	 */
+	@Override
+	public boolean dispatchTouchEvent(MotionEvent ev) {
+		boolean handled = super.dispatchTouchEvent(ev);
+		switch (ev.getActionMasked()) {
+			case MotionEvent.ACTION_UP:
+				releaseJoystickKeys(ev.getPointerId(0));
+				break;
+			case MotionEvent.ACTION_POINTER_UP:
+				releaseJoystickKeys(ev.getPointerId(ev.getActionIndex()));
+				break;
+			case MotionEvent.ACTION_CANCEL:
+				releaseJoystickKeys(-1);
+				break;
+			default:
+				break;
+		}
+		return handled;
+	}
+
+	/** pointerId < 0 表示无条件释放（手势取消 / 菜单唤起 / 布局重载）。 */
+	public void releaseJoystickKeys(int pointerId) {
+		for (ControlInterface control : getButtonChildren()) {
+			View view = control.getControlView();
+			if (view instanceof ControlJoystick) {
+				((ControlJoystick) view).releaseKeys(pointerId);
 			}
 		}
 	}

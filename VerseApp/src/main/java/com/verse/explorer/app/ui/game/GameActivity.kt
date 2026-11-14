@@ -508,6 +508,9 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                 // 联机对话框打开时不把触摸透传给游戏
                 return true
             }
+            // 菜单悬浮球优先：命中时只把该指针合成单指事件交给球并消费，
+            // 其余指针照常走下面的游戏触控 / 虚拟按键分发（参考 ZL2 的指针占用）。
+            if (inGameControl?.handleMenuBallTouch(ev) == true) return true
             if (isTouchOnQuickInput(ev)) {
                 // 快捷输入框可见时让 EditText 正常接收焦点与键盘
                 return super.dispatchTouchEvent(ev)
@@ -530,7 +533,8 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
             //     手指抬起绝不判 tap（修复滑动误触点击 → 视角跳转，2.1.22）。
             //   · 双指下滑检测必须排除按钮指针：左手按键 + 右手滑动不会误触手势（2.1.21）。
             val buttonPointerIds = resolveButtonPointerIds(ev)
-            if (inGameControl?.trackMultiTouch(ev, buttonPointerIds) == true) {
+            // 启用悬浮球后双指下滑停用，不再跟踪手势（两条唤出通道互斥）
+            if (!MenuSetting.showMenuBall && inGameControl?.trackMultiTouch(ev, buttonPointerIds) == true) {
                 VerseLogger.debug("TOUCH consumed by 2-finger swipe", "Control")
                 inGameControl?.fireSwipe()
                 return true

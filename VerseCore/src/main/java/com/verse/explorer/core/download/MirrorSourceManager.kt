@@ -110,6 +110,42 @@ object MirrorSourceManager {
         }
     }
 
+    /**
+     * 资源文件（assets objects）专用候选源。
+     *
+     * 源集合与 ZL2 完全一致：官方 `resources.download.minecraft.net` 与
+     * `BMCLAPI.ASSETS`（`https://bmclapi2.bangbang93.com/assets`），
+     * 见 ZL2 `BMCLAPI.mapBMCLMirrorUrls()` / `BaseMinecraftDownloader.loadAssetsDownload()`。
+     * 顺序沿用 ZL2 `_MirrorPreferences.orderCandidates()` 的两种输出，并按实测可用性排布：
+     *  - official / mojang：`[官方]`（ZL2 `MirrorPriority.OFFICIAL`）
+     *  - bmclapi：`[BMCLAPI, 官方]`（ZL2 `MirrorPriority.MIRROR_FIRST`，用户显式选镜像）
+     *  - auto（默认）：`[官方, BMCLAPI]` —— 官方优先、镜像兜底
+     *
+     * 为什么 auto 不照搬 ZL2 大陆默认的「镜像优先」：BMCLAPI 的 `/assets/` 会把每个请求
+     * 302 到第三方节点（*.hurtmc.com / *.sakura.sld.tw / open-bmcl-api.lunar.cc）。
+     * 2026-11-14 用本地 asset index 的真实 hash 实测（12 并发）：
+     *  - 官方：12/12 成功，总耗时 1.68s，SHA-1 全部匹配，无重定向
+     *  - BMCLAPI：仅 2/12 成功，总耗时 13.35s，其余 502（多数要 11.26s 才超时）
+     * 「镜像优先」下每个资源要先烧完 5 次失败重试才轮到官方，64 路窗口被全占住，
+     * 这正是资源阶段只有几百 KB/s 的原因 —— 与并发数、缓冲区、SHA-1 校验都无关。
+     * `[官方, 镜像]` 与 `getMirrorUrls()` 的 official 档同语义，不是新增策略。
+     *
+     * ZL2 对单个资源只给 2 个候选，不注入第三镜像入口、不做测速探测；
+     * 下载引擎按列表顺序下载，首个成功即止，失败才换源。
+     */
+    fun getAssetCandidateUrls(context: Context, originalUrl: String): List<String> {
+        if (originalUrl.isBlank()) return listOf(originalUrl)
+        return getAssetCandidateUrls(getCurrentSource(context), originalUrl)
+    }
+
+    fun getAssetCandidateUrls(source: String, originalUrl: String): List<String> {
+        if (originalUrl.isBlank()) return listOf(originalUrl)
+        if (source == "official" || source == "mojang") return listOf(originalUrl)
+        val mirror = applyMirror(originalUrl, MOJANG_TO_BMCLAPI)
+        if (mirror == originalUrl) return listOf(originalUrl)
+        return if (source == "bmclapi") listOf(mirror, originalUrl) else listOf(originalUrl, mirror)
+    }
+
     /** 资源 CDN 镜像：命中即返回替换后的 URL（各映射互斥，取首个命中） */
     private fun applyResourceMirror(url: String): String {
         for ((pattern, replacement) in RESOURCE_MIRROR_PAIRS) {

@@ -129,4 +129,85 @@ internal object OptionsFileWriter {
         }
         optionsFile.writeText(content)
     }
+
+    /**
+     * FCL 1.3.3.6 `assets/options.txt` 中导致水体贴图错乱的 5 个渲染键，值逐键取自模板。
+     * MC 自行生成 options.txt 时分别为 4 / 12 / true / 2 / true，在 Mali + ng_gl4es
+     * 转译层下会让半透明水体材质走 mipmap、远区 LOD 与混合路径而错乱。
+     *
+     * 注意 ao 是整数键：FCL 模板写 `ao:0`，仓库里那两次修复误写成 `ao:false`，
+     * MC 不识别布尔字面量，该项实际未生效。
+     */
+    val FCL_RENDER_ENTRIES: List<Pair<String, String>> = listOf(
+        "mipmapLevels" to "0",
+        "renderDistance" to "2",
+        "fancyGraphics" to "false",
+        "ao" to "0",
+        "enableVsync" to "false"
+    )
+
+    data class FclOptionsOutcome(
+        /** 本次是否用 FCL 模板新建了 options.txt */
+        val createdFromTemplate: Boolean,
+        /** 本次是否把已有文件的渲染键对齐到 FCL 模板 */
+        val alignedExisting: Boolean
+    )
+
+    /**
+     * 对齐 FCL `FCLGameLauncher.generateOptionsTxt()`：
+     *  - options.txt 不存在 → 写入 FCL `assets/options.txt` 模板全文
+     *    （FCL 用 `RuntimeUtils.copyAssets(context, "options.txt", ...)` 做同一件事）；
+     *  - options.txt 已存在（此前由 MC 自行生成、画质键全是 MC 默认值）→
+     *    一次性把 [FCL_RENDER_ENTRIES] 对齐到模板值，并补齐模板中缺失的键；
+     *    其余玩家设置（fov / lang / 自定义键）逐行保留，不整写、不重置。
+     *
+     * 已对齐过的目录再调用时（alignExisting=false）不动画质键，玩家之后在游戏内
+     * 调好的画面设置不会被启动器覆盖。
+     */
+    fun ensureFclOptions(runDir: File, template: String, alignExisting: Boolean): FclOptionsOutcome {
+        runDir.mkdirs()
+        val optionsFile = File(runDir, "options.txt")
+        val created = !optionsFile.exists() || !optionsFile.isFile
+        var aligned = false
+
+        if (created) {
+            optionsFile.writeText(template)
+        } else if (alignExisting) {
+            var content = optionsFile.readText()
+            FCL_RENDER_ENTRIES.forEach { (key, value) ->
+                content = OptionsText.setOption(content, key, value)
+            }
+            // 模板里的其它键只在缺失时补齐，绝不覆盖玩家已有的值
+            template.lineSequence().forEach { raw ->
+                val line = raw.trimEnd('\r')
+                val colon = line.indexOf(':')
+                if (colon <= 0) return@forEach
+                val key = line.substring(0, colon)
+                val value = line.substring(colon + 1)
+                if (!Regex("(?m)^${Regex.escape(key)}:").containsMatchIn(content)) {
+                    content = OptionsText.setOption(content, key, value)
+                }
+            }
+            optionsFile.writeText(content)
+            aligned = true
+        }
+
+        writeSessionFlags(runDir)
+        return FclOptionsOutcome(created, aligned)
+    }
+
+    /**
+     * FCL `LauncherHelper` L280-282 每次启动写 `startedCleanly:true`，
+     * `FCLGameLauncher.fixOptions()` 每次启动写 `touchscreen:false`。
+     * 两项与水体无关，但同属 FCL 启动链，缺了就不算对齐。
+     */
+    fun writeSessionFlags(runDir: File) {
+        runDir.mkdirs()
+        val optionsFile = File(runDir, "options.txt")
+        if (!optionsFile.exists()) optionsFile.writeText("")
+        var content = optionsFile.readText()
+        content = OptionsText.setOption(content, "startedCleanly", "true")
+        content = OptionsText.setOption(content, "touchscreen", "false")
+        optionsFile.writeText(content)
+    }
 }

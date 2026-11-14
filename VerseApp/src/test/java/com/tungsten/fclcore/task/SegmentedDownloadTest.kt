@@ -51,7 +51,8 @@ class SegmentedDownloadTest {
 
     @Test
     fun `支持 Range 时分段下载内容完全一致`() {
-        val data = payload(3 * 1024 * 1024 + 123)
+        // FileDownloadTask.PARALLEL_MIN_SIZE = 4MB，样本必须超过阈值才会拆段
+        val data = payload(5 * 1024 * 1024 + 123)
         val srv = MiniHttpServer(data, supportsRange = true).also { server = it; it.start() }
         val downloaded = download(srv.port)
         assertEquals(data.size, downloaded.size)

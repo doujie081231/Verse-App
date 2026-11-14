@@ -2,16 +2,19 @@ package com.verse.explorer.app.ui.game
 
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -37,6 +40,7 @@ import net.kdt.pojavlaunch.customcontrols.buttons.ControlJoystick
 import net.kdt.pojavlaunch.prefs.LauncherPreferences
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.roundToInt
 
 /**
  * - 左栏「控制」= menu_left.xml 全量行：当前布局方案、编辑模式、显示控件边缘、隐藏所有控件、
@@ -74,16 +78,24 @@ class InGameControlOverlay(
     private var rightBar: View? = null
     private var chevronView: ChevronSwipeView? = null
     private var hintAutoHide: Handler? = null
+    private var ballView: MenuBallView? = null
+    private var ballPointerId = -1
 
     private var hintVisible = false
     private var panelVisible = false
 
+    // 游戏内 HUD（参考 ZL2 GameBallContent + MemoryPreview 的结构与取数口径，UI 用 Verse 自身视觉）
     private var fpsView: TextView? = null
     private var memView: TextView? = null
+    private var fpsRow: LinearLayout? = null
+    private var memRow: LinearLayout? = null
+    private var memBar: MemoryBarView? = null
     private var infoContainer: LinearLayout? = null
     private var infoHandler: Handler? = null
     private var fpsEnabled = false
     private var memEnabled = false
+    /** 上一次读取 FPS 计数器的时刻（native 返回的是区间帧数，需按采样间隔归一） */
+    private var lastFpsSampleMs = 0L
 
     private var gamepadDisabled = false
 
@@ -205,6 +217,105 @@ class InGameControlOverlay(
     }
 
 
+    // ===================== 菜单悬浮球（参考 ZL2 FloatingBall / DraggableGameBall） =====================
+
+    /** 由 GameOverlaySetup 挂到窗口最上层，可见性统一交给 syncMenuBallVisibility */
+    fun createMenuBallView(): View {
+        val ball = MenuBallView(activity) { toggleMenuFromBall() }
+        ball.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        )
+        ballView = ball
+        ball.post {
+            ball.applySavedPosition()
+            syncMenuBallVisibility()
+        }
+        return ball
+    }
+
+    /**
+     * 开关 / 透明度 / 编辑模式变化时同步悬浮球状态。
+     * 控件编辑模式下隐藏，与 ZL2 `isEditingLayout` 时不绘制球一致。
+     */
+    fun syncMenuBallVisibility() {
+        val ball = ballView ?: return
+        val editing = activity.controlLayout?.getModifiable() == true
+        ball.visibility = if (MenuSetting.showMenuBall && !editing) View.VISIBLE else View.GONE
+        ball.alpha = MenuSetting.menuBallOpacity / 100f
+        ball.menuOpened = panelVisible
+        ball.post { ball.applySavedPosition() }
+    }
+
+    private fun updateBallOpened() {
+        ballView?.menuOpened = panelVisible
+    }
+
+    /** ZL2 GameBall.onClick → viewModel.switchMenu() */
+    private fun toggleMenuFromBall() {
+        if (panelVisible) hidePanel(true) else showPanel()
+        updateBallOpened()
+    }
+
+    /**
+     * GameActivity 在分发游戏触摸前调用：命中悬浮球时，把该指针合成单指事件交给球并消费，
+     * 其余指针照常走游戏触控 / 虚拟按键。单指合成沿用项目里
+     * dispatchButtonPointersSeparately 的做法，避免多指事件把球内的摇杆状态机搞乱。
+     */
+    fun handleMenuBallTouch(ev: MotionEvent): Boolean {
+        val ball = ballView ?: return false
+        if (!MenuSetting.showMenuBall || ball.visibility != View.VISIBLE) return false
+        val location = IntArray(2)
+        ball.getLocationOnScreen(location)
+        val offsetX = ev.rawX - ev.getX(0)
+        val offsetY = ev.rawY - ev.getY(0)
+        fun hit(index: Int): Boolean {
+            val sx = ev.getX(index) + offsetX
+            val sy = ev.getY(index) + offsetY
+            return sx >= location[0] && sx <= location[0] + ball.width &&
+                sy >= location[1] && sy <= location[1] + ball.height
+        }
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (ballPointerId >= 0) return false
+                val index = if (ev.actionMasked == MotionEvent.ACTION_DOWN) 0 else ev.actionIndex
+                if (!hit(index)) return false
+                ballPointerId = ev.getPointerId(index)
+            }
+            // 只认球自己的那根手指：玩家「一边拖球一边点别的按键」时，
+            // 其它手指的抬起不能被当成球的 ACTION_UP，否则会误触发点击 / 保存位置。
+            MotionEvent.ACTION_UP -> {
+                if (ballPointerId < 0 || ev.getPointerId(0) != ballPointerId) return false
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (ballPointerId < 0 || ev.getPointerId(ev.actionIndex) != ballPointerId) return false
+            }
+            else -> if (ballPointerId < 0) return false
+        }
+        val index = (0 until ev.pointerCount)
+            .firstOrNull { ev.getPointerId(it) == ballPointerId }
+            ?: run { ballPointerId = -1; return false }
+        val action = when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> MotionEvent.ACTION_DOWN
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> MotionEvent.ACTION_UP
+            MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_CANCEL
+            else -> MotionEvent.ACTION_MOVE
+        }
+        // 传屏幕坐标而不是「减掉球当前位置」的局部坐标：球一旦跟着手指移动，
+        // 局部坐标系也会跟着平移，delta 会被抵消，表现为球体卡在原地拖不动。
+        // 屏幕坐标是固定坐标系，球内部用「当前 - 按下起点」算位移才稳定。
+        val local = MotionEvent.obtain(
+            ev.downTime, ev.eventTime, action,
+            ev.getX(index) + offsetX,
+            ev.getY(index) + offsetY,
+            ev.metaState
+        )
+        val consumed = ball.dispatchTouchEvent(local)
+        local.recycle()
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) ballPointerId = -1
+        return consumed
+    }
+
     fun createPanelView(): View {
         val root = FrameLayout(activity).apply {
             layoutParams = FrameLayout.LayoutParams(
@@ -323,6 +434,8 @@ class InGameControlOverlay(
 
         content.addView(rows.switchRow("编辑模式", activity.controlLayout?.getModifiable() == true) { on ->
             activity.controlLayout?.setModifiable(on)
+            // 与 ZL2 isEditingLayout 一致：编辑控件时不绘制菜单悬浮球
+            syncMenuBallVisibility()
             Toast.makeText(
                 activity,
                 if (on) "编辑模式已开启：拖动控件调整位置，点按控件可编辑属性"
@@ -417,6 +530,23 @@ class InGameControlOverlay(
     private fun buildRightContent(content: LinearLayout) {
         // ===== 功能 =====
         content.addView(rows.sectionHeader("功能"))
+        // 参考 ZL2 的「开启菜单悬浮窗」开关：与双指下滑互斥
+        content.addView(rows.switchRow("显示菜单悬浮球", MenuSetting.showMenuBall) { on ->
+            MenuSetting.showMenuBall = on
+            MenuSetting.notifyChange(MenuSetting.Key.SHOW_MENU_BALL)
+            syncMenuBallVisibility()
+            if (on) {
+                dismissHint()
+                Toast.makeText(activity, "已改用悬浮球打开菜单，双指下滑已停用", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(activity, "已恢复双指下滑唤出菜单", Toast.LENGTH_SHORT).show()
+            }
+        })
+        content.addView(rows.seekbarRow("悬浮球透明度", 20, 100, MenuSetting.menuBallOpacity, "%") { v ->
+            MenuSetting.menuBallOpacity = v
+            MenuSetting.notifyChange(MenuSetting.Key.MENU_BALL_OPACITY)
+            syncMenuBallVisibility()
+        })
         content.addView(rows.switchRow("锁定菜单键", MenuSetting.isLockMenuView) { on ->
             MenuSetting.isLockMenuView = on
             MenuSetting.notifyChange(MenuSetting.Key.LOCK_MENU_VIEW)
@@ -797,7 +927,8 @@ class InGameControlOverlay(
             it.startAnimation(slide)
         }
         panelVisible = true
-        VerseLogger.info("控制面板已唤起（双指下滑）", "Control")
+        updateBallOpened()
+        VerseLogger.info("控制面板已唤起", "Control")
     }
 
     fun hidePanel(animate: Boolean) {
@@ -819,6 +950,7 @@ class InGameControlOverlay(
             view.visibility = View.GONE
         }
         panelVisible = false
+        updateBallOpened()
         VerseLogger.info("控制面板已收起", "Control")
     }
 
@@ -897,6 +1029,8 @@ class InGameControlOverlay(
 
     /** 遮罩 / 面板自身可见时的触摸：跟踪多指并响应双指下滑 */
     private fun handleOverlayViewTouch(ev: MotionEvent): Boolean {
+        // 悬浮球模式下双指下滑已停用，手势跟踪也不该吞掉面板控件的点击
+        if (MenuSetting.showMenuBall) return false
         val fired = trackMultiTouch(ev)
         if (fired) {
             fireSwipe()
@@ -907,11 +1041,17 @@ class InGameControlOverlay(
 
     /** 双指下滑成立后的统一处理：复位游戏按键 → 遮罩/面板状态切换或唤起面板 */
     fun fireSwipe() {
-        if (MenuSetting.isLockMenuView) {
-            VerseLogger.info("菜单已锁定，忽略双指下滑手势", "Control")
+        // 启用悬浮球时不再使用双指下滑（两条唤出通道互斥）
+        if (MenuSetting.showMenuBall) {
+            VerseLogger.info("已启用菜单悬浮球，停用双指下滑", "Control")
             return
         }
+        // isLockMenuView 的语义是「锁定菜单键位置、不可拖动」（设置页文案亦如此），
+        // 不是禁止唤出菜单。此前误用它拦截手势，导致开启后双指下滑再也打不开控制面板。
         onCancelGameGesture()
+        // 手势会打断按键指针：参考 ZL2 的 clearState / activePointer 释放，
+        // 抬起所有摇杆方向，避免菜单弹出时方向键仍卡在「右」。
+        activity.controlLayout?.releaseJoystickKeys(-1)
         when {
             hintVisible -> {
                 dismissHint()
@@ -924,12 +1064,22 @@ class InGameControlOverlay(
 
 
     private fun setFpsVisible(visible: Boolean) {
+        if (visible && !fpsEnabled) {
+            // 对齐 ZL2 GameScreen.startFpsCapture：开启时才开始按秒计数。
+            // 本项目的 native getFps() 是 atomic_exchange(&fps, 0)（pojavSwapBuffers 每帧 +1），
+            // 返回「自上次读取以来的帧数」，而不是 ZL2 getCurrentFps() 那种已算好的每秒帧率。
+            // 因此必须先丢弃在此之前累积的历史帧数，再以当下为采样起点，
+            // 否则首次显示会把整局游戏以来的帧数当成 FPS。
+            runCatching { com.verse.explorer.launcher.bridge.CallbackBridge.getFps() }
+            lastFpsSampleMs = SystemClock.elapsedRealtime()
+        }
         fpsEnabled = visible
         if (visible) {
             ensureInfoOverlay()
+            setHudRowVisible(fpsRow, true)
             startInfoPolling()
         } else {
-            fpsView?.visibility = View.GONE
+            setHudRowVisible(fpsRow, false)
             if (!memEnabled) stopInfoPolling()
         }
     }
@@ -938,87 +1088,249 @@ class InGameControlOverlay(
         memEnabled = visible
         if (visible) {
             ensureInfoOverlay()
+            setHudRowVisible(memRow, true)
             startInfoPolling()
         } else {
-            memView?.visibility = View.GONE
+            setHudRowVisible(memRow, false)
             if (!fpsEnabled) stopInfoPolling()
         }
     }
 
-    /** 启动 FPS / 内存轮询（每 500ms 刷新 FPS，每 1s 刷新内存） */
+    /**
+     * HUD 采样：统一 1 秒一次（ZL2 GameScreen 的 startFpsCapture 与 MemoryPreview 的 delay 都是 1000ms）。
+     *
+     * FPS 与 ZL2 的数值口径对齐：ZL2 native calculateFPS() 每次跨秒执行
+     * `fps = frameCount; frameCount = 0`，getCurrentFps() 直接返回每秒帧数；
+     * 本项目 native 把「按秒归一」这件事留给了调用方，所以这里按实际采样间隔换算。
+     * 改前用 500ms 读取却把区间帧数直接当 FPS 显示，数字恒为游戏内真实帧率的一半。
+     */
     private fun startInfoPolling() {
-        infoHandler?.removeCallbacksAndMessages(null)
-        infoHandler = Handler(Looper.getMainLooper())
-        infoHandler?.post(object : Runnable {
+        // 防止 setFpsVisible / setMemoryVisible 各调用一次时生成两条采样链：
+        // 两条链会各自读一次「读即清零」的计数器，把 FPS 再次腰斩。
+        if (infoHandler != null) return
+        val handler = Handler(Looper.getMainLooper())
+        infoHandler = handler
+        handler.post(object : Runnable {
             override fun run() {
+                if (!fpsEnabled && !memEnabled) {
+                    stopInfoPolling()
+                    return
+                }
+                val now = SystemClock.elapsedRealtime()
+
                 if (fpsEnabled) {
-                    val fps = runCatching { com.verse.explorer.launcher.bridge.CallbackBridge.getFps() }
-                        .getOrDefault(0)
-                    fpsView?.text = "fps: $fps"
-                    fpsView?.visibility = View.VISIBLE
-                }
-                if (memEnabled) {
-                    val mi = android.app.ActivityManager.MemoryInfo()
-                    activity.getSystemService(Context.ACTIVITY_SERVICE)?.let { am ->
-                        (am as? android.app.ActivityManager)?.getMemoryInfo(mi)
+                    val frames = runCatching {
+                        com.verse.explorer.launcher.bridge.CallbackBridge.getFps()
+                    }.getOrDefault(0).coerceAtLeast(0)
+                    val elapsed = now - lastFpsSampleMs
+                    val fps = if (elapsed in 1..5_000L) {
+                        (frames * 1000f / elapsed).roundToInt()
+                    } else {
+                        frames
                     }
-                    val availMb = mi.availMem / 1024 / 1024
-                    val totalMb = mi.totalMem / 1024 / 1024
-                    memView?.text = "内存: $availMb / $totalMb MB"
-                    memView?.visibility = View.VISIBLE
+                    fpsView?.text = fps.toString()
+                    lastFpsSampleMs = now
                 }
-                infoHandler?.postDelayed(this, 500)
+
+                if (memEnabled) {
+                    // ZL2 MemoryUtils：getUsedMemory = totalMem - availMem，
+                    // MemoryPreview 显示「已用MB/总MB」并按 usedRatio 填充进度条。
+                    val mi = ActivityManager.MemoryInfo()
+                    (activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+                        ?.getMemoryInfo(mi)
+                    val totalMb = mi.totalMem / 1024L / 1024L
+                    val usedMb = (mi.totalMem - mi.availMem) / 1024L / 1024L
+                    memView?.text = "${usedMb}MB / ${totalMb}MB"
+                    memBar?.ratio =
+                        if (totalMb > 0) usedMb.toFloat() / totalMb.toFloat() else 0f
+                }
+
+                handler.postDelayed(this, 1000L)
             }
         })
     }
 
+    /** 对应 ZL2 GameBallContent 的 AnimatedVisibility(expandIn+fadeIn / shrinkOut+fadeOut) */
+    private fun setHudRowVisible(row: View?, visible: Boolean) {
+        if (row == null) return
+        if (visible) {
+            infoContainer?.visibility = View.VISIBLE
+            if (row.visibility == View.VISIBLE) return
+            row.animate().cancel()
+            row.visibility = View.VISIBLE
+            row.alpha = 0f
+            row.translationY = -dp(4f).toFloat()
+            row.animate().alpha(1f).translationY(0f).setDuration(180L).start()
+        } else {
+            if (row.visibility == View.GONE) return
+            row.animate().cancel()
+            row.animate().alpha(0f).translationY(-dp(4f).toFloat())
+                .setDuration(150L)
+                .withEndAction {
+                    row.visibility = View.GONE
+                    row.alpha = 1f
+                    row.translationY = 0f
+                    // 两项都关闭时收起整个胶囊，不在游戏画面上留一个空边框
+                    if (fpsRow?.visibility == View.GONE && memRow?.visibility == View.GONE) {
+                        infoContainer?.visibility = View.GONE
+                    }
+                }.start()
+        }
+    }
+
     /**
-     * FPS/内存信息条：两项放入同一容器，整条可拖动，
-     * 拖动位置按屏幕范围限制并持久化，避免遮挡视野后无法移开。
+     * 游戏内 FPS / 内存 HUD。
+     *
+     * 结构参考 ZL2 `GameBallContent`（同一容器内「FPS 读数 + 内存条」）与
+     * `MemoryPreview`（圆角进度条按 usedRatio 填充、used/total 文字叠在条上），
+     * 但不照抄 ZL2 的 Compose 实现与悬浮球内嵌布局：
+     * Verse 用自身暗色玻璃胶囊、主题强调色、大号等宽 FPS 读数和独立的 MEM 标签，
+     * HUD 仍是独立可拖动视图，不挂到菜单悬浮球上。
      */
     private fun ensureInfoOverlay() {
         if (infoContainer != null) return
 
-        val container = LinearLayout(activity).apply {
+        // HUD 胶囊固定深色玻璃，配色一律取本文件的游戏内固定色（与菜单面板同源），
+        // 不跟随启动器主题：浅色主题下 PcAccent/PcTextPrimary 是近黑色，在深底上会看不见。
+        val accent = fclAccent
+        // 对应 ZL2 MemoryPreview 的 primary.copy(alpha = 0.6f)
+        val accentFill = Color.argb(0x99, 0xE8, 0xD5, 0xD5)
+        val onSurface = fclText
+        val muted = fclSecondary
+        val track = Color.argb(0x80, 0x3A, 0x3A, 0x42)
+
+        val card = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            visibility = View.GONE
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(14f).toFloat()
+                setColor(Color.argb(0xC9, 0x16, 0x16, 0x1C))
+                setStroke(dp(1f), fclDivider)
+            }
+            setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
+            elevation = dp(6f).toFloat()
+            clipToPadding = false
         }
-        fpsView = TextView(activity).apply {
-            setTextColor(Color.argb(200, 255, 255, 255))
-            textSize = 14f
-            paint.isFakeBoldText = true
+
+        // ===== FPS 行：状态点 + 标签 + 大号数值 =====
+        // ZL2 是 "FPS: xx" 一行 labelMedium 小字；这里保留「标签 + 读数」的语义，
+        // 但改成 Verse 的主次分明仪表读数，避免照抄。
+        val fps = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
             visibility = View.GONE
         }
-        memView = TextView(activity).apply {
-            setTextColor(Color.argb(200, 255, 255, 255))
-            textSize = 14f
+        fps.addView(View(activity).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(accent)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(6f), dp(6f))
+        })
+        fps.addView(TextView(activity).apply {
+            text = "FPS"
+            setTextColor(muted)
+            textSize = 10f
+            letterSpacing = 0.12f
             paint.isFakeBoldText = true
-            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(8f) }
+        })
+        val fpsValue = TextView(activity).apply {
+            text = "0"
+            setTextColor(accent)
+            textSize = 19f
+            typeface = android.graphics.Typeface.MONOSPACE
+            paint.isFakeBoldText = true
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(10f) }
         }
-        container.addView(
-            fpsView,
+        fpsView = fpsValue
+        fps.addView(fpsValue)
+        fps.addView(TextView(activity).apply {
+            text = "fps"
+            setTextColor(muted)
+            textSize = 10f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = dp(4f) }
+        })
+        card.addView(
+            fps,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         )
-        container.addView(
-            memView,
+        fpsRow = fps
+
+        // ===== 内存行：MEM 标签 + 圆角进度条（ZL2 MemoryPreview 同宽 168dp） =====
+        val mem = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            visibility = View.GONE
+        }
+        mem.addView(TextView(activity).apply {
+            text = "MEM"
+            setTextColor(muted)
+            textSize = 10f
+            letterSpacing = 0.08f
+            paint.isFakeBoldText = true
+            layoutParams = LinearLayout.LayoutParams(dp(30f), ViewGroup.LayoutParams.WRAP_CONTENT)
+        })
+        val barFrame = FrameLayout(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(168f), dp(20f)).apply {
+                marginStart = dp(6f)
+            }
+        }
+        val bar = MemoryBarView(activity, accentFill, track).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        memBar = bar
+        barFrame.addView(bar)
+        val memText = TextView(activity).apply {
+            text = "-- / -- MB"
+            setTextColor(onSurface)
+            textSize = 10f
+            gravity = Gravity.CENTER
+            paint.isFakeBoldText = true
+            setShadowLayer(2f, 0f, 1f, Color.argb(0xB0, 0x00, 0x00, 0x00))
+            layoutParams = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+        memView = memText
+        barFrame.addView(memText)
+        mem.addView(barFrame)
+        card.addView(
+            mem,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4f).toInt() }
+            ).apply { topMargin = dp(6f) }
         )
+        memRow = mem
+
         activity.addContentView(
-            container,
+            card,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            ).apply { topMargin = dp(80f).toInt() }
+            ).apply { topMargin = dp(80f) }
         )
-        attachInfoDrag(container)
-        infoContainer = container
+        attachInfoDrag(card)
+        infoContainer = card
     }
 
     /** 信息条拖动：按下后跟随手指移动，边界按当前屏幕尺寸限制，抬手保存位置 */
@@ -1146,5 +1458,68 @@ class InGameControlOverlay(
                 null
             }
         }
+    }
+}
+
+/**
+ * 内存占用条：对应 ZL2 `MemoryPreview` 的圆角进度条（按 usedRatio 填充，
+ * 并用 animateFloatAsState 做平滑过渡）。这里用 View 绘制而非 Compose。
+ *
+ * 填充部分复用同一个圆角矩形再用 clipRect 按 usedRatio 裁剪，所以非满格时
+ * 左侧圆角、右侧平角，满格时两端圆角 —— 与 ZL2 的 RoundedCornerShape 行为一致。
+ */
+private class MemoryBarView(
+    context: Context,
+    fillColor: Int,
+    trackColor: Int
+) : View(context) {
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = trackColor }
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fillColor }
+    private val bounds = RectF()
+    private var shownRatio = 0f
+    private var targetRatio = 0f
+    private var animator: ValueAnimator? = null
+
+    var ratio: Float
+        get() = targetRatio
+        set(value) {
+            val next = value.coerceIn(0f, 1f)
+            if (next == targetRatio) return
+            val from = shownRatio
+            targetRatio = next
+            animator?.cancel()
+            animator = ValueAnimator.ofFloat(from, next).apply {
+                duration = 300L
+                interpolator = DecelerateInterpolator()
+                addUpdateListener {
+                    shownRatio = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        bounds.set(0f, 0f, w.toFloat(), h.toFloat())
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (bounds.isEmpty) return
+        val radius = bounds.height() / 2f
+        canvas.drawRoundRect(bounds, radius, radius, trackPaint)
+        val fillWidth = bounds.width() * shownRatio
+        if (fillWidth <= 0f) return
+        canvas.save()
+        canvas.clipRect(0f, 0f, fillWidth, bounds.height())
+        canvas.drawRoundRect(bounds, radius, radius, fillPaint)
+        canvas.restore()
+    }
+
+    override fun onDetachedFromWindow() {
+        animator?.cancel()
+        animator = null
+        super.onDetachedFromWindow()
     }
 }

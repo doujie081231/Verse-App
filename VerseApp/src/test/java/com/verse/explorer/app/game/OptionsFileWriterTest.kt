@@ -123,7 +123,7 @@ class OptionsFileWriterTest {
     fun language_fallsBackToYosbrWhenOptionsMissing() {
         val dir = runDir()
         val yosbr = File(File(File(dir, "config"), "yosbr"), "options.txt")
-        yosbr.parentFile.mkdirs()
+        yosbr.parentFile?.mkdirs()
         yosbr.writeText("fov:0.0\n")
 
         val outcome = OptionsFileWriter.writeGameLanguage(dir, Instant.parse("2023-06-12T00:00:00Z"))
@@ -178,5 +178,115 @@ class OptionsFileWriterTest {
         assertTrue(text.contains("preferredGraphicsBackend:\"opengl\""))
         assertFalse(text.contains("\"default\""))
         assertEquals(1, countOf(text, "preferredGraphicsBackend:"))
+    }
+
+    // ---- FCL 启动链：assets/options.txt 模板与一次性渲染键对齐 ----
+
+    /** 与 FCL 1.3.3.6 src/main/assets/options.txt 逐键一致（ao 是整数 0，不是 false） */
+    private val fclTemplate = listOf(
+        "fov:0.0", "renderDistance:2", "particles:1", "bobView:false",
+        "anaglyph3d:false", "advancedOpengl:false", "maxFps:260", "fboEnable:true",
+        "fancyGraphics:false", "ao:0", "clouds:true", "snooperEnabled:true",
+        "enableVsync:false", "pauseOnLostFocus:true", "touchscreen:false",
+        "heldItemTooltips:true", "showInventoryAchievementHint:false", "mipmapLevels:0"
+    ).joinToString("\n") + "\n"
+
+    @Test
+    fun fclOptions_createsFileFromTemplateWhenMissing() {
+        val dir = runDir()
+
+        val outcome = OptionsFileWriter.ensureFclOptions(dir, fclTemplate, alignExisting = true)
+
+        assertTrue(outcome.createdFromTemplate)
+        assertFalse(outcome.alignedExisting)
+        val text = File(dir, "options.txt").readText()
+        fclTemplate.trim().lines().forEach { line ->
+            assertTrue("模板行缺失: $line", text.contains(line))
+        }
+        assertTrue(text.contains("startedCleanly:true"))
+    }
+
+    @Test
+    fun fclOptions_alignsMcDefaultsButKeepsPlayerSettings() {
+        val dir = runDir()
+        val options = File(dir, "options.txt")
+        // MC 自行生成的默认值：正是水体贴图错乱的组合
+        options.writeText(
+            "mipmapLevels:4\nrenderDistance:12\nfancyGraphics:true\nao:2\n" +
+                "enableVsync:true\nfov:0.75\nlang:zh_cn\n"
+        )
+
+        val outcome = OptionsFileWriter.ensureFclOptions(dir, fclTemplate, alignExisting = true)
+
+        assertFalse(outcome.createdFromTemplate)
+        assertTrue(outcome.alignedExisting)
+        val text = options.readText()
+        listOf(
+            "mipmapLevels:0", "renderDistance:2", "fancyGraphics:false",
+            "ao:0", "enableVsync:false"
+        ).forEach { assertTrue("未对齐 $it", text.contains(it)) }
+        // 玩家自己的设置保留
+        assertTrue(text.contains("fov:0.75"))
+        assertTrue(text.contains("lang:zh_cn"))
+        // 每个键只有一行
+        assertEquals(1, countOf(text, "mipmapLevels:"))
+        assertEquals(1, countOf(text, "renderDistance:"))
+    }
+
+    @Test
+    fun fclOptions_aoIsIntegerZeroNotBooleanFalse() {
+        val dir = runDir()
+        File(dir, "options.txt").writeText("ao:false\nmipmapLevels:4\n")
+
+        OptionsFileWriter.ensureFclOptions(dir, fclTemplate, alignExisting = true)
+
+        val text = File(dir, "options.txt").readText()
+        assertTrue(text.contains("ao:0"))
+        assertFalse(text.contains("ao:false"))
+    }
+
+    @Test
+    fun fclOptions_addsMissingTemplateKeysWithoutOverwritingExistingOnes() {
+        val dir = runDir()
+        val options = File(dir, "options.txt")
+        options.writeText("fov:0.9\n")
+
+        OptionsFileWriter.ensureFclOptions(dir, fclTemplate, alignExisting = true)
+
+        val text = options.readText()
+        assertTrue(text.contains("mipmapLevels:0"))
+        assertTrue(text.contains("maxFps:260"))
+        assertEquals("fov:0.9", text.lines().first { it.startsWith("fov:") })
+    }
+
+    @Test
+    fun fclOptions_doesNotResetPlayerSettingsOnceAligned() {
+        val dir = runDir()
+        val options = File(dir, "options.txt")
+        options.writeText("mipmapLevels:4\nrenderDistance:16\nfov:0.8\n")
+
+        val outcome = OptionsFileWriter.ensureFclOptions(dir, fclTemplate, alignExisting = false)
+
+        assertFalse(outcome.createdFromTemplate)
+        assertFalse(outcome.alignedExisting)
+        val text = options.readText()
+        assertTrue(text.contains("mipmapLevels:4"))
+        assertTrue(text.contains("renderDistance:16"))
+        assertTrue(text.contains("fov:0.8"))
+        // 会话键仍然每次启动写入（FCL LauncherHelper / fixOptions）
+        assertTrue(text.contains("startedCleanly:true"))
+        assertTrue(text.contains("touchscreen:false"))
+    }
+
+    @Test
+    fun fclOptions_sessionFlagsAreIdempotent() {
+        val dir = runDir()
+
+        OptionsFileWriter.writeSessionFlags(dir)
+        OptionsFileWriter.writeSessionFlags(dir)
+
+        val text = File(dir, "options.txt").readText()
+        assertEquals(1, countOf(text, "startedCleanly:"))
+        assertEquals(1, countOf(text, "touchscreen:"))
     }
 }

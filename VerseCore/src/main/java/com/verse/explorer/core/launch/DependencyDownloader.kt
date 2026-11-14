@@ -3,6 +3,7 @@ package com.verse.explorer.core.launch
 import android.content.Context
 import android.os.Build
 import com.verse.explorer.core.config.GameConfig
+import com.verse.explorer.core.download.MirrorSourceManager
 import com.verse.explorer.core.install.InstallFileUtils
 import com.verse.explorer.core.config.isValidJsonResponse
 import com.verse.explorer.core.java.JavaRuntimeManager
@@ -743,14 +744,24 @@ class DependencyDownloader(private val context: Context) {
                             val assetFile = File(assetsDir, "objects/$subDir/$hash")
 
                             try {
-                                // assets 官方 CDN 国内实测远优于镜像（镜像现为 302 跳转节点池），官方优先
+                                // 与安装流程共用 ZL2 orderCandidates 的 2 源集合。
+                                // 早先按「镜像优先」实现（当时实测 BMCLAPI 更快），但
+                                // 2026-11-14 复测 BMCLAPI /assets 会 302 到第三方节点且
+                                // 83% 返回 502（每次约 11s 才超时）；官方 12/12 成功且
+                                // 快 8 倍，故改由 MirrorSourceManager 给出官方优先顺序。
                                 val originalAssetUrl = "https://resources.download.minecraft.net/$subDir/$hash"
-                                try {
-                                    downloadFile(originalAssetUrl, assetFile)
-                                } catch (e: Exception) {
-                                    val assetUrl = GameConfig.getAssetDownloadUrl(hash, 0)
-                                    downloadFile(assetUrl, assetFile)
+                                val candidates = MirrorSourceManager.getAssetCandidateUrls(context, originalAssetUrl)
+                                var lastError: Exception? = null
+                                for (candidate in candidates) {
+                                    try {
+                                        downloadFile(candidate, assetFile)
+                                        lastError = null
+                                        break
+                                    } catch (e: Exception) {
+                                        lastError = e
+                                    }
                                 }
+                                if (lastError != null) throw lastError
                             } catch (e: Exception) {
                                 println("[DependencyDownloader] Failed to download asset $name: ${e.message}")
                             }
@@ -958,13 +969,20 @@ class DependencyDownloader(private val context: Context) {
         throw lastException ?: Exception("Download failed after $maxRetries attempts")
     }
 
+    /**
+     * 对齐 ZL2 `Fetcher`：32KB 传输缓冲、10s 连接/读取超时，响应体读完后
+     * 不主动 disconnect（保留 keep-alive 连接复用）。
+     * 旧实现 8KB + `input.copyTo` + 每个文件 finally `disconnect()`，数千个
+     * 资源等于每次都重新 DNS + TCP/TLS 握手，握手成本远超小文件本体。
+     */
     private fun downloadFile(url: String, targetFile: File) {
         targetFile.parentFile?.mkdirs()
 
         val conn = URL(url).openConnection() as HttpURLConnection
+        var bodyConsumed = false
         try {
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
 
             if (conn.responseCode != HttpURLConnection.HTTP_OK) {
                 throw Exception("HTTP ${conn.responseCode}")
@@ -972,11 +990,17 @@ class DependencyDownloader(private val context: Context) {
 
             conn.inputStream.use { input ->
                 FileOutputStream(targetFile).use { output ->
-                    input.copyTo(output)
+                    val buffer = ByteArray(32 * 1024)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        output.write(buffer, 0, read)
+                    }
                 }
             }
+            bodyConsumed = true
         } finally {
-            conn.disconnect()
+            // 与 ZL2 Fetcher 一致：只在响应体未完整消费时断开连接
+            if (!bodyConsumed) conn.disconnect()
         }
     }
 }

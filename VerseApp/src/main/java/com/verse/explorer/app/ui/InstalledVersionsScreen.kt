@@ -21,6 +21,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.verse.explorer.app.ui.components.effects.verseItemAppear
+import com.verse.explorer.app.ui.components.effects.verseReorderMotion
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -40,11 +43,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.core.data.SettingsRepository
@@ -56,6 +61,8 @@ import com.verse.explorer.app.ui.components.MarqueeText
 import com.verse.explorer.app.ui.components.ModpackImportFlow
 import com.verse.explorer.app.ui.components.ScalingLabel
 import com.verse.explorer.app.ui.components.fadeEdge
+import com.verse.explorer.app.ui.home.VersionOrderStore
+import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.ui.theme.cardColor
 import com.verse.explorer.app.ui.theme.onCardColor
 import com.verse.explorer.app.viewmodel.VersionsViewModel
@@ -103,6 +110,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     var category by remember { mutableStateOf(VersionCategory.ALL) }
     // 当前激活的游戏目录（null = 内置默认目录）
     var activeDirPath by remember { mutableStateOf(GameConfig.activeDirPath(context)) }
+    // 用户拖拽出的自定义顺序；空列表 = 还没拖过，沿用默认排序。按目录分别保存
+    var customOrder by remember(activeDirPath) {
+        mutableStateOf(VersionOrderStore.get(context, activeDirPath))
+    }
     var cleanupPlan by remember { mutableStateOf<CleanupPlan?>(null) }
     // 应用内目录浏览（游戏目录在应用私有路径，外部文件管理器无权访问）
     var browserDir by remember { mutableStateOf<File?>(null) }
@@ -171,16 +182,29 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     val vanillaCount = remember(localVersions) { localVersions.count { !isModdedVersion(it) } }
     val modloaderCount = remember(localVersions) { localVersions.count { isModdedVersion(it) } }
 
-    val displayedVersions = remember(localVersions, category, metaMap) {
-        when (category) {
+    val displayedVersions = remember(localVersions, category, metaMap, customOrder) {
+        val base = when (category) {
             VersionCategory.ALL -> localVersions
             VersionCategory.VANILLA -> localVersions.filterNot { isModdedVersion(it) }
             VersionCategory.MODLOADER -> localVersions.filter { isModdedVersion(it) }
-        }.sortedWith(
-            compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }
-                .thenBy { it.id.lowercase() }
-        )
+        }
+        if (customOrder.isNotEmpty()) {
+            // 用户拖过顺序后以自定义顺序为准，置顶只保留徽章、不再强制把图钉项拉回最前，
+            // 否则刚拖完立刻跳位会让人以为「拖动没生效」。
+            val rank = customOrder.withIndex().associate { it.value to it.index }
+            base.sortedWith(
+                compareBy<MinecraftVersion> { rank[it.id] ?: Int.MAX_VALUE }
+                    .thenBy { it.id.lowercase() }
+            )
+        } else {
+            base.sortedWith(
+                compareByDescending<MinecraftVersion> { metaMap[it.id]?.pinned == true }
+                    .thenBy { it.id.lowercase() }
+            )
+        }
     }
+    // 筛选分类下只显示子集，拖动会和全量顺序对不上，因此只在「全部」开放排序
+    val reorderEnabled = category == VersionCategory.ALL && displayedVersions.size > 1
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶栏：返回 / 主页 / 标题
@@ -322,6 +346,31 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             onClick = { category = VersionCategory.MODLOADER }
                         )
                     }
+
+                    // 排序状态提示 / 一键回到默认排序
+                    if (customOrder.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                VersionOrderStore.clear(context, activeDirPath)
+                                customOrder = emptyList()
+                            },
+                            contentPadding = PaddingValues(horizontal = 6.dp)
+                        ) {
+                            Text(
+                                "恢复默认",
+                                fontSize = 10.sp,
+                                color = VerseColors.PcTextMuted,
+                                maxLines = 1
+                            )
+                        }
+                    } else if (category == VersionCategory.ALL) {
+                        Text(
+                            "长按手柄拖动排序",
+                            fontSize = 10.sp,
+                            color = VerseColors.PcTextMuted,
+                            maxLines = 1
+                        )
+                    }
                 }
 
                 Box(
@@ -329,7 +378,22 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                val listState = rememberLazyListState()
+                    val listState = rememberLazyListState()
+                    // reorderable 会长期持有 onMove lambda，用 State 读最新值，
+                    // 避免拖动时拿到过期的列表快照或游戏目录
+                    val currentVersions = rememberUpdatedState(displayedVersions)
+                    val canReorder = rememberUpdatedState(category == VersionCategory.ALL)
+                    val currentDir = rememberUpdatedState(activeDirPath)
+                    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+                        if (canReorder.value) {
+                            val ids = currentVersions.value.map { it.id }.toMutableList()
+                            if (from.index in ids.indices && to.index in ids.indices) {
+                                ids.add(to.index, ids.removeAt(from.index))
+                                customOrder = ids
+                                VersionOrderStore.save(context, currentDir.value, ids)
+                            }
+                        }
+                    }
 
                     if (displayedVersions.isNotEmpty()) {
                         LazyColumn(
@@ -346,46 +410,54 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                             state = listState,
                         ) {
                             itemsIndexed(displayedVersions, key = { _, it -> it.id }) { index, version ->
-                                VersionItemLayout(
-                                    modifier = Modifier.fillMaxWidth().verseItemAppear(index),
-                                    version = version,
-                                    selected = version.id == currentLaunchVersionId,
-                                    meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
-                                    pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
-                                    onSelected = {
-                                        SettingsRepository.setCustomSetting("last_version", version.id)
-                                        currentLaunchVersionId = version.id
-                                    },
-                                    onSettingsClick = {
-                                        navController.navigate("version_settings/${version.id}")
-                                    },
-                                    onToggleHome = { pinned ->
-                                        if (pinned) {
-                                            com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
-                                        } else {
-                                            com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
-                                        }
-                                        // 记录变更后重算条目状态，「添加到主页卡片 / 从主页移除」文案即时切换
-                                        metaVersion++
-                                    },
-                                    onRenameClick = {
-                                        renameTarget = version.id
-                                        renameText = version.id
-                                    },
-                                    onExportClick = {
-                                        exportTarget = version.id
-                                        exportLauncher.launch("${version.id}.zip")
-                                    },
-                                    onOpenFolder = { sub ->
-                                        val base = File(GameConfig.getVersionsDir(GameConfig.getGameDir(context)), version.id)
-                                        browserDir = if (sub.isBlank()) base else File(base, sub)
-                                    },
-                                    onTogglePin = { pinned ->
-                                        VersionMetaRepository.setPinned(context, version.id, pinned)
-                                        metaVersion++
-                                    },
-                                    onDeleteClick = { showDeleteConfirm = version.id }
-                                )
+                                ReorderableItem(state = reorderState, key = version.id) { isDragging ->
+                                    VersionItemLayout(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            // 入场动画始终启用：拖动时若临时关掉，它内部的 remember
+                                            // 会被销毁，松手后会重新播一次淡入，看起来像闪屏
+                                            .verseItemAppear(index)
+                                            .verseReorderMotion(isDragging),
+                                        dragHandleModifier = if (reorderEnabled) Modifier.draggableHandle() else null,
+                                        version = version,
+                                        selected = version.id == currentLaunchVersionId,
+                                        meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
+                                        pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),
+                                        onSelected = {
+                                            SettingsRepository.setCustomSetting("last_version", version.id)
+                                            currentLaunchVersionId = version.id
+                                        },
+                                        onSettingsClick = {
+                                            navController.navigate("version_settings/${version.id}")
+                                        },
+                                        onToggleHome = { pinned ->
+                                            if (pinned) {
+                                                com.verse.explorer.app.ui.home.VersionCardManager.addCard(context, version.id)
+                                            } else {
+                                                com.verse.explorer.app.ui.home.VersionCardManager.removeByVersionId(context, version.id)
+                                            }
+                                            // 记录变更后重算条目状态，「添加到主页卡片 / 从主页移除」文案即时切换
+                                            metaVersion++
+                                        },
+                                        onRenameClick = {
+                                            renameTarget = version.id
+                                            renameText = version.id
+                                        },
+                                        onExportClick = {
+                                            exportTarget = version.id
+                                            exportLauncher.launch("${version.id}.zip")
+                                        },
+                                        onOpenFolder = { sub ->
+                                            val base = File(GameConfig.getVersionsDir(GameConfig.getGameDir(context)), version.id)
+                                            browserDir = if (sub.isBlank()) base else File(base, sub)
+                                        },
+                                        onTogglePin = { pinned ->
+                                            VersionMetaRepository.setPinned(context, version.id, pinned)
+                                            metaVersion++
+                                        },
+                                        onDeleteClick = { showDeleteConfirm = version.id }
+                                    )
+                                }
                             }
                         }
                     } else {

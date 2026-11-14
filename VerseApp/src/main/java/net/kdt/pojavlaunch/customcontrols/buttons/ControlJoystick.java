@@ -11,6 +11,7 @@ import static net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTI
 import static net.kdt.pojavlaunch.customcontrols.gamepad.GamepadJoystick.DIRECTION_WEST;
 
 import android.annotation.SuppressLint;
+import android.view.MotionEvent;
 import android.view.View;
 
 import net.kdt.pojavlaunch.LwjglGlfwKeycode;
@@ -37,6 +38,9 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
     private ControlJoystickData mControlData;
     private int mLastDirectionInt = GamepadJoystick.DIRECTION_NONE;
     private int mCurrentDirectionInt = GamepadJoystick.DIRECTION_NONE;
+    /** 对应 ZL2 ObservableJoystickData.activePointer：只认自己那一根手指 */
+    private int mActivePointerId = -1;
+    private boolean mForwardLockDown = false;
     public ControlJoystick(ControlLayout parent, ControlJoystickData data) {
         super(parent.getContext());
         init(data, parent);
@@ -92,8 +96,53 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
             @Override
             public void onForwardLock(boolean isLocked) {
                 sendInput(mDirectionForwardLock, isLocked);
+                mForwardLockDown = isLocked;
             }
         });
+    }
+
+    /**
+     * 记录并释放自己的指针。对应 ZL2 touchModifier 里
+     * 「changedToDown 时占用 activePointer / changedToUp 时释放并清空」的状态机：
+     * 摇杆只跟踪一根手指，其它手指按下、点击别的按键都不影响它的方向。
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        int action = ev.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            if (mActivePointerId == -1) mActivePointerId = ev.getPointerId(ev.getActionIndex());
+        }
+        boolean handled = super.dispatchTouchEvent(ev);
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
+            releaseKeys(ev.getPointerId(ev.getActionIndex()));
+        } else if (action == MotionEvent.ACTION_CANCEL) {
+            releaseKeys(-1);
+        }
+        return handled;
+    }
+
+    /** pointerId < 0 = 无条件释放；否则只有该指针是摇杆跟踪的指针时才释放。 */
+    public void releaseKeys(int pointerId) {
+        if (pointerId >= 0 && mActivePointerId >= 0 && pointerId != mActivePointerId) return;
+        if (pointerId >= 0 && mActivePointerId == -1) return;
+        releaseAllKeys();
+    }
+
+    /** 对应 ZL2 onCompositionDispose：把当前方向、上一方向与前进锁全部抬起。 */
+    public void releaseAllKeys() {
+        if (mCurrentDirectionInt != DIRECTION_NONE) {
+            sendDirectionalKeycode(mCurrentDirectionInt, false);
+        }
+        if (mLastDirectionInt != DIRECTION_NONE && mLastDirectionInt != mCurrentDirectionInt) {
+            sendDirectionalKeycode(mLastDirectionInt, false);
+        }
+        if (mForwardLockDown) {
+            sendInput(mDirectionForwardLock, false);
+            mForwardLockDown = false;
+        }
+        mLastDirectionInt = DIRECTION_NONE;
+        mCurrentDirectionInt = DIRECTION_NONE;
+        mActivePointerId = -1;
     }
 
     @Override
@@ -138,7 +187,18 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
     }
 
     @Override
-    public void sendKeyPresses(boolean isDown) {/*STUB since non swipeable*/ }
+    public void sendKeyPresses(boolean isDown) {
+        // 控件组收起 / 布局重载时 ControlLayout 会调用 sendKeyPresses(false)，
+        // 原来这里是空实现，导致摇杆方向在切换布局后一直卡住（ZL2 由
+        // onCompositionDispose 释放，这里补上等价行为）。
+        if (!isDown) releaseAllKeys();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        releaseAllKeys();
+        super.onDetachedFromWindow();
+    }
 
     @Override
     public void loadEditValues(EditControlSideDialog editControlPopup) {

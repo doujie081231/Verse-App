@@ -20,9 +20,13 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -65,16 +69,25 @@ class GameInstaller(private val context: Context) {
     // 智能混合下载客户端：小文件竞速、大文件测速分块、低速换源、镜像熔断
     private val smartClient = SmartDownloadClient(context = context)
 
-    // 专用于 assets 小文件下载的快速客户端（镜像 302 到不可达节点时快速失败换源，
-    // 不占住 64 路并发窗口）。callTimeout 30s：10s 版本在慢网络下会把「下载慢」
-    // 误判为「下载失败」，每个资源都走完整重试链，用户看到的就是资源阶段卡死。
-    // Dispatcher 每 host 并发必须显式放开：OkHttp 默认每 host 仅 5 个连接，
-    // 64 路协程里 59 个在排队（实测 assets 只有 ~11 文件/s），放开后窗口才真正生效
+    // 专用于 assets 小文件下载的快速客户端（源不可达时快速失败换源，不占住并发窗口）。
+    //  - 固定 HTTP/1.1：与 SmartDownloadClient.defaultClient() 一致。此前继承
+    //    downloadManager.httpClient 的默认协议（含 h2），而部分镜像/CDN 的 h2 协商
+    //    会失败（"Required SETTINGS preface not received"），每个小文件都要多跑一轮
+    //    失败重试，资源阶段整体退化。OkHttp 的 BridgeInterceptor 会自动完成
+    //    ZL2 Fetcher 手动做的 gzip 协商与解压，故不显式设置 Accept-Encoding。
+    //  - 超时严格对齐 ZL2 Fetcher.TIMEOUT_MILLIS = 10_000（connect 与 read 都是 10s），
+    //    且不设 callTimeout（ZL2 没有「整个调用」上限）。此前 readTimeout=30s，
+    //    配合 5 次重试，一个 502 镜像节点最多要烧 150s，ZL2 只需 50s。
+    //  - 关闭 OkHttp 的 retryOnConnectionFailure：ZL2 的 HttpURLConnection 没有隐式重试，
+    //    重试完全由 Fetcher.downloadCandidate 的 5 次循环控制；OkHttp 默认的隐式重试
+    //    会在连接失败时再叠一层，把每个坏源的等待放大。
+    //  - Dispatcher 每 host 并发显式放开：OkHttp 默认每 host 仅 5 个连接。
     private val fastHttpClient = downloadManager.httpClient.newBuilder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .protocols(listOf(Protocol.HTTP_1_1))
         .dispatcher(okhttp3.Dispatcher().apply {
             maxRequests = 256
             maxRequestsPerHost = 128
@@ -104,8 +117,13 @@ class GameInstaller(private val context: Context) {
     // 全局下载聚合：各阶段实时累计已下载字节与速度（供进度 UI 显示）
     private val downloadAgg = DownloadAggregator()
 
-    // assets 小文件并发数（官方 CDN 实测可扛 128 路；Dispatcher/连接池已同步放开）
-    private val concurrentAssets = 128
+    /**
+     * assets 文件级并发，对齐 ZL2 `MinecraftDownloader.DEFAULT_DOWNLOAD_THREADS = 64`
+     * 与 `BatchDownloader.DEFAULT_MAX_CONNECTIONS = 64`。
+     * 此前设 128：Dispatchers.IO 默认并行度只有 64，多出的 64 个协程拿到 Semaphore
+     * 许可后仍排在 IO 线程池队列里空占窗口，实际并发并未提升，反而挡住后续任务。
+     */
+    private val concurrentAssets = 64
 
     /**
      * 整批零成功时，连续多少个资源彻底失败判定为系统性故障
@@ -129,38 +147,56 @@ class GameInstaller(private val context: Context) {
     /** 单次请求返回的 HTTP 状态码：4xx 表示该源没有此文件，直接换源而不是重试 */
     private class HttpStatusException(val code: Int, url: String) : Exception("HTTP $code: $url")
 
-    /** 并发下载聚合器：按文件累计已下载字节，500ms 窗口估算速度（供进度 UI 显示） */
+    /** 对齐 ZL2 `DownloadTask`：候选源之外，sha1 与 size 一并进入任务规格 */
+    private data class AssetSpec(
+        val url: String,
+        val target: File,
+        val sha1: String?,
+        val size: Long
+    )
+
+    /**
+     * 对齐 ZL2 `DownloadStats`：热路径只有原子字节加法，速率用 1 秒采样窗口
+     * （ZL2 `SAMPLE_INTERVAL_NANOS`）统一刷新，并对采样过程加锁。
+     * 旧实现在 128 路并发下各自无同步地写 lastTime/lastBytes，互相覆盖导致
+     * 速率读数失真；按 key 换算增量的方式保留，以兼容其它阶段的累计值上报。
+     */
     private class DownloadAggregator {
         private val lastByKey = ConcurrentHashMap<String, Long>()
         private val bytesNow = AtomicLong()
-        private val lastTime = AtomicLong(System.currentTimeMillis())
-        private val lastBytes = AtomicLong()
 
         @Volatile var speed: Long = 0L; private set
         @Volatile var downloaded: Long = 0L; private set
+
+        private var blockStartNanos = System.nanoTime()
+        private var blockStartBytes = 0L
 
         fun reset() {
             lastByKey.clear()
             bytesNow.set(0L)
             downloaded = 0L
             speed = 0L
-            lastTime.set(System.currentTimeMillis())
-            lastBytes.set(0L)
+            blockStartNanos = System.nanoTime()
+            blockStartBytes = 0L
         }
 
+        /** 各阶段上报「单文件累计已下载量」，换算成真实增量后累加 */
         fun report(key: String, fileDownloaded: Long) {
             val last = lastByKey.put(key, fileDownloaded) ?: 0L
             if (fileDownloaded <= last) return
             val total = bytesNow.addAndGet(fileDownloaded - last)
             downloaded = total
-            val now = System.currentTimeMillis()
-            val dt = now - lastTime.get()
-            if (dt >= 500) {
-                val db = total - lastBytes.get()
-                speed = db * 1000 / dt
-                lastBytes.set(total)
-                lastTime.set(now)
-            }
+            refreshSpeed(total)
+        }
+
+        @Synchronized
+        private fun refreshSpeed(total: Long) {
+            val now = System.nanoTime()
+            val elapsed = now - blockStartNanos
+            if (elapsed < 1_000_000_000L) return
+            speed = ((total - blockStartBytes) * 1_000_000_000L / elapsed).coerceAtLeast(0L)
+            blockStartNanos = now
+            blockStartBytes = total
         }
     }
 
@@ -427,27 +463,35 @@ class GameInstaller(private val context: Context) {
                             val entries = objects.entrySet().toList()
                             val totalAssets = entries.size
 
-                            // assets 原始 URL 由 resources.download.minecraft.net 提供，
-                            // SmartDownloadClient 会通过 MirrorSourceManager 自动转换为
-                            // BMCLAPI/MCBBS 多源列表并选择最快源
-                            val missingAssets = mutableListOf<Pair<String, File>>()
+                            // 对齐 ZL2 `BaseMinecraftDownloader.loadAssetsDownload()`：
+                            // 每个 object 连同 hash(sha1) 与 size 一起进入任务规格，
+                            // 候选源由 MirrorSourceManager 按 ZL2 orderCandidates 生成。
+                            val missingAssets = mutableListOf<AssetSpec>()
                             entries.forEach { entry ->
-                                val hash = entry.value.asJsonObject.get("hash")?.asString ?: return@forEach
+                                val obj = entry.value.asJsonObject
+                                val hash = obj.get("hash")?.asString ?: return@forEach
+                                val size = obj.get("size")?.asLong ?: -1L
                                 val subDir = hash.substring(0, 2)
                                 val assetPath = File(assetsDir, "objects/$subDir/$hash")
                                 if (!assetPath.exists() || assetPath.length() == 0L) {
-                                    val originalUrl = "https://resources.download.minecraft.net/$subDir/$hash"
-                                    missingAssets.add(originalUrl to assetPath)
+                                    missingAssets.add(
+                                        AssetSpec(
+                                            url = "https://resources.download.minecraft.net/$subDir/$hash",
+                                            target = assetPath,
+                                            sha1 = hash,
+                                            size = size
+                                        )
+                                    )
                                 }
                             }
 
-                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (sliding window, smart)")
+                            Log.d("GameInstaller", "Downloading ${missingAssets.size}/$totalAssets missing assets (ZL2 BatchDownloader-style, $concurrentAssets connections)")
                             com.verse.explorer.core.log.DownloadLog.write(
                                 "version",
-                                "阶段: 资源下载开始（待下载 ${missingAssets.size}，并发 64）"
+                                "阶段: 资源下载开始（待下载 ${missingAssets.size}，并发 $concurrentAssets，2 候选源）"
                             )
 
-                            // 始终保持 64 个活跃下载，一个完成立即补下一个（而非分批等待整批完成），
+                            // 始终保持 concurrentAssets 个活跃下载，一个完成立即补下一个，
                             // 避免慢文件拖住整批导致"下一下卡一下"。
                             downloadAssetsSlidingWindow(missingAssets) { completed, total ->
                                 if (completed % 200 == 0 || completed == total) {
@@ -736,32 +780,46 @@ class GameInstaller(private val context: Context) {
         }
     }
 
+    /**
+     * 对齐 ZL2 `Fetcher.transfer()` + `FileSink.finish()`：
+     *  - 32KB 传输缓冲（ZL2 `BUFFER_SIZE = 32 * 1024`，旧实现 8KB）
+     *  - 下载过程中流式计算 SHA-1，落盘前校验
+     *  - 写同目录临时文件，校验通过后原子替换目标（ZL2 `Files.move(REPLACE_EXISTING)`）
+     *  - 失败（含校验失败）删除临时文件，由上层换源重试
+     *
+     * OkHttp 的 BridgeInterceptor 已自动完成 ZL2 Fetcher 手动做的 gzip 协商与解压，
+     * 因此不显式设置 Accept-Encoding：显式设置会让 OkHttp 跳过自动解压，
+     * 把压缩字节直接落盘导致 SHA-1 失败。
+     */
     private suspend fun downloadAssetFile(
         url: String,
         targetFile: File,
+        expectedSha1: String?,
         onBytes: (Long, Long) -> Unit = { _, _ -> },
         isCancelled: () -> Boolean = { false }
     ) {
         targetFile.parentFile?.mkdirs()
         val tempFile = File(targetFile.parentFile, "${targetFile.name}.tmp")
-        val request = okhttp3.Request.Builder().url(url)
+        val request = Request.Builder().url(url)
             .header("User-Agent", "VerseExplorerX/1.0")
             .header("Accept", "*/*")
             .build()
+        val digest = expectedSha1?.let { MessageDigest.getInstance("SHA-1") }
         try {
             fastHttpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw HttpStatusException(response.code, url)
-                val body = response.body ?: throw Exception("Empty body: $url")
+                val body = response.body ?: throw IOException("Empty body: $url")
                 val totalBytes = body.contentLength().coerceAtLeast(-1L)
                 body.byteStream().use { input ->
                     tempFile.outputStream().use { output ->
-                        val buffer = ByteArray(8192)
+                        val buffer = ByteArray(32 * 1024)
                         var bytesRead: Int
                         var downloaded = 0L
                         var lastReport = System.currentTimeMillis()
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             if (isCancelled()) throw CancelledInstallException()
                             output.write(buffer, 0, bytesRead)
+                            digest?.update(buffer, 0, bytesRead)
                             downloaded += bytesRead
                             val now = System.currentTimeMillis()
                             if (now - lastReport >= 300) {
@@ -773,11 +831,14 @@ class GameInstaller(private val context: Context) {
                     }
                 }
             }
-            targetFile.delete()
-            if (!tempFile.renameTo(targetFile)) {
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
+            if (digest != null) {
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (!actual.equals(expectedSha1, ignoreCase = true)) {
+                    throw IOException("SHA-1 校验失败: ${targetFile.name}")
+                }
             }
+            // 原子替换：目标存在（半截文件）时直接覆盖，等价于 ZL2 FileSink.finish()
+            Files.move(tempFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
         } catch (e: Exception) {
             tempFile.delete()
             throw e
@@ -785,11 +846,14 @@ class GameInstaller(private val context: Context) {
     }
 
     /**
-     * 始终保持 [concurrentAssets] 个活跃下载，一个完成立即补下一个，
-     * 而非分批等待整批完成（避免慢文件拖住整批导致"下一下卡一下"）。
+     * 对齐 ZL2 `BatchDownloader.run()`：文件级并发由 Semaphore 控制，
+     * 一个完成立即补下一个，不做分批等待整批完成。
      *
-     * 每个文件按镜像列表顺序（BMCLAPI/MCBBS 优先）用共享连接池直连下载，
-     * 全部镜像失败后回退 SmartDownloadClient 多源重试，保证健壮性的同时最大化吞吐。
+     * 每个文件只在「ZL2 顺序候选源（镜像 → 官方）× 单源 5 次重试」内完成，
+     * 4xx 立即换下一候选。**不再回退 SmartDownloadClient**：ZL2 的 Fetcher 没有
+     * 第二层下载器，旧链路在候选源全失败后会再跑一遍多源竞速 + 15s 低速检测 +
+     * 分块探测，把单个失败文件的耗时放大到几十秒并占住并发窗口，
+     * 数千个小文件里只要有一部分命中，整批吞吐就会塌到几百 KB/s。
      */
     /** 进度回调节流时间戳（CAS 更新，避免 64 路并发同时进 UI 回调） */
     private val lastProgressEmitAt = java.util.concurrent.atomic.AtomicLong(0L)
@@ -812,7 +876,7 @@ class GameInstaller(private val context: Context) {
     }
 
     private suspend fun downloadAssetsSlidingWindow(
-        assets: List<Pair<String, File>>,
+        assets: List<AssetSpec>,
         onProgress: (completed: Int, total: Int) -> Unit
     ) {
         if (assets.isEmpty()) return
@@ -820,12 +884,10 @@ class GameInstaller(private val context: Context) {
         val completed = AtomicInteger(0)
         val semaphore = Semaphore(concurrentAssets)
 
-        // 系统性故障熔断（与 ZL2 BatchDownloader 的 SYSTEMIC_FAILURE_LIMIT 同语义）：
+        // 系统性故障熔断（ZL2 `BatchDownloader.SYSTEMIC_FAILURE_LIMIT` 同语义）：
         // 「整批还没有任何一个文件成功」且「连续 5 个文件彻底失败」时判为确定性故障
-        // （镜像与官方全挂、网络不可用、DNS 被劫持等）。此时继续跑只是把剩下几万个
-        // 资源各重试 5 次，用户看到的就是「安装中」几十分钟不动。
-        // 只要有任意一个文件成功，计数立刻清零；单个文件失败仍按原有逻辑跳过，
-        // 不影响「少数资源缺失但要能启动」的容错。
+        // （镜像与官方全挂、网络不可用、DNS 被劫持等）。任一文件成功即清零，
+        // 单个文件失败仍跳过，保留「少数资源缺失但要能启动」的容错。
         val consecutiveFailures = AtomicInteger(0)
         val anySuccess = java.util.concurrent.atomic.AtomicBoolean(false)
         val systemicAbort = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -833,30 +895,29 @@ class GameInstaller(private val context: Context) {
 
         coroutineScope {
             val worker = this
-            assets.forEach { (url, assetPath) ->
+            assets.forEach { spec ->
                 worker.launch {
                     semaphore.withPermit {
                         checkCancelled()
                         if (systemicAbort.get()) {
                             throw IOException("资源下载已中止：${abortDetail.get()}")
                         }
-                        // 按镜像顺序直连，第一个成功即止（镜像源连接池复用，加速国内下载）
-                        // 源顺序完全跟随 MirrorSourceManager 的用户设置（auto/bmclapi =
-                        // 镜像在前）。此前强制官方源排最前，但用户网络（本条反馈实测）
-                        // Mojang 官方 CDN 龟速（text2speech 11KB/21s），每个资源都要先在
-                        // 官方源上烧完超时才轮到镜像 —— 资源阶段整体龟速被感知为「卡住」。
-                        val urls = MirrorSourceManager.getMirrorUrls(context, url)
+                        // 候选源沿用 ZL2 orderCandidates 的 2 源集合（官方 + BMCLAPI），
+                        // 顺序由 MirrorSourceManager 按实测可用性给出；
+                        // 首个成功即止，4xx 立即换下一候选（ZL2 Fetcher 语义）。
+                        val urls = MirrorSourceManager.getAssetCandidateUrls(context, spec.url)
                         var success = false
-                        for (mirrorUrl in urls) {
+                        for (candidate in urls) {
                             if (cancelled) throw CancelledInstallException()
                             var attempt = 0
-                            // 单源内重试：瞬时错误重试同一源，4xx 立即换源
+                            // ZL2 Fetcher.DEFAULT_RETRY = 5，退避 200ms
                             while (attempt < sourceRetry) {
                                 try {
                                     downloadAssetFile(
-                                        mirrorUrl,
-                                        assetPath,
-                                        onBytes = { d, _ -> downloadAgg.report(assetPath.name, d) },
+                                        url = candidate,
+                                        targetFile = spec.target,
+                                        expectedSha1 = spec.sha1,
+                                        onBytes = { d, _ -> downloadAgg.report(spec.target.name, d) },
                                         isCancelled = { cancelled }
                                     )
                                     success = true
@@ -864,7 +925,6 @@ class GameInstaller(private val context: Context) {
                                 } catch (e: CancelledInstallException) {
                                     throw e
                                 } catch (e: HttpStatusException) {
-                                    // 4xx：该源没有此文件，不重试直接换下一候选
                                     if (e.code in 400..499) break
                                     attempt++
                                 } catch (_: Exception) {
@@ -874,34 +934,19 @@ class GameInstaller(private val context: Context) {
                             }
                             if (success) break
                         }
-                        var finalSuccess = success
-                        if (!success) {
-                            // 全部镜像直连失败：回退多源镜像重试
-                            try {
-                                val result = smartClient.download(
-                                    originalUrl = url,
-                                    targetFile = assetPath,
-                                    isCancelled = { cancelled }
-                                ) { p -> downloadAgg.report(assetPath.name, p.downloaded) }
-                                finalSuccess = result.isSuccess
-                                if (!finalSuccess) {
-                                    Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${result.exceptionOrNull()?.message}")
-                                }
-                            } catch (e2: Exception) {
-                                Log.w("GameInstaller", "Asset failed: ${assetPath.name} - ${e2.message}")
-                            }
-                        }
-                        // 熔断计数：同 ZL2，只要有一个文件成功就不再判为系统性故障
-                        if (finalSuccess) {
+                        if (success) {
                             anySuccess.set(true)
                             consecutiveFailures.set(0)
-                        } else if (!anySuccess.get()) {
-                            val fails = consecutiveFailures.incrementAndGet()
-                            if (fails >= systemicFailureLimit && systemicAbort.compareAndSet(false, true)) {
-                                val reason = "连续 $fails 个资源下载失败，且整批还没有任何文件成功（最后失败：${assetPath.name}）"
-                                abortDetail.set(reason)
-                                Log.e("GameInstaller", "系统性下载故障，中止剩余资源：$reason")
-                                throw IOException("资源下载已中止：$reason")
+                        } else {
+                            Log.w("GameInstaller", "Asset failed after all candidates: ${spec.target.name}")
+                            if (!anySuccess.get()) {
+                                val fails = consecutiveFailures.incrementAndGet()
+                                if (fails >= systemicFailureLimit && systemicAbort.compareAndSet(false, true)) {
+                                    val reason = "连续 $fails 个资源下载失败，且整批还没有任何文件成功（最后失败：${spec.target.name}）"
+                                    abortDetail.set(reason)
+                                    Log.e("GameInstaller", "系统性下载故障，中止剩余资源：$reason")
+                                    throw IOException("资源下载已中止：$reason")
+                                }
                             }
                         }
                         val done = completed.incrementAndGet()

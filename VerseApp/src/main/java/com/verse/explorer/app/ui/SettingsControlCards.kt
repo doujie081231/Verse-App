@@ -168,6 +168,8 @@ internal fun ControlSettingsContent(context: android.content.Context) {
     var mouseLongPressDelay by remember { mutableIntStateOf(MenuSetting.mouseLongPressDelay) }
 
     var lockMenuView by remember { mutableStateOf(MenuSetting.isLockMenuView) }
+    var showMenuBall by remember { mutableStateOf(MenuSetting.showMenuBall) }
+    var menuBallOpacity by remember { mutableIntStateOf(MenuSetting.menuBallOpacity) }
     var hideMenuView by remember { mutableStateOf(MenuSetting.isHideMenuView) }
     var showMemory by remember { mutableStateOf(MenuSetting.isShowMemory) }
     var disableSoftKeyAdjust by remember { mutableStateOf(MenuSetting.isDisableSoftKeyAdjust) }
@@ -435,6 +437,25 @@ internal fun ControlSettingsContent(context: android.content.Context) {
         }
 
         PcCard(title = "显示与菜单") {
+            PcSwitchRow(
+                "显示菜单悬浮球",
+                "用可拖动的应用图标悬浮球打开游戏菜单；启用后停用双指下滑",
+                showMenuBall
+            ) { on ->
+                showMenuBall = on
+                MenuSetting.showMenuBall = on
+                persist(MenuSetting.Key.SHOW_MENU_BALL)
+            }
+            PcSliderRow(
+                label = "悬浮球不透明度",
+                value = menuBallOpacity,
+                valueRange = 20..100,
+                enabled = showMenuBall
+            ) { v ->
+                menuBallOpacity = v
+                MenuSetting.menuBallOpacity = v
+                persist(MenuSetting.Key.MENU_BALL_OPACITY)
+            }
             PcSwitchRow(
                 "锁定菜单键",
                 "锁定后菜单键不可拖动",

@@ -46,14 +46,14 @@ public class EditControlSideDialog extends SideDialogView {
             if (internalChanges) return;
 
             internalChanges = true;
-            int width = (int) (safeParseFloat(mWidthEditText.getText().toString()));
+            float width = textToSizePx(mWidthEditText.getText().toString());
 
-            if (width >= 0 && Math.abs(right - width) > 1) {
-                mWidthEditText.setText(String.valueOf(right - left));
+            if (width >= 0 && Math.abs((right - left) - width) > 1) {
+                mWidthEditText.setText(sizeToText(right - left));
             }
-            int height = (int) (safeParseFloat(mHeightEditText.getText().toString()));
-            if (height >= 0 && Math.abs(bottom - height) > 1) {
-                mHeightEditText.setText(String.valueOf(bottom - top));
+            float height = textToSizePx(mHeightEditText.getText().toString());
+            if (height >= 0 && Math.abs((bottom - top) - height) > 1) {
+                mHeightEditText.setText(sizeToText(bottom - top));
             }
 
             internalChanges = false;
@@ -71,6 +71,13 @@ public class EditControlSideDialog extends SideDialogView {
     private List<String> mSpecialArray;
     private CheckBox mDisplayInGameCheckbox, mDisplayInMenuCheckbox;
     private ControlInterface mCurrentlyEditedButton;
+    /**
+     * 尺寸输入方式。对齐 ZL2 的 ButtonSize.Type.Percentage / Dp：
+     * 默认按「屏幕高度的百分比」输入（换设备/换分辨率时按键仍是同样比例），
+     * 点标题可切回精确像素。底层依然写回 ControlData 的 px→dp 存储，
+     * 旧布局无需迁移。
+     */
+    private boolean mSizeInPercent = true;
     // Decorative textviews
     private TextView mOrientationTextView, mMappingTextView, mNameTextView,
             mCornerRadiusTextView, mVisibilityTextView, mSizeTextview, mSizeXTextView;
@@ -152,6 +159,38 @@ public class EditControlSideDialog extends SideDialogView {
     /**
      * Load values for basic control data
      */
+    /** 把内部像素值换算成当前输入框单位的文本 */
+    private String sizeToText(float px) {
+        if (mSizeInPercent) {
+            float percent = px / Math.max(1f, currentDisplayMetrics.heightPixels) * 100f;
+            return String.format(java.util.Locale.US, "%.1f", percent);
+        }
+        return String.valueOf(Math.round(px));
+    }
+
+    /** 把输入框文本换算成内部像素值；非法输入返回 -1 */
+    private float textToSizePx(String text) {
+        float value = safeParseFloat(text);
+        if (value < 0) return -1f;
+        return mSizeInPercent
+                ? value / 100f * currentDisplayMetrics.heightPixels
+                : value;
+    }
+
+    private void refreshSizeInputs() {
+        if (mCurrentlyEditedButton == null) return;
+        internalChanges = true;
+        mWidthEditText.setText(sizeToText(mCurrentlyEditedButton.getProperties().getWidth()));
+        mHeightEditText.setText(sizeToText(mCurrentlyEditedButton.getProperties().getHeight()));
+        internalChanges = false;
+    }
+
+    private void updateSizeLabels() {
+        mSizeTextview.setText(mSizeInPercent ? "尺寸（屏幕高度 % · 点此切换 px）" : "尺寸（像素 px · 点此切换 %）");
+        mWidthEditText.setHint(mSizeInPercent ? "宽 %" : "宽 px");
+        mHeightEditText.setHint(mSizeInPercent ? "高 %" : "高 px");
+    }
+
     public void loadValues(ControlData data) {
         setDefaultVisibilitySetting();
         mOrientationTextView.setVisibility(GONE);
@@ -160,8 +199,10 @@ public class EditControlSideDialog extends SideDialogView {
         mAbsoluteTrackingSwitch.setVisibility(GONE);
 
         mNameEditText.setText(data.name);
-        mWidthEditText.setText(String.valueOf(data.getWidth()));
-        mHeightEditText.setText(String.valueOf(data.getHeight()));
+        internalChanges = true;
+        mWidthEditText.setText(sizeToText(data.getWidth()));
+        mHeightEditText.setText(sizeToText(data.getHeight()));
+        internalChanges = false;
 
         mAlphaSeekbar.setProgress((int) (data.opacity * 100));
         mStrokeWidthSeekbar.setProgress((int) data.strokeWidth * 10);
@@ -350,6 +391,14 @@ public class EditControlSideDialog extends SideDialogView {
      * @noinspection SuspiciousNameCombination
      */
     private void setupRealTimeListeners() {
+        // ZL2 的 ButtonSize.Type 切换：默认屏幕比例，点标题切精确像素
+        updateSizeLabels();
+        mSizeTextview.setOnClickListener(v -> {
+            mSizeInPercent = !mSizeInPercent;
+            updateSizeLabels();
+            refreshSizeInputs();
+        });
+
         mNameEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
 
@@ -362,7 +411,7 @@ public class EditControlSideDialog extends SideDialogView {
         mWidthEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
 
-            float width = safeParseFloat(s.toString());
+            float width = textToSizePx(s.toString());
             if (width >= 0) {
                 mCurrentlyEditedButton.getProperties().setWidth(width);
                 if (mCurrentlyEditedButton.getProperties() instanceof ControlJoystickData) {
@@ -376,7 +425,7 @@ public class EditControlSideDialog extends SideDialogView {
         mHeightEditText.addTextChangedListener((SimpleTextWatcher) s -> {
             if (internalChanges) return;
 
-            float height = safeParseFloat(s.toString());
+            float height = textToSizePx(s.toString());
             if (height >= 0) {
                 mCurrentlyEditedButton.getProperties().setHeight(height);
                 if (mCurrentlyEditedButton.getProperties() instanceof ControlJoystickData) {

@@ -2,7 +2,7 @@
   "name": "verse-skins",
   "version": "1.0.0",
   "title": "Verse 皮肤库 API",
-  "description": "对外提供皮肤站公开皮肤的只读列表接口，并支持启动器把库内皮肤应用到自己的角色。列表接口无需鉴权，应用接口必须携带该账号的 Yggdrasil accessToken。",
+  "description": "对外提供皮肤站公开皮肤的只读列表接口（需 API Key），并支持启动器把库内皮肤应用到自己的角色。",
   "author": "Verse",
   "namespace": "VerseSkins",
   "require": {

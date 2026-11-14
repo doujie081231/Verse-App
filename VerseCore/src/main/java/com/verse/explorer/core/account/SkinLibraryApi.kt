@@ -35,12 +35,14 @@ data class SkinPage(
  * Verse 皮肤站「皮肤库」接口客户端。
  *
  * 接口契约（所有启动器通用）：
- *  - `GET  {origin}/api/verse-skins?page=&limit=&sort=new|likes` 公开只读，无需鉴权；
- *  - `POST {origin}/api/verse-skins/apply` 携带该账号的 Yggdrasil accessToken，
- *    body `{ "tid": 皮肤 id, "uuid": "可选角色 uuid" }`，只能作用于 token 归属账号的角色。
+ *  - `GET  {origin}/api/verse-skins?page=&limit=&sort=new|likes` 必须带 X-Api-Key
+ *    （默认用启动器内置的应用级 Key，也可由开发者填自己的 Key）；
+ *  - `POST {origin}/api/verse-skins/apply` 携带账号级 API Key 或该账号的 Yggdrasil
+ *    accessToken，body `{ "tid": 皮肤 id, "uuid": "可选角色 uuid" }`，
+ *    只能作用于凭据归属账号的角色。
  *
- * 鉴权只复用站点签发的 Yggdrasil accessToken，不引入启动器私有凭据，
- * 因此第三方启动器也能直接对接。
+ * 列表接口也要 Key：与 CurseForge 的 x-api-key 一致，便于按 Key 统计调用量、限流与撤销。
+ * 应用级 Key 没有账号身份（uid=0），只能读公开列表；写操作必须有账号身份。
  */
 class SkinLibraryApi(
     private val client: OkHttpClient = OkHttpClient.Builder()

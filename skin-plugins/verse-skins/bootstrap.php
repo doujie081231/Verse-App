@@ -14,14 +14,19 @@ return function (Filter $filter) {
     }
 
     Hook::addRoute(function () {
-        // 皮肤库接口。设计前提：任何启动器都能接，鉴权只用两样东西——
-        // 站点签发的 Yggdrasil accessToken，或玩家在开发者页面自助申请的账号级 API Key。
+        // 皮肤库接口。设计前提：任何启动器都能接，但必须持有一把站点签发的 Key，
+        // 这样运维能按 Key 看调用量、限流和撤销。Key 分两种：
+        // 应用级（uid=0，只读列表，内置在官方启动器里）与账号级（开发者中心申请）。
         //
-        //   GET  /api/verse-skins          公开只读，返回公开皮肤（限流 60 次/分钟/IP）
+        //   GET  /api/verse-skins          需 X-Api-Key，返回公开皮肤（限流 60 次/分钟/IP）
         //   GET  /api/verse-skins/me       查询当前凭据对应的账号与角色（限流 60 次/分钟/IP）
-        //   POST /api/verse-skins/apply    应用皮肤，需要上面的任一凭据（限流 20 次/分钟/IP）
+        //   POST /api/verse-skins/apply    应用皮肤，需账号级 Key 或 Yggdrasil accessToken（限流 20 次/分钟/IP）
         //
         // 写操作只允许作用于凭据归属账号名下的角色，避免"拿有效凭据改别人皮肤"的越权。
+        //
+        // 注意：Blessing Skin 核心自带的 /skinlib/list、/skinlib/info/{id}、/texture/{id}
+        // 是网页皮肤库用的公开接口，不在本插件管辖范围内，匿名仍可读取公开皮肤目录。
+        // 本插件的 Key 只保护上面这组 /api/verse-skins 接口，别把两者混为一谈。
         Route::prefix('api/verse-skins')
             ->namespace('VerseSkins\Controllers')
             ->middleware(['api'])

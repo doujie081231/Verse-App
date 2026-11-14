@@ -79,6 +79,11 @@ object MenuSetting {
         const val WINDOW_SCALE = "windowScale"
         const val CURSOR_OFFSET = "cursorOffset"
         const val GAMEPAD_DEADZONE = "gamepadDeadzone"
+        // 参考 ZL2 AllSettings.showMenuBall / menuBallPos / menuBallOpacity
+        const val SHOW_MENU_BALL = "showMenuBall"
+        const val MENU_BALL_POS_X = "menuBallPosX"
+        const val MENU_BALL_POS_Y = "menuBallPosY"
+        const val MENU_BALL_OPACITY = "menuBallOpacity"
     }
 
     /**
@@ -162,6 +167,20 @@ object MenuSetting {
     var cursorOffset: Double = 0.0
     var gamepadDeadzone: Double = 0.2
 
+    /**
+     * 是否显示游戏内菜单悬浮球（ZL2 的 showMenuBall）。
+     * 本项目默认关：保持既有的「双指下滑唤出控制面板」；
+     * 开启后由悬浮球点击唤出菜单，双指下滑停用，二者互斥。
+     */
+    var showMenuBall: Boolean = false
+
+    /** 悬浮球位置（px，相对游戏窗口）。x < 0 表示首次使用，按 ZL2 默认放到顶部居中。 */
+    var menuBallPosX: Float = -1f
+    var menuBallPosY: Float = 0f
+
+    /** 悬浮球不透明度 20~100（ZL2 menuBallOpacity 同款滑条范围） */
+    var menuBallOpacity: Int = 85
+
     /** 变更回调（参数为触发的键名，可能为 null=批量刷新） */
     fun addPropertyChangedListener(listener: (MenuSettingChange) -> Unit) {
         listeners.add(listener)
@@ -243,6 +262,10 @@ object MenuSetting {
         windowScale = obj[Key.WINDOW_SCALE]?.asDouble ?: 1.0
         cursorOffset = obj[Key.CURSOR_OFFSET]?.asDouble ?: 0.0
         gamepadDeadzone = obj[Key.GAMEPAD_DEADZONE]?.asDouble ?: 0.2
+        showMenuBall = obj[Key.SHOW_MENU_BALL]?.asBoolean ?: false
+        menuBallPosX = obj[Key.MENU_BALL_POS_X]?.asFloat ?: -1f
+        menuBallPosY = obj[Key.MENU_BALL_POS_Y]?.asFloat ?: 0f
+        menuBallOpacity = (obj[Key.MENU_BALL_OPACITY]?.asInt ?: 85).coerceIn(20, 100)
     }
 
     fun save() {
@@ -300,6 +323,10 @@ object MenuSetting {
             addProperty(Key.WINDOW_SCALE, windowScale)
             addProperty(Key.CURSOR_OFFSET, cursorOffset)
             addProperty(Key.GAMEPAD_DEADZONE, gamepadDeadzone)
+            addProperty(Key.SHOW_MENU_BALL, showMenuBall)
+            addProperty(Key.MENU_BALL_POS_X, menuBallPosX)
+            addProperty(Key.MENU_BALL_POS_Y, menuBallPosY)
+            addProperty(Key.MENU_BALL_OPACITY, menuBallOpacity)
         }
     }
 }
