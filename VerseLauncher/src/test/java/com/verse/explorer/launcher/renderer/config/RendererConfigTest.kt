@@ -1,0 +1,231 @@
+package com.verse.explorer.launcher.renderer.config
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * 渲染器配置解析与写盘映射测试。
+ *
+ * 这层是全纯的：输入两张 Map，输出一张 Map / 一份待写入的键值对，
+ * 所以配置的优先级、类型收敛、脏值清理、以及"写驱动时不吞用户键"
+ * 都能在 JVM 上跑，不依赖真机。
+ */
+class RendererConfigTest {
+
+    private val spec = RendererManagerSpecForTest.build()
+
+    @Test
+    fun `没有任何存储时全部取默认值`() {
+        val resolved = RendererConfigResolver.resolve(spec)
+
+        assertEquals(spec.fields.size, resolved.size)
+        spec.fields.forEach { field ->
+            assertEquals("字段 ${field.id} 应取默认值", field.defaultValue, resolved[field.id])
+        }
+    }
+
+    @Test
+    fun `全局设置覆盖默认值`() {
+        val resolved = RendererConfigResolver.resolve(
+            spec,
+            global = mapOf("enableNoError" to 1, "enableANGLE" to 2)
+        )
+
+        assertEquals(1, resolved["enableNoError"])
+        assertEquals(2, resolved["enableANGLE"])
+        // 未覆盖的字段仍是默认值
+        assertEquals(spec.field("fsr1Setting")!!.defaultValue, resolved["fsr1Setting"])
+    }
+
+    @Test
+    fun `版本级设置优先于全局`() {
+        val resolved = RendererConfigResolver.resolve(
+            spec,
+            global = mapOf("enableNoError" to 1),
+            version = mapOf("enableNoError" to 2, "fsr1Setting" to 3)
+        )
+
+        assertEquals(2, resolved["enableNoError"])
+        assertEquals(3, resolved["fsr1Setting"])
+    }
+
+    @Test
+    fun `非法值回退到下一层而不是把脏值写进驱动`() {
+        val resolved = RendererConfigResolver.resolve(
+            spec,
+            global = mapOf(
+                // 不在候选里的枚举
+                "enableNoError" to 99,
+                // 类型不对
+                "enableExtTimerQuery" to "not-a-bool",
+                // 超出范围的整数
+                "maxGlslCacheSize" to 9999,
+                // spec 里没有的键
+                "unknownKey" to 1
+            )
+        )
+
+        assertEquals("非法枚举应回退默认值", 3, resolved["enableNoError"])
+        assertEquals("非法布尔应回退默认值", true, resolved["enableExtTimerQuery"])
+        assertEquals("越界整数应按区间收敛", 512, resolved["maxGlslCacheSize"])
+        assertFalse("未声明的键不应进入结果", resolved.containsKey("unknownKey"))
+    }
+
+    @Test
+    fun `负数缓存上限按区间下限收敛`() {
+        val resolved = RendererConfigResolver.resolve(spec, global = mapOf("maxGlslCacheSize" to -500))
+        assertEquals(-1, resolved["maxGlslCacheSize"])
+    }
+
+    @Test
+    fun `字符串形式的布尔值可以被接受`() {
+        val resolved = RendererConfigResolver.resolve(spec, global = mapOf("enableExtComputeShader" to "true"))
+        assertEquals(true, resolved["enableExtComputeShader"])
+    }
+
+    @Test
+    fun `裁剪存储时丢弃已废弃的键`() {
+        val stored = mapOf("enableNoError" to 1, "removedKey" to 5, "fsr1Setting" to 2)
+        val pruned = RendererConfigResolver.pruneStored(spec, stored)
+
+        assertEquals(setOf("enableNoError", "fsr1Setting"), pruned.keys)
+    }
+
+    @Test
+    fun `写盘只输出 JSON 目标字段且顺序稳定`() {
+        val values = mapOf("enableNoError" to 1, "enableANGLE" to 2)
+        val json = RendererConfigJson.jsonValues(spec, values)
+
+        assertEquals(1, json["enableNoError"])
+        assertEquals(2, json["enableANGLE"])
+        // 未在 values 里的字段用默认值补齐，避免驱动读到缺键
+        assertEquals(0, json["fsr1Setting"])
+        assertEquals(spec.fields.count { it.jsonKey() != null }, json.size)
+        assertEquals("字段顺序应与规范一致", spec.fields.first { it.jsonKey() != null }.jsonKey(), json.keys.first())
+    }
+
+    @Test
+    fun `合并写入保留用户手写的键`() {
+        val existing = mapOf<String, Any?>(
+            "enableNoError" to 0,
+            "userCustomKey" to "keep-me",
+            "multidrawOrder" to listOf("native")
+        )
+        val merged = RendererConfigJson.mergeInto(existing, mapOf("enableNoError" to 3))
+
+        assertEquals(3, merged["enableNoError"])
+        assertEquals("受管键以外的键必须原样保留", "keep-me", merged["userCustomKey"])
+        assertEquals(listOf("native"), merged["multidrawOrder"])
+    }
+
+    @Test
+    fun `改动项统计只算偏离默认值的字段`() {
+        val resolved = RendererConfigResolver.resolve(
+            spec,
+            global = mapOf("enableNoError" to 1, "fsr1Setting" to 4)
+        )
+        val changed = RendererConfigResolver.changedFields(spec, resolved)
+
+        assertEquals(setOf("enableNoError", "fsr1Setting"), changed.toSet())
+    }
+
+    @Test
+    fun `规范本身的字段 id 与键唯一`() {
+        val ids = spec.fields.map { it.id }
+        assertEquals(ids.size, ids.toSet().size)
+
+        val jsonKeys = spec.fields.mapNotNull { it.jsonKey() }
+        assertEquals(jsonKeys.size, jsonKeys.toSet().size)
+    }
+
+    @Test
+    fun `未知渲染器没有配置规范`() {
+        assertNull(RendererConfigSpecs.of("definitely-not-a-renderer"))
+        assertTrue(RendererConfigSpecs.of("MobileGlues") != null)
+    }
+}
+
+/**
+ * 测试用的规范：结构上与 MobileGlues 一致（枚举 / 开关 / 整数、区间、分组），
+ * 但字段更少，断言能写死具体值，改动生产字段时不会把测试打散。
+ */
+private object RendererManagerSpecForTest {
+    fun build(): RendererConfigSpec = RendererConfigSpec(
+        rendererId = "test-renderer",
+        version = 1,
+        fields = listOf(
+            RendererConfigField(
+                id = "enableNoError",
+                title = "忽略错误",
+                description = "",
+                kind = ConfigFieldKind.CHOICE,
+                defaultValue = 3,
+                target = ConfigTarget.Json("enableNoError"),
+                options = listOf(
+                    ConfigOption(0, "自动"),
+                    ConfigOption(1, "不忽略"),
+                    ConfigOption(2, "着色器"),
+                    ConfigOption(3, "全部")
+                ),
+                group = "兼容"
+            ),
+            RendererConfigField(
+                id = "enableANGLE",
+                title = "ANGLE",
+                description = "",
+                kind = ConfigFieldKind.CHOICE,
+                defaultValue = 0,
+                target = ConfigTarget.Json("enableANGLE"),
+                options = listOf(ConfigOption(0, "关"), ConfigOption(1, "开"), ConfigOption(2, "强制关"), ConfigOption(3, "强制开")),
+                group = "兼容"
+            ),
+            RendererConfigField(
+                id = "enableExtTimerQuery",
+                title = "Timer",
+                description = "",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = true,
+                target = ConfigTarget.Json("enableExtTimerQuery"),
+                group = "扩展"
+            ),
+            RendererConfigField(
+                id = "enableExtComputeShader",
+                title = "Compute",
+                description = "",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = false,
+                target = ConfigTarget.Json("enableExtComputeShader"),
+                group = "扩展"
+            ),
+            RendererConfigField(
+                id = "maxGlslCacheSize",
+                title = "缓存",
+                description = "",
+                kind = ConfigFieldKind.NUMBER,
+                defaultValue = 32,
+                target = ConfigTarget.Json("maxGlslCacheSize"),
+                range = -1..512,
+                group = "性能"
+            ),
+            RendererConfigField(
+                id = "fsr1Setting",
+                title = "FSR",
+                description = "",
+                kind = ConfigFieldKind.CHOICE,
+                defaultValue = 0,
+                target = ConfigTarget.Json("fsr1Setting"),
+                options = listOf(
+                    ConfigOption(0, "关"),
+                    ConfigOption(1, "超高质量"),
+                    ConfigOption(2, "质量"),
+                    ConfigOption(3, "均衡"),
+                    ConfigOption(4, "性能")
+                ),
+                group = "画质"
+            )
+        )
+    )
+}

@@ -364,16 +364,22 @@ public class FCLauncher {
         return pluginPath.isEmpty() ? FCLPath.NATIVE_LIB_DIR : pluginPath;
     }
 
+    /** MobileGlues 驱动的默认配置目录（与 MG 官方插件一致，驱动侧的默认值也是这个路径） */
+    private static final String MOBILE_GLUES_DEFAULT_DIR = "/sdcard/MG";
+
     /**
-     * MobileGlues 官方要求：运行 MC 26.3-snapshot-3 及以后必须开启 "Ignore shader/program
-     * error"（config.json 键 enableNoError=3 → NoErrorConfig.Level2 → 驱动日志 ignoreError=2
-     * Full）。驱动启动时从 {MG_DIR_PATH}/config.json 读取（MG_DIR_PATH 默认 /sdcard/MG），
-     * 缺省 config.json 走内置默认（ignoreError=0，26.3 下 shader 编译报错即中断）。
-     * 优先写 /sdcard/MG/config.json（与官方插件共用配置，保留用户已有键）；写入失败时
-     * 降级到应用外部私有目录并设 MG_DIR_PATH 指向它。
+     * 确保 MobileGlues 的 config.json 存在。驱动启动时从 {MG_DIR_PATH}/config.json 读取
+     * （MG_DIR_PATH 默认 /sdcard/MG）；缺省文件时驱动走内置默认，26.3 起 shader 编译报错
+     * 会直接中断，因此首次启动要补一份可用默认值。
+     *
+     * 已存在的文件**不改动任何键**：参数由启动器「渲染器配置」写入，这里若继续覆盖
+     * enableNoError，用户在界面上改的选择会在启动时被悄悄改回去。
+     *
+     * 优先用 /sdcard/MG（与 MG 官方插件共用同一份配置）；不可写时降级到应用外部私有目录，
+     * 并设 MG_DIR_PATH 指向它。
      */
     private static void setupMobileGluesConfig(Context context, HashMap<String, String> envMap) {
-        if (writeMobileGluesConfig(new File("/sdcard/MG/config.json"))) {
+        if (ensureMobileGluesConfig(new File(MOBILE_GLUES_DEFAULT_DIR, "config.json"))) {
             return;
         }
         File baseDir = context.getExternalFilesDir(null);
@@ -381,40 +387,30 @@ public class FCLauncher {
             baseDir = context.getFilesDir();
         }
         File appMgDir = new File(baseDir, "MG");
-        if (writeMobileGluesConfig(new File(appMgDir, "config.json"))) {
+        if (ensureMobileGluesConfig(new File(appMgDir, "config.json"))) {
             envMap.put("MG_DIR_PATH", appMgDir.getAbsolutePath());
         }
     }
 
-    private static boolean writeMobileGluesConfig(File configFile) {
+    private static boolean ensureMobileGluesConfig(File configFile) {
         try {
-            JSONObject config = configFile.exists()
-                    ? new JSONObject(readFileString(configFile))
-                    : new JSONObject();
-            config.put("enableNoError", 3);
-            File parent = configFile.getParentFile();
-            if (parent != null) {
-                parent.mkdirs();
+            if (configFile.isFile()) {
+                return true;
             }
+            File parent = configFile.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                return false;
+            }
+            JSONObject config = new JSONObject();
+            config.put("enableNoError", 3);
             FileWriter writer = new FileWriter(configFile);
             writer.write(config.toString(2));
             writer.close();
             return true;
         } catch (Exception e) {
-            Log.e("FCLauncher", "Write MobileGlues config failed: " + e.getMessage());
+            Log.e("FCLauncher", "Prepare MobileGlues config failed: " + e.getMessage());
             return false;
         }
-    }
-
-    private static String readFileString(File file) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        BufferedReader reader = new BufferedReader(new FileReader(file));
-        String line;
-        while ((line = reader.readLine()) != null) {
-            sb.append(line).append('\n');
-        }
-        reader.close();
-        return sb.toString();
     }
 
     private static void addRendererEnvInner(FCLConfig config, HashMap<String, String> envMap) {
@@ -471,6 +467,15 @@ public class FCLauncher {
             // TODO: set NGG_DIR_PATH to custom path
             envMap.put("POJAV_RENDERER", "opengles3");
             envMap.put("POJAVEXEC_EGL", "libEGL.so");
+        } else if (renderer.isEqual(Renderer.ID_MOBILEGLUES)) {
+            // MobileGlues：EGL 与 GL 都由它自己提供，POJAV_RENDERER 仍走 GLES3 路径；
+            // 驱动参数在 {MG_DIR_PATH}/config.json，由启动器按「渲染器配置」写入。
+            envMap.put("POJAV_RENDERER", "opengles3");
+            envMap.put("POJAVEXEC_EGL", "libmobileglues.so");
+            envMap.put("LIBGL_ES", "3");
+            envMap.put("LIBGL_EGL", "libmobileglues.so");
+            envMap.put("LIBGL_NAME", "libmobileglues.so");
+            setupMobileGluesConfig(config.getContext(), envMap);
         } else {
             envMap.put("MESA_GLSL_CACHE_DIR", config.getContext().getCacheDir().getAbsolutePath());
             envMap.put("MESA_GL_VERSION_OVERRIDE", renderer.isEqual(Renderer.ID_VIRGL) ? "4.3" : "4.6");

@@ -14,6 +14,7 @@ object RendererManager {
     const val ID_FREEDRENO = "freedreno"
     const val ID_VIRGL = "virgl"
     const val ID_VGPU = "vgpu"
+    const val ID_MOBILEGLUES = "mobileglues"
 
     data class RendererConfig(
         val displayName: String,
@@ -193,15 +194,36 @@ object RendererManager {
         maxMcVersion = "1.16.5"
     )
 
-    // MobileGlues 等第三方渲染器不再内置，统一通过已安装的渲染器插件识别（元数据见 RendererPluginManager）。
+    // MobileGlues：内置的 GL→Vulkan 实现，EGL 与 GL 都是同一个 .so；
+    // 驱动参数在 config.json（MG_DIR_PATH 下），由「渲染器配置」按用户选择写入。
+    // 不设 maxMcVersion：官方已去掉版本上限判断，由驱动自身的能力协商决定。
+    val MOBILEGLUES = RendererConfig(
+        displayName = "MobileGlues",
+        id = ID_MOBILEGLUES,
+        glName = "libmobileglues.so",
+        eglName = "libmobileglues.so",
+        pojavRenderer = "opengles3",
+        envVars = mapOf(
+            "POJAV_RENDERER" to "opengles3",
+            "POJAVEXEC_EGL" to "libmobileglues.so",
+            "LIBGL_ES" to "3",
+            "LIBGL_EGL" to "libmobileglues.so",
+            "LIBGL_NAME" to "libmobileglues.so"
+        ),
+        requiredLibs = listOf("libmobileglues.so"),
+        minMcVersion = "",
+        maxMcVersion = ""
+    )
 
+    // 其它第三方渲染器（插件形式安装）统一由 RendererPluginManager 识别。
     private val allRenderers: List<RendererConfig> = listOf(
         GL4ES,
         NGGL4ES,
         ZINK,
         FREEDRENO,
         VIRGL,
-        VGPU
+        VGPU,
+        MOBILEGLUES
     )
 
     fun allRenderers(): List<RendererConfig> = allRenderers

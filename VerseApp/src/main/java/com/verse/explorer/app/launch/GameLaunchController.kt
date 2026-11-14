@@ -229,6 +229,14 @@ class GameLaunchController(private val context: Context) {
                     if (verIndependent && verSettings.renderer.isNotBlank()) verSettings.renderer
                     else settingsRepo.getRenderer()
                 )
+                // 可配置渲染器（MobileGlues）：启动前把界面上的选择写进驱动读取的配置。
+                // 失败只记日志，不能因为配置写不进去就把启动拦下来。
+                runCatching {
+                    com.verse.explorer.launcher.renderer.config.RendererConfigSupport
+                        .writeLaunchConfig(context, renderer, version.id)
+                }.onFailure {
+                    VerseLogger.warn("渲染器配置写入失败: ${it.message}", "LaunchController")
+                }
                 val customJvmArgs = if (verIndependent) verSettings.javaArgs else settingsRepo.getCustomJvmArgs()
                 val launchMethod = settingsRepo.getLaunchMethod()
                 VerseLogger.info(

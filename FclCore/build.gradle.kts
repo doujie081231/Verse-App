@@ -51,6 +51,7 @@ dependencies {
     implementation("org.glavo:chardet:2.5.0")
     implementation("com.github.junrar:junrar:7.5.5")
     implementation("com.moandjiezana.toml:toml4j:0.7.2")
+    testImplementation("junit:junit:4.13.2")
     implementation("com.github.steveice10:opennbt:1.5")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("org.jetbrains:annotations:24.1.0")

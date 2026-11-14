@@ -58,6 +58,7 @@ import com.verse.explorer.core.config.GameConfig
 import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionType
 import com.verse.explorer.launcher.renderer.RendererManager
+import com.verse.explorer.launcher.renderer.config.RendererConfigSpecs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -280,6 +281,7 @@ internal fun VersionConfigContent(
     settings: VS,
     javaOptions: List<Pair<String, String>>,
     controllerNames: List<String>,
+    versionId: String,
     onUpdate: ((VS) -> VS) -> Unit,
     onSpecialize: () -> Unit,
     onGlobalize: () -> Unit
@@ -340,6 +342,50 @@ internal fun VersionConfigContent(
                     settings.renderer,
                     rendererChoices
                 ) { onUpdate { s -> s.copy(renderer = it) } }
+                // 可配置渲染器（目前是 MobileGlues）才显示参数入口；
+                // 「跟随全局」时按全局选中的渲染器判断，避免入口时有时无。
+                val effectiveRendererId = settings.renderer.ifBlank { SettingsRepository.getRenderer() }
+                val effectiveRenderer = remember(effectiveRendererId) {
+                    RendererManager.getRendererById(context, effectiveRendererId)
+                }
+                val rendererSpec = remember(effectiveRendererId) {
+                    RendererConfigSpecs.of(effectiveRendererId)
+                }
+                if (effectiveRenderer != null && rendererSpec != null) {
+                    var showRendererConfig by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "渲染器配置",
+                                fontSize = 13.sp,
+                                color = VerseColors.PcTextPrimary
+                            )
+                            Text(
+                                "调整 ${effectiveRenderer.displayName} 的驱动参数，下次启动生效",
+                                fontSize = 11.sp,
+                                color = VerseColors.PcTextMuted
+                            )
+                        }
+                        PcButton(
+                            "配置",
+                            onClick = { showRendererConfig = true },
+                            variant = PcButtonVariant.SECONDARY
+                        )
+                    }
+                    if (showRendererConfig) {
+                        RendererConfigDialog(
+                            rendererId = rendererSpec.rendererId,
+                            rendererName = effectiveRenderer.displayName,
+                            versionId = versionId,
+                            onDismiss = { showRendererConfig = false }
+                        )
+                    }
+                }
                 PcDropdownRow(
                     "Vulkan 驱动器",
                     if (settings.vkDriverSystem) "system" else "turnip",

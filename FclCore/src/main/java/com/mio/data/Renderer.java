@@ -13,8 +13,9 @@ public class Renderer {
     public static final String ID_VIRGL = "virgl";
     public static final String ID_ZINK = "zink";
     public static final String ID_FREEDRENO = "freedreno";
+    public static final String ID_MOBILEGLUES = "mobileglues";
 
-    // 第三方渲染器（如 MobileGlues）以插件形式安装，由启动器解析后传入自定义 path/env。
+    // 其它第三方渲染器（插件形式安装）由启动器解析后传入自定义 path/env。
 
     public static final Renderer GLES = new Renderer(
             "opengles3",
@@ -43,7 +44,12 @@ public class Renderer {
                     Arrays.asList("MESA_GL_VERSION_OVERRIDE=4.6", "MESA_GLSL_VERSION_OVERRIDE=460",
                             "MESA_LOADER_DRIVER_OVERRIDE=zink")),
             new Renderer(ID_FREEDRENO, "Freedreno", "", "libEGL.so", "libOSMesa_8.so",
-                    Collections.emptyList())
+                    Collections.emptyList()),
+            // MobileGlues：内置的 GL→Vulkan 实现，EGL/GL 都是 libmobileglues.so。
+            // 驱动自身的参数来自 {MG_DIR_PATH}/config.json，由启动器按用户配置写入。
+            new Renderer(ID_MOBILEGLUES, "MobileGlues", "", "libmobileglues.so", "libmobileglues.so",
+                    Arrays.asList("LIBGL_ES=3", "LIBGL_EGL=libmobileglues.so",
+                            "LIBGL_NAME=libmobileglues.so", "LIBEGL_NAME=libmobileglues.so"))
     );
 
     private final String id;

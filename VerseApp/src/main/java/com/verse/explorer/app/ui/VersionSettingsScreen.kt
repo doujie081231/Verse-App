@@ -273,6 +273,7 @@ fun VersionSettingsScreen(
                         settings = settings,
                         javaOptions = javaOptions,
                         controllerNames = controllerNames,
+                        versionId = versionId,
                         onUpdate = ::update,
                         onSpecialize = {
                             settings = repo.specialize(versionId)

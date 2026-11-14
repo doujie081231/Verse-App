@@ -61,7 +61,7 @@ object RendererCompatCheck {
                 "当前渲染器 ${renderer.displayName} 最高只提供 OpenGL $glCap。" +
                 "gl4es 这类转译层无法翻译 Sodium 的 uint/UBO 着色器，" +
                 "进入世界时管线编译失败会直接崩溃（SIGSEGV）。",
-            action = "请在「版本设置 → 渲染器」改用 Zink 或 MobileGlues（渲染器插件）后重新启动；" +
+            action = "请在「版本设置 → 渲染器」改用 Zink 或 MobileGlues 后重新启动；" +
                 "或在 mods 里移除 Sodium。"
         )
     }
