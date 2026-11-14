@@ -91,6 +91,9 @@ class InGameControlOverlay(
     private var memRow: LinearLayout? = null
     private var memBar: MemoryBarView? = null
     private var infoContainer: LinearLayout? = null
+
+    /** HUD 胶囊的基准顶部间距（dp）。它同时也是向上可拖动的最大距离，拖满即贴住屏幕最顶部。 */
+    private val hudBaseTopDp = 80f
     private var infoHandler: Handler? = null
     private var fpsEnabled = false
     private var memEnabled = false
@@ -1327,17 +1330,42 @@ class InGameControlOverlay(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER_HORIZONTAL or Gravity.TOP
-            ).apply { topMargin = dp(80f) }
+            ).apply { topMargin = dp(hudBaseTopDp) }
         )
         attachInfoDrag(card)
         infoContainer = card
     }
 
-    /** 信息条拖动：按下后跟随手指移动，边界按当前屏幕尺寸限制，抬手保存位置 */
+    /**
+     * 信息条拖动：按下后跟随手指移动，边界按当前屏幕尺寸限制，抬手保存位置。
+     *
+     * 垂直范围是 [-hudBaseTopDp, 屏幕高度 - 视图高度 - hudBaseTopDp]：
+     * 胶囊的基准纵向位置本身就带 [hudBaseTopDp] 的顶部间距，若把下限写成 0，
+     * 它就只能从基准线往下走，永远拖不到屏幕最顶部。下限取基准间距的负值，
+     * 拖满时胶囊正好贴住屏幕顶边。
+     */
     private fun attachInfoDrag(view: View) {
         val prefs = activity.getSharedPreferences("game_hud", Context.MODE_PRIVATE)
+        val baseTop = dp(hudBaseTopDp)
+
+        // 恢复上次位置。布局完成前 width/height 还是 0，收口放到首帧布局后做，
+        // 这样换分辨率或旋转屏幕后也不会把胶囊留在屏幕外。
         view.translationX = prefs.getFloat("info_offset_x", 0f)
         view.translationY = prefs.getFloat("info_offset_y", 0f)
+        var restored = false
+        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            if (restored || v.width == 0 || v.height == 0) return@addOnLayoutChangeListener
+            restored = true
+            val maxX = ((v.resources.displayMetrics.widthPixels - v.width) / 2f).coerceAtLeast(0f)
+            val maxY = (v.resources.displayMetrics.heightPixels - v.height - baseTop)
+                .coerceAtLeast(0).toFloat()
+            v.translationX = v.translationX.coerceIn(-maxX, maxX)
+            v.translationY = v.translationY.coerceIn(-baseTop.toFloat(), maxY)
+            prefs.edit()
+                .putFloat("info_offset_x", v.translationX)
+                .putFloat("info_offset_y", v.translationY)
+                .apply()
+        }
 
         var lastRawX = 0f
         var lastRawY = 0f
@@ -1350,14 +1378,16 @@ class InGameControlOverlay(
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val metrics = v.resources.displayMetrics
-                    // 初始位置为水平居中、顶部 80dp，可移动范围为屏幕内剩余空间
+                    // 水平：基准为屏幕居中，左右各留 (屏宽 - 视图宽) / 2
                     val maxX = ((metrics.widthPixels - v.width) / 2f).coerceAtLeast(0f)
-                    val maxY =
-                        (metrics.heightPixels - v.height - dp(80f)).coerceAtLeast(0).toFloat()
+                    // 垂直：上到屏幕最顶部（基准间距的负值），下到屏幕底边
+                    val maxY = (metrics.heightPixels - v.height - dp(hudBaseTopDp))
+                        .coerceAtLeast(0).toFloat()
                     v.translationX =
                         (v.translationX + event.rawX - lastRawX).coerceIn(-maxX, maxX)
                     v.translationY =
-                        (v.translationY + event.rawY - lastRawY).coerceIn(0f, maxY)
+                        (v.translationY + event.rawY - lastRawY)
+                            .coerceIn(-dp(hudBaseTopDp).toFloat(), maxY)
                     lastRawX = event.rawX
                     lastRawY = event.rawY
                     true

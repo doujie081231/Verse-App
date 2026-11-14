@@ -1,7 +1,9 @@
 package com.verse.explorer.app.ui
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -71,12 +73,26 @@ private val creditItems = listOf(
     )
 )
 
+/** 官方爱发电主页，与官网 verselauncher.cn 上挂的是同一个地址 */
+private const val SPONSOR_URL = "https://ifdian.net/a/versejava"
+
 @Composable
 fun AboutContent() {
     val context = LocalContext.current
 
+    /**
+     * 打开外部链接。之前失败时静默吞掉异常，表现就是「点了没反应」；
+     * 这里补上 NEW_TASK 标志（非 Activity 上下文也能启动），
+     * 并在真的没有应用能处理时给出提示。
+     */
     fun openLink(url: String) {
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(context, "没有可以打开该链接的应用", Toast.LENGTH_SHORT).show()
+        }
     }
 
     PcCard(title = "版本") {
