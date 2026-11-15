@@ -95,6 +95,15 @@ class RendererConfigTest {
     }
 
     @Test
+    fun `本地型开关不会写进驱动配置文件`() {
+        val values = RendererConfigResolver.resolve(spec, global = mapOf("sfpewLayer" to false))
+        val json = RendererConfigJson.jsonValues(spec, values)
+
+        assertEquals("只存本地的开关不应出现在驱动配置里", false, values["sfpewLayer"])
+        assertFalse(json.containsKey("sfpewLayer"))
+    }
+
+    @Test
     fun `写盘只输出 JSON 目标字段且顺序稳定`() {
         val values = mapOf("enableNoError" to 1, "enableANGLE" to 2)
         val json = RendererConfigJson.jsonValues(spec, values)
@@ -199,6 +208,15 @@ private object RendererManagerSpecForTest {
                 defaultValue = false,
                 target = ConfigTarget.Json("enableExtComputeShader"),
                 group = "扩展"
+            ),
+            RendererConfigField(
+                id = "sfpewLayer",
+                title = "兼容层",
+                description = "",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = true,
+                target = ConfigTarget.Local("sfpewLayer"),
+                group = "兼容"
             ),
             RendererConfigField(
                 id = "maxGlslCacheSize",

@@ -5,6 +5,8 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * 应用「启动器部分屏幕全屏」与「忽略刘海」相互独立组合后的窗口显示模式：
@@ -36,6 +38,7 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
     } else if (ignoreNotch) {
         // 不隐藏系统栏，但内容延伸到系统栏后方（时间悬浮显示在画面上）
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         WindowCompat.setDecorFitsSystemWindows(window, false)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             window.decorView.systemUiVisibility = (
@@ -46,6 +49,7 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
         }
     } else {
         window.clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+        WindowInsetsControllerCompat(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
         WindowCompat.setDecorFitsSystemWindows(window, true)
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
@@ -53,6 +57,38 @@ internal fun applyWindowDisplayMode(activity: ComponentActivity, fullScreen: Boo
     }
     // 刘海延伸只由「忽略刘海」决定：全屏开启也不会顺带占满刘海区
     setDisplayCutoutMode(activity, extendToCutout = ignoreNotch)
+}
+
+/**
+ * 协议页的强制沉浸全屏：与「启动器全屏」设置无关，同意协议后由
+ * [applyWindowDisplayMode] 按用户设置恢复。协议页是首次启动的第一屏，
+ * 留一条状态栏会让它看起来像"弹窗"而不是整页。
+ */
+internal fun applyEulaImmersive(activity: ComponentActivity, ignoreNotch: Boolean) {
+    val window = activity.window
+    window.setFlags(
+        WindowManager.LayoutParams.FLAG_FULLSCREEN,
+        WindowManager.LayoutParams.FLAG_FULLSCREEN
+    )
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            )
+    } else {
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.systemBars())
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+    // 协议正文自身有内边距，整页铺满挖孔区才是"全屏"观感，因此这里始终延伸
+    setDisplayCutoutMode(activity, extendToCutout = true)
 }
 
 /**

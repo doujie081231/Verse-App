@@ -48,6 +48,9 @@ public class FCLConfig implements Serializable {
     private InstalledModLoaders installedModLoaders = null;
     // LWJGL 栈版本：默认 3.3.3，启动前由 DefaultLauncher 按版本 JSON 解析设置
     private String lwjglVersion = "3.3.3";
+    // SimpleFPEWrapper 兼容层：由启动器按「渲染器配置」决定是否挂载，库路径为空表示不挂载
+    private boolean sfpewLayerEnabled = false;
+    private String sfpewLibraryPath = null;
 
     public FCLConfig(Context context, String logDir, String javaPath, String workingDir, Renderer renderer, String[] args) {
         this.context = context;
@@ -76,4 +79,12 @@ public class FCLConfig implements Serializable {
 
     public void setLwjglVersion(String lwjglVersion) { this.lwjglVersion = lwjglVersion; }
     public String getLwjglVersion() { return lwjglVersion; }
+
+    public void setSfpewLayer(boolean enabled, String libraryPath) {
+        this.sfpewLayerEnabled = enabled && libraryPath != null && !libraryPath.isEmpty();
+        this.sfpewLibraryPath = this.sfpewLayerEnabled ? libraryPath : null;
+    }
+
+    public boolean isSfpewLayerEnabled() { return sfpewLayerEnabled; }
+    public String getSfpewLibraryPath() { return sfpewLibraryPath; }
 }

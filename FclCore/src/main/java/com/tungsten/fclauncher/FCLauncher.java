@@ -348,6 +348,18 @@ public class FCLauncher {
             }
             envMap.put("SDL_OPENGL_LIBRARY", gl);
         }
+        // SimpleFPEWrapper 兼容层：接管 SDL 的 GL/EGL 加载，把固定管线的调用
+        // 补到现代上下文上；转发目标由 SFPEW_EGL 指定，因此必须在 egl 解析完成之后覆盖。
+        // 没有可转发的 EGL（如系统 Mali libEGL.so 不在包内）时保持不挂载。
+        if (config.isSfpewLayerEnabled() && egl != null) {
+            String sfpewPath = config.getSfpewLibraryPath();
+            if (sfpewPath != null && new File(sfpewPath).isFile()) {
+                envMap.put("SFPEW_LAYER", "1");
+                envMap.put("SFPEW_EGL", egl);
+                envMap.put("SDL_OPENGL_LIBRARY", sfpewPath);
+                envMap.put("SDL_EGL_LIBRARY", sfpewPath);
+            }
+        }
         // 与 FCL 一致：MobileGlues 对 SDL 传入的 sRGB framebuffer EGL 参数不兼容，
         // 关闭该 hint（FCL sdl_hook: SDL_OPENGL_FORCE_SRGB_FRAMEBUFFER=0）。
         if (renderer.getGlName().toLowerCase(Locale.ROOT).contains("mobileglues")

@@ -123,9 +123,23 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            // 观察启动器全屏与忽略刘海设置变化：变更即时应用到窗口
-            LaunchedEffect(VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch) {
-                applyWindowDisplayMode(this@MainActivity, VersePersonalization.launcherFullScreen, DisplayNotch.ignoreNotch)
+            // 观察全屏/刘海设置与协议同意状态：变更即时应用到窗口。
+            // 协议页未同意时强制沉浸全屏（首次启动第一屏，留状态栏会像弹窗），
+            // 同意后按用户的全屏设置恢复。
+            LaunchedEffect(
+                VersePersonalization.launcherFullScreen,
+                DisplayNotch.ignoreNotch,
+                eulaAgreed.value
+            ) {
+                if (!eulaAgreed.value) {
+                    applyEulaImmersive(this@MainActivity, SettingsRepository.getIgnoreNotch())
+                } else {
+                    applyWindowDisplayMode(
+                        this@MainActivity,
+                        VersePersonalization.launcherFullScreen,
+                        DisplayNotch.ignoreNotch
+                    )
+                }
             }
             // 启动时应用已保存的个性化设置（颜色主题/深浅三态/背景等由主题层响应式读取）+ 自定义强调色
             LaunchedEffect(Unit) {
@@ -151,7 +165,8 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .then(
-                                if (DisplayNotch.ignoreNotch) Modifier
+                                // 协议页占满整屏（含挖孔区），其余页面按「忽略刘海」决定是否避让
+                                if (DisplayNotch.ignoreNotch || !eulaAgreed.value) Modifier
                                 else Modifier.windowInsetsPadding(WindowInsets.displayCutout)
                             )
                     ) {

@@ -36,6 +36,16 @@ object RendererConfigSpecs {
                 group = "兼容"
             ),
             RendererConfigField(
+                id = "sfpewLayer",
+                title = "SimpleFPEWrapper 兼容层",
+                description = "接管 GL/EGL 调用，为使用固定管线（GL 1.x）的老版本游戏与模组补上兼容路径；"
+                    + "遇到 ANGELICA / ACTINIUM 这类自带 FPE 实现的模组时会被自动跳过。",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = true,
+                target = ConfigTarget.Local("sfpewLayer"),
+                group = "兼容"
+            ),
+            RendererConfigField(
                 id = "enableANGLE",
                 title = "ANGLE 后端",
                 description = "让驱动通过 ANGLE 走上层 GLES。部分 Adreno 设备开启后更稳，Mali 一般用不到。",

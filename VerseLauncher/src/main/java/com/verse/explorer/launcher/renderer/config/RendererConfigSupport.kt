@@ -18,6 +18,11 @@ object RendererConfigSupport {
     /** MobileGlues 驱动的默认配置目录（与官方插件一致） */
     private const val MOBILE_GLUES_PRIMARY_DIR = "/sdcard/MG"
 
+    private const val SFPEW_LIBRARY = "libSimpleFPEWrapper.so"
+
+    /** 自带固定管线实现的模组：它们和兼容层抢同一批 GL 入口，必须让路 */
+    private val FPE_EMULATOR_MOD_IDS = listOf("angelica", "actinium")
+
     data class Resolved(
         val spec: RendererConfigSpec?,
         val values: Map<String, Any>
@@ -33,6 +38,50 @@ object RendererConfigSupport {
         val global = store.loadGlobal(spec.rendererId, spec)
         val version = versionId?.let { store.loadVersion(it, spec.rendererId, spec) } ?: emptyMap()
         return Resolved(spec, RendererConfigResolver.resolve(spec, global, version))
+    }
+
+    /**
+     * SimpleFPEWrapper 兼容层的启用判定。
+     *
+     * 三个条件同时满足才挂载：用户在「渲染器配置」里开着、兼容层库确实在包里、
+     * 当前版本没有自带 FPE 实现的模组（ANGELICA / ACTINIUM 会与兼容层抢同一批入口）。
+     */
+    data class SfpewDecision(val enabled: Boolean, val libraryPath: String?)
+
+    fun sfpewDecision(
+        context: Context,
+        rendererId: String,
+        versionId: String?,
+        gameDir: File?
+    ): SfpewDecision {
+        val values = resolve(context, rendererId, versionId).values
+        if (values["sfpewLayer"] != true) return SfpewDecision(false, null)
+        val library = File(context.applicationInfo.nativeLibraryDir, SFPEW_LIBRARY)
+        if (!library.isFile) {
+            Log.w(TAG, "SimpleFPEWrapper 库缺失: ${library.absolutePath}")
+            return SfpewDecision(false, null)
+        }
+        val modsDir = gameDir?.let { File(it, "mods") }
+        if (modsDir != null && hasFpeEmulatorMods(modsDir)) {
+            Log.i(TAG, "检测到自带 FPE 的模组，跳过兼容层")
+            return SfpewDecision(false, null)
+        }
+        return SfpewDecision(true, library.absolutePath)
+    }
+
+    /**
+     * 是否已安装自带固定管线实现的模组。
+     *
+     * 按文件名判断：这类模组的 jar 名一定带 mod id，扫一遍文件名比逐个解包读元数据便宜，
+     * 且只在启动时执行一次。误判只会让兼容层不挂载，不会导致启动失败。
+     */
+    fun hasFpeEmulatorMods(modsDir: File): Boolean {
+        val jars = modsDir.listFiles { f -> f.isFile && f.extension.equals("jar", true) }
+            ?: return false
+        return jars.any { jar ->
+            val name = jar.name.lowercase()
+            FPE_EMULATOR_MOD_IDS.any { name.contains(it) }
+        }
     }
 
     /**

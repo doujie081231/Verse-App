@@ -16,7 +16,14 @@ enum class ConfigFieldKind { SWITCH, CHOICE, NUMBER }
  */
 sealed class ConfigTarget {
     data class Json(val key: String) : ConfigTarget()
+
     data class Env(val key: String) : ConfigTarget()
+
+    /**
+     * 只存本地、不写给驱动的开关（比如"是否挂载兼容层"）。
+     * 这类值由启动链路读取，属于启动器的决定，而不是驱动的配置项。
+     */
+    data class Local(val key: String) : ConfigTarget()
 }
 
 /** 枚举型字段的一个候选值 */

@@ -36,6 +36,7 @@ class RendererCompatPolicyTest {
         val spec = RendererConfigSpecs.of(RendererManager.ID_MOBILEGLUES)
         assertNotNull(spec)
         assertEquals(3, spec!!.field("enableNoError")!!.defaultValue)
+        assertEquals(true, spec.field("sfpewLayer")!!.defaultValue)
         assertTrue(spec.fields.isNotEmpty())
     }
 

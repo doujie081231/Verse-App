@@ -25,6 +25,7 @@ import com.google.gson.GsonBuilder;
 import com.mio.JavaManager;
 import com.mio.data.Renderer;
 import com.verse.explorer.launcher.renderer.RendererManager;
+import com.verse.explorer.launcher.renderer.config.RendererConfigSupport;
 import com.tungsten.fclauncher.FCLConfig;
 import com.tungsten.fclauncher.FCLauncher;
 import com.tungsten.fclauncher.bridge.FCLBridge;
@@ -654,6 +655,22 @@ public class DefaultLauncher extends Launcher {
         config.setInstalledModLoaders(new FCLConfig.InstalledModLoaders(
                 false, false, false, false, false, false, false
         ));
+        // 渲染器可配置项：目前只用于 MobileGlues 的 SimpleFPEWrapper 兼容层。
+        // 解析失败按"不挂载"处理，不能因为配置读不出来就把启动拦下来。
+        try {
+            RendererConfigSupport.SfpewDecision sfpew = RendererConfigSupport.INSTANCE.sfpewDecision(
+                    context,
+                    renderer.getId(),
+                    version.getId(),
+                    repository.getRunDirectory(version.getId())
+            );
+            if (sfpew.getEnabled()) {
+                config.setSfpewLayer(true, sfpew.getLibraryPath());
+                diag("SimpleFPEWrapper 兼容层已挂载: " + sfpew.getLibraryPath());
+            }
+        } catch (Throwable t) {
+            Log.w("DefaultLauncher", "解析渲染器配置失败: " + t.getMessage());
+        }
         diag("FCLConfig 创建完成, 调用 FCLauncher.launchMinecraft ... 渲染库将在此加载 dlopen");
         // Forge 1.12.2 的启动画面（SplashProgress）在自己的线程里调用 Display.update()
         // → glfwPollEvents → pojavPumpEvents，而该原生回调用的是 GLFW 线程的 JNIEnv
