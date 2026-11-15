@@ -5,6 +5,9 @@ import android.content.Context;
 import com.mio.data.Renderer;
 
 import java.io.Serializable;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public class FCLConfig implements Serializable {
 
@@ -51,6 +54,8 @@ public class FCLConfig implements Serializable {
     // SimpleFPEWrapper 兼容层：由启动器按「渲染器配置」决定是否挂载，库路径为空表示不挂载
     private boolean sfpewLayerEnabled = false;
     private String sfpewLibraryPath = null;
+    // 渲染器配置里以环境变量形式下发的项（如 MG_COUNT_LAUNCH），最后一步写入，覆盖默认值
+    private Map<String, String> extraEnv = Collections.emptyMap();
 
     public FCLConfig(Context context, String logDir, String javaPath, String workingDir, Renderer renderer, String[] args) {
         this.context = context;
@@ -87,4 +92,10 @@ public class FCLConfig implements Serializable {
 
     public boolean isSfpewLayerEnabled() { return sfpewLayerEnabled; }
     public String getSfpewLibraryPath() { return sfpewLibraryPath; }
+
+    public void setExtraEnv(Map<String, String> env) {
+        this.extraEnv = env == null ? Collections.<String, String>emptyMap() : new HashMap<>(env);
+    }
+
+    public Map<String, String> getExtraEnv() { return extraEnv; }
 }

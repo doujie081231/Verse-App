@@ -23,11 +23,22 @@ object RendererConfigSupport {
     /** 自带固定管线实现的模组：它们和兼容层抢同一批 GL 入口，必须让路 */
     private val FPE_EMULATOR_MOD_IDS = listOf("angelica", "actinium")
 
+    private val MOD_METADATA_FILES = listOf("fabric.mod.json", "quilt.mod.json")
+
+    private val MOD_ID_PATTERN = Regex("\"id\"\\s*:\\s*\"([^\"]+)\"")
+
     data class Resolved(
         val spec: RendererConfigSpec?,
         val values: Map<String, Any>
     ) {
         val configurable: Boolean get() = spec != null
+    }
+
+    /** 该渲染器在当前版本下要下发的环境变量（Env 型字段） */
+    fun launchEnv(context: Context, rendererId: String, versionId: String?): Map<String, String> {
+        val resolved = resolve(context, rendererId, versionId)
+        val spec = resolved.spec ?: return emptyMap()
+        return RendererConfigEnv.build(spec, resolved.values)
     }
 
     /** 解析某个渲染器在指定版本下生效的配置（版本级 > 全局 > 默认） */
@@ -72,17 +83,35 @@ object RendererConfigSupport {
     /**
      * 是否已安装自带固定管线实现的模组。
      *
-     * 按文件名判断：这类模组的 jar 名一定带 mod id，扫一遍文件名比逐个解包读元数据便宜，
-     * 且只在启动时执行一次。误判只会让兼容层不挂载，不会导致启动失败。
+     * 先读 jar 内的模组元数据（fabric.mod.json / quilt.mod.json 的 id），读不到再退回文件名。
+     * 只读元数据里的 id 字段，不解压整个包；文件名兜底是为了覆盖元数据损坏或非标准打包的情况。
      */
     fun hasFpeEmulatorMods(modsDir: File): Boolean {
         val jars = modsDir.listFiles { f -> f.isFile && f.extension.equals("jar", true) }
             ?: return false
         return jars.any { jar ->
-            val name = jar.name.lowercase()
-            FPE_EMULATOR_MOD_IDS.any { name.contains(it) }
+            val id = readModId(jar)
+            if (id != null) {
+                FPE_EMULATOR_MOD_IDS.any { it.equals(id, ignoreCase = true) }
+            } else {
+                val name = jar.name.lowercase()
+                FPE_EMULATOR_MOD_IDS.any { name.contains(it) }
+            }
         }
     }
+
+    private fun readModId(jar: File): String? = runCatching {
+        java.util.zip.ZipFile(jar).use { zip ->
+            for (entry in MOD_METADATA_FILES) {
+                val e = zip.getEntry(entry) ?: continue
+                val text = zip.getInputStream(e).bufferedReader().use { it.readText() }
+                // 只取 id 字段，不引入 JSON 解析依赖：元数据体积小、结构固定
+                MOD_ID_PATTERN.find(text)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+                    ?.let { return@use it }
+            }
+            null
+        }
+    }.getOrNull()
 
     /**
      * 启动前把配置写进驱动读取的位置。

@@ -38,10 +38,10 @@ object RendererConfigSpecs {
             RendererConfigField(
                 id = "sfpewLayer",
                 title = "SimpleFPEWrapper 兼容层",
-                description = "接管 GL/EGL 调用，为使用固定管线（GL 1.x）的老版本游戏与模组补上兼容路径；"
-                    + "遇到 ANGELICA / ACTINIUM 这类自带 FPE 实现的模组时会被自动跳过。",
+                description = "接管 GL/EGL 调用，为使用固定管线（GL 1.x）的老版本与模组补兼容路径。"
+                    + "默认关闭：MobileGlues 自身已能启动新版本，兼容层留作遇到固定管线问题时手动开启。",
                 kind = ConfigFieldKind.SWITCH,
-                defaultValue = true,
+                defaultValue = false,
                 target = ConfigTarget.Local("sfpewLayer"),
                 group = "兼容"
             ),
@@ -61,6 +61,25 @@ object RendererConfigSpecs {
                 group = "兼容"
             ),
             RendererConfigField(
+                id = "sfpewRelaxedContext",
+                title = "宽松上下文",
+                description = "兼容层放宽 EGL 上下文属性校验，个别驱动在严格模式下建不出上下文时开启。",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = false,
+                target = ConfigTarget.Env("SFPEW_RELAXED_CONTEXT"),
+                group = "兼容",
+                omitWhenFalse = true
+            ),
+            RendererConfigField(
+                id = "MG_COUNT_LAUNCH",
+                title = "启动时统计绘制调用",
+                description = "驱动启动阶段统计 draw call，用于排查性能问题；关闭可略过这部分开销。",
+                kind = ConfigFieldKind.SWITCH,
+                defaultValue = true,
+                target = ConfigTarget.Env("MG_COUNT_LAUNCH"),
+                group = "性能"
+            ),
+            RendererConfigField(
                 id = "angleDepthClearFixMode",
                 title = "深度清除修正",
                 description = "修正 ANGLE 后端下的深度缓冲清除问题，画面出现闪烁或深度错乱时开启。",
@@ -68,6 +87,29 @@ object RendererConfigSpecs {
                 defaultValue = false,
                 target = ConfigTarget.Json("angleDepthClearFixMode"),
                 group = "兼容"
+            ),
+            RendererConfigField(
+                id = "multidrawOrder",
+                title = "多重绘制顺序",
+                description = "驱动尝试各种 multidraw 实现时的优先级。默认按能力从高到低；"
+                    + "遇到绘制错乱或性能异常时改成 native 优先，可绕开部分驱动的间接绘制缺陷。",
+                kind = ConfigFieldKind.CHOICE,
+                defaultValue = 0,
+                target = ConfigTarget.JsonArray(
+                    "multidrawOrder",
+                    listOf(
+                        listOf(
+                            "native", "multiindirect", "multibasevertex", "multiarrays",
+                            "indirect", "basevertex", "unroll", "compute"
+                        ),
+                        listOf("native", "multiarrays", "unroll")
+                    )
+                ),
+                options = listOf(
+                    ConfigOption(0, "默认（完整优先级）"),
+                    ConfigOption(1, "native 优先（兼容）")
+                ),
+                group = "图形"
             ),
             RendererConfigField(
                 id = "customGLVersion",

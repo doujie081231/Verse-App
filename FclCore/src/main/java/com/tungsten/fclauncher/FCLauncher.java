@@ -360,6 +360,13 @@ public class FCLauncher {
                 envMap.put("SDL_EGL_LIBRARY", sfpewPath);
             }
         }
+        // 渲染器配置里以环境变量形式下发的项：最后写入，保证用户在界面上改的值优先于默认推导
+        for (String key : config.getExtraEnv().keySet()) {
+            String value = config.getExtraEnv().get(key);
+            if (value != null && !value.isEmpty()) {
+                envMap.put(key, value);
+            }
+        }
         // 与 FCL 一致：MobileGlues 对 SDL 传入的 sRGB framebuffer EGL 参数不兼容，
         // 关闭该 hint（FCL sdl_hook: SDL_OPENGL_FORCE_SRGB_FRAMEBUFFER=0）。
         if (renderer.getGlName().toLowerCase(Locale.ROOT).contains("mobileglues")

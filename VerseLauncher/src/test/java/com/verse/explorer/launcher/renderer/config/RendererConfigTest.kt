@@ -15,7 +15,7 @@ import org.junit.Test
  */
 class RendererConfigTest {
 
-    private val spec = RendererManagerSpecForTest.build()
+    private val spec = rendererSpecFixture()
 
     @Test
     fun `没有任何存储时全部取默认值`() {
@@ -36,7 +36,6 @@ class RendererConfigTest {
 
         assertEquals(1, resolved["enableNoError"])
         assertEquals(2, resolved["enableANGLE"])
-        // 未覆盖的字段仍是默认值
         assertEquals(spec.field("fsr1Setting")!!.defaultValue, resolved["fsr1Setting"])
     }
 
@@ -57,13 +56,9 @@ class RendererConfigTest {
         val resolved = RendererConfigResolver.resolve(
             spec,
             global = mapOf(
-                // 不在候选里的枚举
                 "enableNoError" to 99,
-                // 类型不对
                 "enableExtTimerQuery" to "not-a-bool",
-                // 超出范围的整数
                 "maxGlslCacheSize" to 9999,
-                // spec 里没有的键
                 "unknownKey" to 1
             )
         )
@@ -95,25 +90,28 @@ class RendererConfigTest {
     }
 
     @Test
-    fun `本地型开关不会写进驱动配置文件`() {
-        val values = RendererConfigResolver.resolve(spec, global = mapOf("sfpewLayer" to false))
-        val json = RendererConfigJson.jsonValues(spec, values)
-
-        assertEquals("只存本地的开关不应出现在驱动配置里", false, values["sfpewLayer"])
-        assertFalse(json.containsKey("sfpewLayer"))
-    }
-
-    @Test
     fun `写盘只输出 JSON 目标字段且顺序稳定`() {
         val values = mapOf("enableNoError" to 1, "enableANGLE" to 2)
         val json = RendererConfigJson.jsonValues(spec, values)
 
         assertEquals(1, json["enableNoError"])
         assertEquals(2, json["enableANGLE"])
-        // 未在 values 里的字段用默认值补齐，避免驱动读到缺键
         assertEquals(0, json["fsr1Setting"])
         assertEquals(spec.fields.count { it.jsonKey() != null }, json.size)
-        assertEquals("字段顺序应与规范一致", spec.fields.first { it.jsonKey() != null }.jsonKey(), json.keys.first())
+        assertEquals(
+            "字段顺序应与规范一致",
+            spec.fields.first { it.jsonKey() != null }.jsonKey(),
+            json.keys.first()
+        )
+    }
+
+    @Test
+    fun `本地型开关不会写进驱动配置文件`() {
+        val values = RendererConfigResolver.resolve(spec, global = mapOf("sfpewLayer" to false))
+        val json = RendererConfigJson.jsonValues(spec, values)
+
+        assertEquals("只存本地的开关不应出现在驱动配置里", false, values["sfpewLayer"])
+        assertFalse(json.containsKey("sfpewLayer"))
     }
 
     @Test
@@ -142,6 +140,47 @@ class RendererConfigTest {
     }
 
     @Test
+    fun `环境变量型字段的取值规则`() {
+        val envOn = RendererConfigEnv.build(spec, RendererConfigResolver.resolve(spec))
+        assertEquals("1", envOn["MG_COUNT_LAUNCH"])
+        assertFalse("omitWhenFalse 的开关默认不应下发", envOn.containsKey("SFPEW_RELAXED_CONTEXT"))
+
+        val off = RendererConfigResolver.resolve(
+            spec,
+            global = mapOf("countLaunch" to false, "relaxed" to true)
+        )
+        val envOff = RendererConfigEnv.build(spec, off)
+        assertEquals("0", envOff["MG_COUNT_LAUNCH"])
+        assertEquals("1", envOff["SFPEW_RELAXED_CONTEXT"])
+    }
+
+    @Test
+    fun `环境变量只包含 Env 目标字段`() {
+        val env = RendererConfigEnv.build(spec, RendererConfigResolver.resolve(spec))
+
+        assertFalse("JSON 目标不应出现在环境变量里", env.containsKey("enableNoError"))
+        assertFalse("本地目标不应出现在环境变量里", env.containsKey("sfpewLayer"))
+        assertTrue(env.containsKey("MG_COUNT_LAUNCH"))
+    }
+
+    @Test
+    fun `数组型配置按索引写出对应的预设顺序`() {
+        val mg = RendererConfigSpecs.MOBILE_GLUES
+        val full = RendererConfigResolver.resolve(mg, mapOf("multidrawOrder" to 0))
+        val compat = RendererConfigResolver.resolve(mg, mapOf("multidrawOrder" to 1))
+
+        @Suppress("UNCHECKED_CAST")
+        val fullOrder = RendererConfigJson.jsonValues(mg, full)["multidrawOrder"] as List<String>
+
+        @Suppress("UNCHECKED_CAST")
+        val compatOrder = RendererConfigJson.jsonValues(mg, compat)["multidrawOrder"] as List<String>
+
+        assertEquals("native", fullOrder.first())
+        assertTrue("默认序应包含间接绘制", fullOrder.contains("multiindirect"))
+        assertEquals(listOf("native", "multiarrays", "unroll"), compatOrder)
+    }
+
+    @Test
     fun `规范本身的字段 id 与键唯一`() {
         val ids = spec.fields.map { it.id }
         assertEquals(ids.size, ids.toSet().size)
@@ -158,92 +197,114 @@ class RendererConfigTest {
 }
 
 /**
- * 测试用的规范：结构上与 MobileGlues 一致（枚举 / 开关 / 整数、区间、分组），
+ * 测试用的规范：结构上与 MobileGlues 一致（枚举 / 开关 / 整数 / 环境变量 / 本地开关、区间、分组），
  * 但字段更少，断言能写死具体值，改动生产字段时不会把测试打散。
  */
-private object RendererManagerSpecForTest {
-    fun build(): RendererConfigSpec = RendererConfigSpec(
-        rendererId = "test-renderer",
-        version = 1,
-        fields = listOf(
-            RendererConfigField(
-                id = "enableNoError",
-                title = "忽略错误",
-                description = "",
-                kind = ConfigFieldKind.CHOICE,
-                defaultValue = 3,
-                target = ConfigTarget.Json("enableNoError"),
-                options = listOf(
-                    ConfigOption(0, "自动"),
-                    ConfigOption(1, "不忽略"),
-                    ConfigOption(2, "着色器"),
-                    ConfigOption(3, "全部")
-                ),
-                group = "兼容"
+private fun rendererSpecFixture(): RendererConfigSpec = RendererConfigSpec(
+    rendererId = "test-renderer",
+    version = 1,
+    fields = listOf(
+        RendererConfigField(
+            id = "enableNoError",
+            title = "忽略错误",
+            description = "",
+            kind = ConfigFieldKind.CHOICE,
+            defaultValue = 3,
+            target = ConfigTarget.Json("enableNoError"),
+            options = listOf(
+                ConfigOption(0, "自动"),
+                ConfigOption(1, "不忽略"),
+                ConfigOption(2, "着色器"),
+                ConfigOption(3, "全部")
             ),
-            RendererConfigField(
-                id = "enableANGLE",
-                title = "ANGLE",
-                description = "",
-                kind = ConfigFieldKind.CHOICE,
-                defaultValue = 0,
-                target = ConfigTarget.Json("enableANGLE"),
-                options = listOf(ConfigOption(0, "关"), ConfigOption(1, "开"), ConfigOption(2, "强制关"), ConfigOption(3, "强制开")),
-                group = "兼容"
+            group = "兼容"
+        ),
+        RendererConfigField(
+            id = "countLaunch",
+            title = "统计",
+            description = "",
+            kind = ConfigFieldKind.SWITCH,
+            defaultValue = true,
+            target = ConfigTarget.Env("MG_COUNT_LAUNCH"),
+            group = "性能"
+        ),
+        RendererConfigField(
+            id = "relaxed",
+            title = "宽松",
+            description = "",
+            kind = ConfigFieldKind.SWITCH,
+            defaultValue = false,
+            target = ConfigTarget.Env("SFPEW_RELAXED_CONTEXT"),
+            group = "兼容",
+            omitWhenFalse = true
+        ),
+        RendererConfigField(
+            id = "sfpewLayer",
+            title = "兼容层",
+            description = "",
+            kind = ConfigFieldKind.SWITCH,
+            defaultValue = true,
+            target = ConfigTarget.Local("sfpewLayer"),
+            group = "兼容"
+        ),
+        RendererConfigField(
+            id = "enableANGLE",
+            title = "ANGLE",
+            description = "",
+            kind = ConfigFieldKind.CHOICE,
+            defaultValue = 0,
+            target = ConfigTarget.Json("enableANGLE"),
+            options = listOf(
+                ConfigOption(0, "关"),
+                ConfigOption(1, "开"),
+                ConfigOption(2, "强制关"),
+                ConfigOption(3, "强制开")
             ),
-            RendererConfigField(
-                id = "enableExtTimerQuery",
-                title = "Timer",
-                description = "",
-                kind = ConfigFieldKind.SWITCH,
-                defaultValue = true,
-                target = ConfigTarget.Json("enableExtTimerQuery"),
-                group = "扩展"
+            group = "兼容"
+        ),
+        RendererConfigField(
+            id = "enableExtTimerQuery",
+            title = "Timer",
+            description = "",
+            kind = ConfigFieldKind.SWITCH,
+            defaultValue = true,
+            target = ConfigTarget.Json("enableExtTimerQuery"),
+            group = "扩展"
+        ),
+        RendererConfigField(
+            id = "enableExtComputeShader",
+            title = "Compute",
+            description = "",
+            kind = ConfigFieldKind.SWITCH,
+            defaultValue = false,
+            target = ConfigTarget.Json("enableExtComputeShader"),
+            group = "扩展"
+        ),
+        RendererConfigField(
+            id = "maxGlslCacheSize",
+            title = "缓存",
+            description = "",
+            kind = ConfigFieldKind.NUMBER,
+            defaultValue = 32,
+            target = ConfigTarget.Json("maxGlslCacheSize"),
+            range = -1..512,
+            group = "性能"
+        ),
+        RendererConfigField(
+            id = "fsr1Setting",
+            title = "FSR",
+            description = "",
+            kind = ConfigFieldKind.CHOICE,
+            defaultValue = 0,
+            target = ConfigTarget.Json("fsr1Setting"),
+            options = listOf(
+                ConfigOption(0, "关"),
+                ConfigOption(1, "超高质量"),
+                ConfigOption(2, "质量"),
+                ConfigOption(3, "均衡"),
+                ConfigOption(4, "性能")
             ),
-            RendererConfigField(
-                id = "enableExtComputeShader",
-                title = "Compute",
-                description = "",
-                kind = ConfigFieldKind.SWITCH,
-                defaultValue = false,
-                target = ConfigTarget.Json("enableExtComputeShader"),
-                group = "扩展"
-            ),
-            RendererConfigField(
-                id = "sfpewLayer",
-                title = "兼容层",
-                description = "",
-                kind = ConfigFieldKind.SWITCH,
-                defaultValue = true,
-                target = ConfigTarget.Local("sfpewLayer"),
-                group = "兼容"
-            ),
-            RendererConfigField(
-                id = "maxGlslCacheSize",
-                title = "缓存",
-                description = "",
-                kind = ConfigFieldKind.NUMBER,
-                defaultValue = 32,
-                target = ConfigTarget.Json("maxGlslCacheSize"),
-                range = -1..512,
-                group = "性能"
-            ),
-            RendererConfigField(
-                id = "fsr1Setting",
-                title = "FSR",
-                description = "",
-                kind = ConfigFieldKind.CHOICE,
-                defaultValue = 0,
-                target = ConfigTarget.Json("fsr1Setting"),
-                options = listOf(
-                    ConfigOption(0, "关"),
-                    ConfigOption(1, "超高质量"),
-                    ConfigOption(2, "质量"),
-                    ConfigOption(3, "均衡"),
-                    ConfigOption(4, "性能")
-                ),
-                group = "画质"
-            )
+            group = "画质"
         )
     )
-}
+)

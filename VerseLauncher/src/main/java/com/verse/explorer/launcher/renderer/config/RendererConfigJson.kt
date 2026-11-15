@@ -14,7 +14,13 @@ object RendererConfigJson {
         for (field in spec.fields) {
             val key = field.jsonKey() ?: continue
             val value = values[field.id] ?: field.defaultValue
-            out[key] = value
+            val target = field.target
+            out[key] = if (target is ConfigTarget.JsonArray) {
+                val index = (value as? Int) ?: 0
+                target.presets.getOrElse(index) { target.presets.first() }
+            } else {
+                value
+            }
         }
         return out
     }

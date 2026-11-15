@@ -392,9 +392,10 @@ private fun launchFailureAdvice(message: String): String? {
             m.contains("does not support vulkan") ||
             m.contains("device missing capabilities") ||
             m.contains("glgeterror mismatch") ->
-            "诊断：该游戏版本要求 Vulkan 1.2（dynamicRendering / synchronization2），当前系统驱动不满足。" +
-                "可在「设置 → Vulkan 驱动器」切换为 Turnip（Adreno 专用），" +
-                "或在「设置 → 渲染器」更换渲染驱动后重试。"
+            "诊断：该游戏版本要求设备提供完整的 Vulkan 能力（synchronization2、间接绘制等），" +
+                "当前驱动不满足，游戏在创建图形后端时直接退出。" +
+                "可在「设置 → Vulkan 驱动器」改用 Turnip（Adreno 专用），" +
+                "或改用仍走 OpenGL 的较低游戏版本。"
 
         m.contains("sigill") || m.contains("registernatives") || m.contains("hs_err") ->
             "诊断：Java 运行时在该设备上崩溃（SIGILL，CPU 指令不兼容）。" +

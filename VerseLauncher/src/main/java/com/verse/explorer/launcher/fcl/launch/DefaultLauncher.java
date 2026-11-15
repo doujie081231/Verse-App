@@ -668,6 +668,12 @@ public class DefaultLauncher extends Launcher {
                 config.setSfpewLayer(true, sfpew.getLibraryPath());
                 diag("SimpleFPEWrapper 兼容层已挂载: " + sfpew.getLibraryPath());
             }
+            java.util.Map<String, String> extraEnv = RendererConfigSupport.INSTANCE.launchEnv(
+                    context, renderer.getId(), version.getId());
+            if (!extraEnv.isEmpty()) {
+                config.setExtraEnv(extraEnv);
+                diag("渲染器环境变量: " + extraEnv);
+            }
         } catch (Throwable t) {
             Log.w("DefaultLauncher", "解析渲染器配置失败: " + t.getMessage());
         }

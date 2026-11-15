@@ -17,6 +17,12 @@ enum class ConfigFieldKind { SWITCH, CHOICE, NUMBER }
 sealed class ConfigTarget {
     data class Json(val key: String) : ConfigTarget()
 
+    /**
+     * 数组型配置：界面用枚举（索引）选择，写盘时映射成预设数组。
+     * 驱动侧的"顺序表"类参数属于这种：值是一串有序 token，不适合让用户手输。
+     */
+    data class JsonArray(val key: String, val presets: List<List<String>>) : ConfigTarget()
+
     data class Env(val key: String) : ConfigTarget()
 
     /**
@@ -44,7 +50,12 @@ data class RendererConfigField(
     val target: ConfigTarget,
     val options: List<ConfigOption> = emptyList(),
     val range: IntRange? = null,
-    val group: String = ""
+    val group: String = "",
+    /**
+     * 环境变量型开关：false 时不下发这个变量，而不是下发 "0"。
+     * 驱动侧多数开关只判"存在即开启"，下发 "0" 反而可能被当成开启。
+     */
+    val omitWhenFalse: Boolean = false
 ) {
     init {
         require(defaultValue is Boolean || defaultValue is Int) {
@@ -55,8 +66,12 @@ data class RendererConfigField(
         }
     }
 
-    /** 该字段的 JSON 键；Env 目标没有 JSON 键，返回 null */
-    fun jsonKey(): String? = (target as? ConfigTarget.Json)?.key
+    /** 该字段写进配置文件时的键；Env / Local 目标没有，返回 null */
+    fun jsonKey(): String? = when (val t = target) {
+        is ConfigTarget.Json -> t.key
+        is ConfigTarget.JsonArray -> t.key
+        else -> null
+    }
 }
 
 /**
