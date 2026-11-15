@@ -96,23 +96,20 @@ internal object OptionsFileWriter {
     }
 
     /**
-     * 渲染后端键值对。GL 渲染器（MobileGlues 等）必须强制 opengl：
-     * Vulkan 后端下它的窗口/EGL 初始化会失败。26.3 起选项类被模块化拆分，
-     * 后端键名可能变化，因此对 GL 渲染器同时写入全部候选键（MC 只读它认识的那个）。
-     * 值一律小写并带引号：大写变体 MC 不识别，会回落到默认后端。
+     * 渲染后端键值对。
+     *
+     * 键只有一个：`preferredGraphicsBackend` —— MC 26.2 的 Options 里就这一个字段
+     * （另 4 个候选键名是过渡期猜的，MC 不认识，只会把 options.txt 写脏）。
+     * 值写成带引号的 `"opengl"` / `"vulkan"` / `"default"`，与对照实现一致。
+     *
+     * 注意 MC 的后端选择顺序（26.2 PreferredGraphicsApi#getBackendsToTry）：
+     * DEFAULT / OPENGL → 先 OpenGL 再 Vulkan；只有显式 VULKAN 才先试 Vulkan。
+     * 所以"报 Vulkan 不可用"实际意味着 OpenGL 后端也没建起来，而不是选项没写对。
      */
-    fun backendEntries(isMobileGlues: Boolean, backend: String): List<Pair<String, String>> =
-        if (isMobileGlues) {
-            listOf(
-                "preferredGraphicsBackend" to "\"opengl\"",
-                "graphicsApi" to "\"opengl\"",
-                "graphicsBackend" to "\"opengl\"",
-                "apiPreference" to "\"opengl\"",
-                "renderBackend" to "\"opengl\""
-            )
-        } else {
-            listOf("preferredGraphicsBackend" to "\"$backend\"")
-        }
+    fun backendEntries(isMobileGlues: Boolean, backend: String): List<Pair<String, String>> {
+        val value = if (isMobileGlues) "opengl" else backend.ifBlank { "default" }
+        return listOf("preferredGraphicsBackend" to "\"${value.lowercase()}\"")
+    }
 
     /**
      * 把后端键写入 options.txt。只改这些键，其它行（玩家在游戏里调好的视距、

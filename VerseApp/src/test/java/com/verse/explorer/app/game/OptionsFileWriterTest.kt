@@ -136,7 +136,7 @@ class OptionsFileWriterTest {
     }
 
     @Test
-    fun backend_mobileGluesWritesAllCandidateKeysAsOpengl() {
+    fun backend_mobileGluesForcesOpenglOnSingleKey() {
         val dir = runDir()
         val options = File(dir, "options.txt")
         options.writeText("renderDistance:12\n")
@@ -145,12 +145,9 @@ class OptionsFileWriterTest {
         OptionsFileWriter.writeBackend(dir, entries)
 
         val text = options.readText()
-        listOf(
-            "preferredGraphicsBackend", "graphicsApi", "graphicsBackend",
-            "apiPreference", "renderBackend"
-        ).forEach { key ->
-            assertTrue("缺少候选键 $key", text.contains("$key:\"opengl\""))
-        }
+        // MC 26.2 的 Options 只认 preferredGraphicsBackend（值带引号），不再写猜测的候选键
+        assertTrue("缺少 preferredGraphicsBackend", text.contains("preferredGraphicsBackend:\"opengl\""))
+        assertFalse("不应再写猜测的候选键", text.contains("graphicsApi:"))
         // 无关设置保持原样
         assertTrue(text.contains("renderDistance:12"))
     }
