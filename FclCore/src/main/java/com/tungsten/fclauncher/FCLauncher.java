@@ -15,6 +15,7 @@ import android.system.Os;
 import android.util.ArrayMap;
 import android.util.Log;
 
+import com.mio.data.GraphicsLibraryResolver;
 import com.mio.data.Renderer;
 import com.oracle.dalvik.VMLauncher;
 import com.tungsten.fclauncher.bridge.FCLBridge;
@@ -241,20 +242,29 @@ public class FCLauncher {
                 a = "-Djava.library.path=${natives_directory}";
             }
             a = a.replace("${natives_directory}", libraryPath);
-            args[i] = config.getRenderer() == null ? a : a.replace("${gl_lib_name}", config.getRenderer().getGLPath());
-            if (config.getRenderer() != null) {
-                // 渲染器 EGL 库绝对路径：插件渲染器取插件 native 目录，内置渲染器取主 APK 目录
-                // （libEGL.so 等系统库不在目录内则保留库名，交 linker 按默认搜索）
-                String eglName = config.getRenderer().getEglName();
-                String eglPath = eglName;
-                if (!eglName.startsWith("/")) {
-                    File candidate = new File(rendererLibPath(config.getRenderer()), eglName);
-                    if (candidate.isFile()) {
-                        eglPath = candidate.getAbsolutePath();
-                    }
-                }
-                args[i] = args[i].replace("${egl_lib_name}", eglPath);
+            if (config.getRenderer() == null) {
+                args[i] = a;
+                continue;
             }
+            // MC 26.3（RenderPearl）要求 LWJGL 的 GL provider 与 SDL 解析到同一份实现：
+            // 兼容层开启时 SDL 的 GL/EGL 都指向 SimpleFPEWrapper，LWJGL 必须同步换成它，
+            // 否则 glGetError 地址不一致 → "glGetError mismatch" → 判定无可用图形后端。
+            boolean sfpewEnabled = config.isSfpewLayerEnabled();
+            String sfpewLibrary = config.getSfpewLibraryPath();
+            a = a.replace("${gl_lib_name}", GraphicsLibraryResolver.resolve(
+                    config.getRenderer().getGLPath(), sfpewEnabled, sfpewLibrary));
+            // 渲染器 EGL 库绝对路径：插件渲染器取插件 native 目录，内置渲染器取主 APK 目录
+            // （libEGL.so 等系统库不在目录内则保留库名，交 linker 按默认搜索）
+            String eglName = config.getRenderer().getEglName();
+            String eglPath = eglName;
+            if (!eglName.startsWith("/")) {
+                File candidate = new File(rendererLibPath(config.getRenderer()), eglName);
+                if (candidate.isFile()) {
+                    eglPath = candidate.getAbsolutePath();
+                }
+            }
+            args[i] = a.replace("${egl_lib_name}",
+                    GraphicsLibraryResolver.resolve(eglPath, sfpewEnabled, sfpewLibrary));
         }
         return args;
     }
