@@ -183,11 +183,15 @@ static void *sdlGLGetProcAddressProxy(const char *proc) {
  * 全局 GL attribute 的路径。 */
 static int (*real_sdl_gl_set_attribute)(int, int);
 
+/* 是否已把 GL profile 强制成 ES：决定上下文属性是否按 ES 语义补 CLIENT_VERSION */
+static bool sForcedEsProfile = false;
+
 static int custom_SDL_GL_SetAttribute_Func(int attr, int value) {
     file_log("SDL_GL_SetAttribute: attr=0x%x value=%d", attr, value);
     if (attr == 20 /* SDL_GL_CONTEXT_PROFILE_MASK */ && value != 4 /* SDL_GL_CONTEXT_PROFILE_ES */) {
         file_log("SDL_GL_SetAttribute(PROFILE_MASK): force ES (was %d)", value);
         value = 4;
+        sForcedEsProfile = true;
     }
     if (real_sdl_gl_set_attribute == NULL) return -1;
     return real_sdl_gl_set_attribute(attr, value);
@@ -200,6 +204,7 @@ static void preset_egl_profile_es(void) {
     }
     if (real_sdl_gl_set_attribute != NULL) {
         real_sdl_gl_set_attribute(20, 4);
+        sForcedEsProfile = true;
         file_log("preset_egl_profile_es: SDL_GL_SetAttribute(PROFILE_MASK, ES) ok");
     } else {
         file_log("preset_egl_profile_es: SDL_GL_SetAttribute unavailable");
@@ -275,6 +280,25 @@ typedef EGLBoolean (*eglChooseConfig_t)(EGLDisplay, const EGLint *, EGLConfig *,
 typedef void *(*eglCreateContext_t)(EGLDisplay, EGLConfig, void *, const EGLint *);
 typedef EGLBoolean (*eglSwapBuffers_t)(EGLDisplay, EGLSurface);
 
+/* 移动 ES 渲染器判定（与启动链注入的 POJAV_RENDERER / POJAVEXEC_EGL 对齐）：
+ * 兼容重试只对移动 ES 实现生效，桌面 / OSMesa 路径不能被 ES 化。 */
+static bool isMobileGluesEgl(void) {
+    const char *egl = getenv("POJAVEXEC_EGL");
+    if (egl == NULL || egl[0] == '\0') return false;
+    const char *base = strrchr(egl, '/');
+    return strcmp(base != NULL ? base + 1 : egl, "libmobileglues.so") == 0;
+}
+
+static bool glesCompatEnabled(void) {
+    const char *renderer = getenv("POJAV_RENDERER");
+    if (renderer == NULL || renderer[0] == '\0') return isMobileGluesEgl();
+    if (strstr(renderer, "desktopgl") != NULL) return false;
+    if (strncmp(renderer, "gallium_", 8) == 0) return false;
+    if (strcmp(renderer, "custom_gallium") == 0 || strcmp(renderer, "vulkan_zink") == 0) return false;
+    if (strncmp(renderer, "opengles", 8) == 0) return true;
+    return isMobileGluesEgl();
+}
+
 static int normalizeEglChooseConfigList(const EGLint *attrib_list, EGLint *fixed, int cap) {
     if (attrib_list == NULL) return 0;
     int n = 0;
@@ -300,32 +324,41 @@ static int normalizeEglChooseConfigList(const EGLint *attrib_list, EGLint *fixed
     return n > 0;
 }
 
-static int normalizeEglContextAttribs(const EGLint *attrib_list, EGLint *fixed, int cap) {
+static int normalizeEglContextAttribs(const EGLint *attrib_list, EGLint *fixed, int cap,
+                                     bool esSemantics) {
     int version = 0;
+    bool hasClientVersion = false;
     if (attrib_list == NULL) return 0;
     int n = 0;
     for (int i = 0; n < cap - 2; i += 2) {
         EGLint attr = attrib_list[i];
         EGLint val = attrib_list[i + 1];
-        if (attr == EGL_NONE) {
-            fixed[n] = EGL_NONE;
-            fixed[n + 1] = 0;
-            n += 2;
-            break;
-        }
+        if (attr == EGL_NONE) break;
         if (attr == EGL_CONTEXT_MAJOR_VERSION_KHR) {
             if (version == 0) version = val;
             continue;
         }
         if (attr == EGL_CONTEXT_MINOR_VERSION_KHR) continue;
-        /* MobileGlues 是 ES 实现，桌面 PROFILE_MASK 属性会被判 EGL_BAD_ATTRIBUTE，
-         * 直接剔除（ES profile 由 SDL_GL_SetAttribute 侧强制） */
-        if (attr == EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR) continue;
-        if (attr == EGL_CONTEXT_CLIENT_VERSION && version == 0) version = val;
-        fixed[n] = attr;
-        fixed[n + 1] = val;
-        n += 2;
+        if (attr == EGL_CONTEXT_CLIENT_VERSION) {
+            hasClientVersion = true;
+            if (version == 0) version = val;
+        }
+        /* ES 语义下宿主不接受桌面 PROFILE_MASK；非 ES 语义保留原样 */
+        if (esSemantics && attr == EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR) continue;
+        if (n >= cap - 2) return 0;
+        fixed[n++] = attr;
+        fixed[n++] = val;
     }
+    /* 请求里只给了 MAJOR/MINOR 时，剔除后必须补回 CLIENT_VERSION，
+     * 否则宿主按驱动默认版本建上下文（或直接失败）。 */
+    if (esSemantics && version > 0 && !hasClientVersion) {
+        if (n >= cap - 2) return 0;
+        fixed[n++] = EGL_CONTEXT_CLIENT_VERSION;
+        fixed[n++] = version;
+    }
+    if (n >= cap - 2) return 0;
+    fixed[n++] = EGL_NONE;
+    fixed[n++] = 0;
     return version;
 }
 
@@ -386,19 +419,33 @@ static void *proxyEglCreateContext(EGLDisplay dpy, EGLConfig config, void *share
     }
     if (sOrigEglCreateContext == NULL) return NULL;
     log_egl_context_attribs(attrib_list);
-    EGLint fixed[64];
-    const EGLint *use_list = attrib_list;
-    int version = normalizeEglContextAttribs(attrib_list, fixed, 64);
-    if (version > 0) use_list = fixed;
 
-    void *ctx = sOrigEglCreateContext(dpy, config, share, use_list);
-    if (ctx == NULL && version > 2) {
-        file_log("eglCreateContext failed with version=%d, retrying ES2", version);
-        LOGI("VSDL-proxy eglCreateContext version=%d failed, retry ES2", version);
-        EGLint es2[3] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
-        ctx = sOrigEglCreateContext(dpy, config, share, es2);
+    /* 先按原样请求；只有失败才做兼容归一化重试，避免把正常请求改坏 */
+    void *ctx = sOrigEglCreateContext(dpy, config, share, attrib_list);
+    if (ctx != NULL || !glesCompatEnabled()) return ctx;
+
+    bool esSemantics = sForcedEsProfile;
+    EGLint fixed[64];
+    int version = normalizeEglContextAttribs(attrib_list, fixed, 64, esSemantics);
+    if (version == 0) {
+        file_log("eglCreateContext failed and no version to retry");
+        return ctx;
     }
-    file_log("eglCreateContext result=%p", ctx);
+
+    file_log("eglCreateContext failed, retry without KHR version attrs (CV=%d)", version);
+    LOGI("VSDL-proxy eglCreateContext retry normalized CV=%d", version);
+    ctx = sOrigEglCreateContext(dpy, config, share, fixed);
+    if (ctx != NULL || !esSemantics || version <= 2) {
+        file_log("eglCreateContext retry result=%p", ctx);
+        return ctx;
+    }
+
+    /* CV=2 是移动端最后的兜底 */
+    file_log("eglCreateContext CV=%d failed, retrying CV=2", version);
+    LOGI("VSDL-proxy eglCreateContext fallback CV=2");
+    EGLint es2[3] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+    ctx = sOrigEglCreateContext(dpy, config, share, es2);
+    file_log("eglCreateContext fallback result=%p", ctx);
     return ctx;
 }
 
@@ -410,12 +457,20 @@ static EGLBoolean proxyEglChooseConfig(EGLDisplay dpy, const EGLint *attrib_list
         LOGI("VSDL-proxy eglChooseConfig resolve orig=%p", (void *)sOrigEglChooseConfig);
     }
     if (sOrigEglChooseConfig == NULL) return 0;
+
+    EGLBoolean result = sOrigEglChooseConfig(dpy, attrib_list, configs, config_size, num_config);
+    if (result && num_config != NULL && *num_config > 0) return result;
+    if (!glesCompatEnabled()) return result;
+
+    /* 首选 config 请求失败（宿主不接受 ES3_BIT/OPENGL_BIT）时，按 ES2_BIT 归一化重试 */
     EGLint fixed[64];
-    const EGLint *use_list = attrib_list;
-    if (normalizeEglChooseConfigList(attrib_list, fixed, 64)) {
-        use_list = fixed;
-    }
-    return sOrigEglChooseConfig(dpy, use_list, configs, config_size, num_config);
+    if (!normalizeEglChooseConfigList(attrib_list, fixed, 64)) return result;
+    EGLint fallbackCount = 0;
+    EGLBoolean fallbackResult = sOrigEglChooseConfig(dpy, fixed, configs, config_size, &fallbackCount);
+    if (fallbackResult && num_config != NULL) *num_config = fallbackCount;
+    file_log("eglChooseConfig compat fallback result=%d count=%d", fallbackResult, fallbackCount);
+    LOGI("VSDL-proxy eglChooseConfig fallback result=%d count=%d", fallbackResult, fallbackCount);
+    return fallbackResult;
 }
 
 /* SDL_LoadFunction hook：SDL 经它解析 EGL 函数指针后直接调用（不走 PLT），
@@ -673,9 +728,14 @@ static void install_diag_hooks(void) {
     fn_hook_all(NULL, "SDL_GL_MakeCurrent", (void *) diag_SDL_GL_MakeCurrent, NULL, NULL);
     fn_hook_all(NULL, "SDL_GL_GetProcAddress", (void *) diag_SDL_GL_GetProcAddress, NULL, NULL);
     fn_hook_all(NULL, "eglMakeCurrent", (void *) diag_eglMakeCurrent, NULL, NULL);
-    fn_hook_all(NULL, "eglCreateContext", (void *) diag_eglCreateContext, NULL, NULL);
-    file_log("diagnostic hooks installed (SDL_GL_*/eglMakeCurrent/eglCreateContext)");
-    LOGI("VerseSDL diagnostic hooks installed");
+    /* EGL 上下文/config 的属性兼容重试（不是 GL 函数来源改写）：
+     * 宿主 EGL（如 MobileGlues）不接受 ES3_BIT / MAJOR-MINOR_VERSION / 桌面 PROFILE_MASK，
+     * 直接按原请求建上下文会失败，MC 随即回落 Vulkan 并报"Vulkan 不可用"。
+     * 代理先按原样请求，失败后才归一化重试，并在必要时以 CV=2 兜底。 */
+    fn_hook_all(NULL, "eglCreateContext", (void *) proxyEglCreateContext, NULL, NULL);
+    fn_hook_all(NULL, "eglChooseConfig", (void *) proxyEglChooseConfig, NULL, NULL);
+    file_log("hooks installed (SDL_GL_* diag / eglMakeCurrent diag / egl attrib compat)");
+    LOGI("VerseSDL hooks installed (EGL attrib compat enabled)");
 }
 
 /* 安装 SDL_GL_GetProcAddress + dlsym hooks（bytehook 已 init 后调用） */
@@ -692,12 +752,14 @@ static void install_verse_sdl_hooks(void) {
     }
     file_log("bytehook init ok (result=%d)", initResult);
     install_diag_hooks();
-    /* 不再改写 SDL 的 GL/EGL 解析路径。
-     * FCL 没有这一层：SDL 与 LWJGL 的 GL 来源本来就相同（都指向渲染器自己的库），
-     * RenderPearl 的同源校验天然成立。此前这里的 SDL_GL_GetProcAddress 代理与 dlsym
-     * 出口替换会把 SDL 侧取到的 gl* 改成另一份实现，导致渲染器内部的上下文状态与
-     * 实际 current 的上下文脱节（真机表现为 glGetString 转发驱动返回 NULL → strlen 崩溃）。
-     * 现在只保留只读诊断，行为与 FCL 完全一致。 */
+    /* 不改写 SDL 的 GL 函数来源：SDL 与 LWJGL 的 GL 都指向渲染器自己的库，
+     * RenderPearl 的同源校验天然成立。此前把 SDL_GL_GetProcAddress 换成另一份实现，
+     * 导致渲染器上下文状态与实际 current 上下文脱节（glGetString 返回 NULL → strlen 崩溃），
+     * 这条路径保持关闭。
+     *
+     * 但 EGL 属性需要兼容层：MC 按桌面/ES3 惯例请求的上下文属性，
+     * 宿主 EGL（MobileGlues）不接受，建上下文失败后 MC 会回落 Vulkan 并报错。
+     * 该兼容只影响 eglChooseConfig/eglCreateContext 的入参重试，不改变 GL 来源。 */
     sdl_hooks_installed = true;
     LOGI("VerseSDL: rewriter disabled, diagnostics only (same as FCL)");
     file_log("install_verse_sdl_hooks: no rewriter installed (diagnostics only)");
