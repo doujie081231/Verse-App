@@ -69,6 +69,35 @@ class RendererConfigStore(context: Context) {
     fun hasVersion(versionId: String, rendererId: String): Boolean =
         versionPrefs.contains(versionKey(versionId, rendererId))
 
+    // ---------- 迁移 ----------
+
+    /**
+     * 一次性清洗所有已存配置（全局 + 版本级）。
+     *
+     * @param flag    迁移标记键，执行过之后直接返回，不再遍历
+     * @param transform 清洗函数，返回原对象表示无需改写
+     * @return 是否有键被改写
+     */
+    fun migrateAll(flag: String, transform: (Map<String, Any>) -> Map<String, Any>): Boolean {
+        if (globalPrefs.getBoolean(flag, false)) return false
+        var changed = false
+        for (prefs in arrayOf(globalPrefs, versionPrefs)) {
+            val editor = prefs.edit()
+            for ((key, raw) in prefs.all) {
+                if (key == flag || raw !is String) continue
+                val before = decode(raw)
+                val after = transform(before)
+                if (after != before) {
+                    editor.putString(key, encode(after))
+                    changed = true
+                }
+            }
+            editor.apply()
+        }
+        globalPrefs.edit().putBoolean(flag, true).apply()
+        return changed
+    }
+
     // ---------- 序列化 ----------
 
     private fun encode(values: Map<String, Any>): String {

@@ -194,6 +194,36 @@ class RendererConfigTest {
         assertNull(RendererConfigSpecs.of("definitely-not-a-renderer"))
         assertTrue(RendererConfigSpecs.of("MobileGlues") != null)
     }
+
+    @Test
+    fun `迁移只清掉旧默认开启的兼容层状态`() {
+        val stored = mapOf("sfpewLayer" to true, "enableNoError" to 3, "maxGlslCacheSize" to 64)
+        val migrated = RendererConfigResolver.dropLegacyDefaults(stored)
+
+        assertFalse("旧默认值 true 必须清掉，否则新默认形同虚设", migrated.containsKey("sfpewLayer"))
+        assertEquals(3, migrated["enableNoError"])
+        assertEquals(64, migrated["maxGlslCacheSize"])
+    }
+
+    @Test
+    fun `迁移保留用户主动关闭的兼容层状态`() {
+        val migrated = RendererConfigResolver.dropLegacyDefaults(mapOf("sfpewLayer" to false))
+
+        assertEquals(false, migrated["sfpewLayer"])
+    }
+
+    @Test
+    fun `空配置迁移结果为空`() {
+        assertTrue(RendererConfigResolver.dropLegacyDefaults(emptyMap()).isEmpty())
+    }
+
+    @Test
+    fun `兼容层默认关闭`() {
+        val field = RendererConfigSpecs.MOBILE_GLUES.field("sfpewLayer")
+
+        assertEquals(false, field?.defaultValue)
+        assertTrue("兼容层是本地开关，不能写进驱动配置", field?.target is ConfigTarget.Local)
+    }
 }
 
 /**

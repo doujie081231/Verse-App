@@ -20,6 +20,9 @@ object RendererConfigSupport {
 
     private const val SFPEW_LIBRARY = "libSimpleFPEWrapper.so"
 
+    /** 兼容层默认值由「开」改为「关」的一次性迁移标记 */
+    private const val FLAG_SFPEW_DEFAULT_OFF = "migrated:sfpew-default-off-v1"
+
     /** 自带固定管线实现的模组：它们和兼容层抢同一批 GL 入口，必须让路 */
     private val FPE_EMULATOR_MOD_IDS = listOf("angelica", "actinium")
 
@@ -46,6 +49,9 @@ object RendererConfigSupport {
         val spec = RendererConfigSpecs.of(rendererId)
             ?: return Resolved(null, emptyMap())
         val store = RendererConfigStore(context)
+        // 兼容层旧默认值（true）在存储里无法与用户主动开启区分，升级时统一清掉，
+        // 让「默认关闭」真正生效；用户需要时在界面上重新打开即可。
+        store.migrateAll(FLAG_SFPEW_DEFAULT_OFF, RendererConfigResolver::dropLegacyDefaults)
         val global = store.loadGlobal(spec.rendererId, spec)
         val version = versionId?.let { store.loadVersion(it, spec.rendererId, spec) } ?: emptyMap()
         return Resolved(spec, RendererConfigResolver.resolve(spec, global, version))

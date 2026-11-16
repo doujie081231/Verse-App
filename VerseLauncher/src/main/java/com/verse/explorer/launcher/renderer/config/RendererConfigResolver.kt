@@ -76,4 +76,25 @@ object RendererConfigResolver {
      */
     fun changedFields(spec: RendererConfigSpec, values: Map<String, Any>): List<String> =
         spec.fields.filter { values[it.id] != it.defaultValue }.map { it.id }
+
+    /**
+     * 早期默认开启、现在默认关闭的本地开关。
+     *
+     * 这类值在存储里与"用户主动开启"无法区分，而继续生效会让新默认形同虚设
+     * （典型表现：升级后兼容层仍然挂着，图形库被换成兼容层，26.3 起直接建不起后端）。
+     * 升级时清掉，用户真需要就在界面上重新打开。
+     */
+    val LEGACY_DEFAULT_ON_KEYS = listOf("sfpewLayer")
+
+    /**
+     * 丢弃"旧默认值"留下的键：只清 `true`，`false` 与其它字段原样保留。
+     *
+     * 纯函数，便于在 JVM 上覆盖迁移规则，不需要 Android 环境。
+     */
+    fun dropLegacyDefaults(stored: Map<String, Any>): Map<String, Any> {
+        if (stored.isEmpty()) return stored
+        val stale = LEGACY_DEFAULT_ON_KEYS.filter { stored[it] == true }
+        if (stale.isEmpty()) return stored
+        return stored.filterKeys { it !in stale }
+    }
 }
