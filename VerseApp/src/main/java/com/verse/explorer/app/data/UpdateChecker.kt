@@ -29,8 +29,13 @@ object UpdateChecker {
     /** GitHub Release 页面：外部浏览器打开即可看到整包 */
     const val GITHUB_RELEASES_URL = "https://github.com/doujie081231/Verse-App/releases/latest"
 
-    /** 默认网盘下载入口（夸克）：远端配置未下发 cloud_drive 时回退使用 */
-    const val DEFAULT_CLOUD_DRIVE_URL = "https://pan.quark.cn/s/1dc3bc96e683"
+    /**
+     * 默认网盘下载入口（夸克）：远端配置未下发 cloud_drive 时回退使用。
+     *
+     * 该链接是「永久有效」的公开分享，指向当前正式版安装包；换版本时只需重建分享并同步
+     * 官网 app-update 的 `cloud_drive` 字段，不必因此发新包（老客户端读远端字段优先）。
+     */
+    const val DEFAULT_CLOUD_DRIVE_URL = "https://pan.quark.cn/s/c422e7b6afb7"
 
     /** 启动时检查的限速间隔（ZL2：1 小时） */
     const val STARTUP_INTERVAL_MS: Long = 60 * 60 * 1000L
