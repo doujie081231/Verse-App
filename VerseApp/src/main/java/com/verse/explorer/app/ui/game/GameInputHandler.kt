@@ -205,6 +205,26 @@ class GameInputHandler(
 
     /** 模拟键盘：直接向游戏窗口发送 GLFW 按键（按住/抬起） */
     fun sendVirtualKey(keycode: Int, press: Boolean) = sendKeyEvent(keycode, press)
+
+    /**
+     * 模拟键盘的字符输入。
+     *
+     * 按键事件只驱动操作（移动/开界面），文本输入框吃的是字符事件：
+     * - SDL 渲染（26.3+）走 SDL 文本通道提交，等价于输入法上屏；
+     * - 其余版本走 GLFW 字符回调，与触控键盘 TouchCharInput 同一条通道。
+     *
+     * 通道未开启时（没打开输入框）提交会被丢弃，不会误输入。
+     */
+    fun sendVirtualChar(ch: Char) {
+        if (ch == '\u0000' || ch == '\n') return
+        if (com.tungsten.fcl.game.sdl.SdlBridge.sdlEnabled
+            && com.tungsten.fcl.game.sdl.SdlBridge.isSdlRenderActive()
+            && org.libsdl.app.SDLActivity.sendTextInput(ch.toString())
+        ) {
+            return
+        }
+        bridgeProvider()?.pushEventChar(ch)
+    }
     /** 供手柄右摇杆等外部输入源注入视角增量（与鼠标移动同一条通路） */
     fun sendMouseDelta(dx: Float, dy: Float) = applyMouseDelta(dx, dy)
 

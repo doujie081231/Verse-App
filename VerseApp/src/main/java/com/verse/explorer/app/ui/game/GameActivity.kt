@@ -853,6 +853,7 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
         val view = createSimulatedKeyboardView(
             context = this,
             onKey = { code, pressed -> inputHandler.sendVirtualKey(code, pressed) },
+            onChar = { ch -> inputHandler.sendVirtualChar(ch) },
             onClose = { runCatching { dialog.dismiss() } }
         )
         dialog.setContentView(view)
@@ -930,6 +931,18 @@ class GameActivity : ComponentActivity(), FCLBridgeCallback, TextureView.Surface
                         CustomControls(this).save(jsonPath)
                     }
                 }
+            }
+
+            // Default.json 部署后不再跟随 APK 更新（避免覆盖用户调整），新增默认按键
+            // 只能靠一次性迁移补进已存在的布局。ESC 放在左上角，是暂停/退出界面的主入口。
+            val escMark = java.io.File(Tools.CTRLMAP_PATH, ".verse_esc_v1")
+            if (!escMark.exists()) {
+                runCatching {
+                    if (com.verse.explorer.app.game.DefaultLayoutMigrator.ensureEscButton(defaultFile)) {
+                        VerseLogger.info("默认触控布局已补上 ESC 键", "Touch")
+                    }
+                    escMark.writeText("esc-v1")
+                }.onFailure { VerseLogger.warn("补 ESC 键失败: ${it.message}", "Touch") }
             }
 
             // 默认布局优先级：版本级指定 > 控制面板「设为默认」> 部署的官方 Default.json

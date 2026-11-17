@@ -23,6 +23,40 @@ import com.verse.explorer.launcher.keycodes.LwjglGlfwKeycode as K
  */
 private data class KeySpec(val label: String, val code: Int = -1, val weight: Float = 1f)
 
+/** Shift 组合下的符号：按住 Shift 时这几个键要出上档字符 */
+private val SHIFT_SYMBOLS: Map<Char, Char> = mapOf(
+    '`' to '~',
+    '1' to '!', '2' to '@', '3' to '#', '4' to '$', '5' to '%',
+    '6' to '^', '7' to '&', '8' to '*', '9' to '(', '0' to ')',
+    '-' to '_', '=' to '+',
+    '[' to '{', ']' to '}', '\\' to '|',
+    ';' to ':', '\'' to '"',
+    ',' to '<', '.' to '>', '/' to '?'
+)
+
+private const val LABEL_SPACE = "Space"
+
+/**
+ * 该键对应的可打印字符。
+ *
+ * 按键事件只够驱动操作，文本输入框吃的是字符事件——只发按键时，
+ * 在聊天框/告示牌里点这些键不会有任何字符进来。
+ */
+private fun printableOf(spec: KeySpec, shift: Boolean): Char? {
+    if (spec.code < 0) return null
+    if (spec.label == LABEL_SPACE) return ' '
+    if (spec.label.length != 1) return null
+    val c = spec.label[0]
+    return when {
+        c.isLetter() -> if (shift) c.uppercaseChar() else c.lowercaseChar()
+        shift -> SHIFT_SYMBOLS[c] ?: c
+        else -> c
+    }
+}
+
+private fun isShiftKey(code: Int): Boolean =
+    code == K.GLFW_KEY_LEFT_SHIFT || code == K.GLFW_KEY_RIGHT_SHIFT
+
 private val KEY_ROWS: List<List<KeySpec>> = listOf(
     listOf(
         KeySpec("Esc", K.GLFW_KEY_ESCAPE, 1.2f),
@@ -116,6 +150,7 @@ private val KEY_ROWS: List<List<KeySpec>> = listOf(
 fun createSimulatedKeyboardView(
     context: Context,
     onKey: (Int, Boolean) -> Unit,
+    onChar: (Char) -> Unit,
     onClose: () -> Unit
 ): View {
     val density = context.resources.displayMetrics.density
@@ -169,6 +204,9 @@ fun createSimulatedKeyboardView(
     })
     panel.addView(header)
 
+    // Shift 是否按住：决定字母大小写与符号上档（按住 Shift 再点 A 应出 A）
+    var shiftHeld = false
+
     KEY_ROWS.forEach { row ->
         val rowView = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -193,13 +231,17 @@ fun createSimulatedKeyboardView(
                         MotionEvent.ACTION_DOWN -> {
                             if (spec.code < 0) return@setOnTouchListener true
                             view.background = rounded(keyPressedColor, 8)
+                            if (isShiftKey(spec.code)) shiftHeld = true
                             onKey(spec.code, true)
+                            // 按键负责操作，字符负责文本：两个都发，输入框才收得到字
+                            printableOf(spec, shiftHeld)?.let(onChar)
                             true
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             if (spec.code < 0) return@setOnTouchListener true
                             view.background = rounded(keyColor, 8)
                             onKey(spec.code, false)
+                            if (isShiftKey(spec.code)) shiftHeld = false
                             true
                         }
                         else -> false

@@ -402,6 +402,25 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         return SdlImeController.isKeyboardShown();
     }
 
+    /**
+     * 启动器侧向 SDL 文本通道提交一段文本（模拟键盘的字符输入）。
+     *
+     * 走 SDL 自己的提交入口，等价于输入法上屏；仅在文本输入通道已开启时有效，
+     * 通道关闭时由 native 侧丢弃（不会误插入到非输入框界面）。
+     *
+     * @return true 表示已提交
+     */
+    public static boolean sendTextInput(String text) {
+        if (text == null || text.isEmpty()) return false;
+        try {
+            SDLInputConnection.nativeCommitText(text, 1);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "sendTextInput failed: " + t);
+            return false;
+        }
+    }
+
 
 
     // Setup

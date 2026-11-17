@@ -38,8 +38,6 @@ internal fun GameActivity.showRedstoneDialog() {
 
 internal fun GameActivity.showQuickInput() {
         val input = touchCharInput ?: return
-        input.visibility = View.VISIBLE
-        input.bringToFront()
 
         // MC 26.3+ 走 SDL 渲染时由 SDL 自己的输入法接管，GLFW 字符通道无效
         if (com.tungsten.fcl.game.sdl.SdlBridge.sdlEnabled
@@ -51,11 +49,22 @@ internal fun GameActivity.showQuickInput() {
             return
         }
 
-        // 这里必须「只开不切」：原先调用的是 TouchCharInput.switchKeyboardState()，
-        // 而上面刚 requestFocus 过，它检测到 hasFocus() 为真就走关闭分支，
-        // 结果玩家点「键盘」键永远弹不出输入法。
-        input.requestFocus()
-        val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-            as? android.view.inputmethod.InputMethodManager
-        imm?.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        // 这里必须走 enable()：TouchCharInput 平时是 disabled + GONE（防止误触），
+        // 只改 visibility 再 requestFocus() 会失败——disabled 的 View 拿不到焦点，
+        // 后面的 showSoftInput 等于空调用，表现就是点「键盘」永远不弹输入法。
+        // enable() 会同时恢复 enabled/focusable、设为可见并请求焦点。
+        input.enable()
+        input.bringToFront()
+        // 等一帧：刚由 GONE 变 VISIBLE 的 View 这一帧还没参与焦点分派，
+        // 同帧 requestFocus 仍可能失败。
+        input.post {
+            input.requestFocus()
+            val imm = getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as? android.view.inputmethod.InputMethodManager
+            imm?.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            // 部分 ROM（含 vivo/OPPO）对 IMPLICIT 请求不响应，补一次 FORCED
+            if (imm != null && !imm.isAcceptingText) {
+                imm.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_FORCED)
+            }
+        }
     }
