@@ -32,10 +32,10 @@ object UpdateChecker {
     /**
      * 默认网盘下载入口（夸克）：远端配置未下发 cloud_drive 时回退使用。
      *
-     * 该链接是「永久有效」的公开分享，指向当前正式版安装包；换版本时只需重建分享并同步
-     * 官网 app-update 的 `cloud_drive` 字段，不必因此发新包（老客户端读远端字段优先）。
+     * 指向「Verse App」文件夹分享（公开、永久有效、无提取码），换版本只需把新包放进该文件夹，
+     * 链接本身不用动；官网 app-update 的 `cloud_drive` 与这里保持一致。
      */
-    const val DEFAULT_CLOUD_DRIVE_URL = "https://pan.quark.cn/s/c422e7b6afb7"
+    const val DEFAULT_CLOUD_DRIVE_URL = "https://pan.quark.cn/s/3866cd01885e#/list/share"
 
     /** 启动时检查的限速间隔（ZL2：1 小时） */
     const val STARTUP_INTERVAL_MS: Long = 60 * 60 * 1000L
