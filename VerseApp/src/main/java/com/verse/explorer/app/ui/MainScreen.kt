@@ -269,13 +269,12 @@ fun MainScreen(
         }
         }
 
-        // 顶部横向导航：右上角常驻；主页允许整条拖到任意位置（位置持久化）
+        // 顶部横向导航：固定右上角
         if (showSidebar) {
             TopNavBar(
                 items = mainNavItems,
                 currentRoute = currentRoute,
                 onSelect = { screen -> navigateToTab(navController, screen.route) },
-                draggable = currentRoute == Screen.Home.route,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()

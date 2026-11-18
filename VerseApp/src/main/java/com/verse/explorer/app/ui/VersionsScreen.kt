@@ -102,13 +102,6 @@ fun VersionsScreen(
                     fontSize = 10.sp,
                     maxLines = 1
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                IconButton(
-                    onClick = { viewModel.fetchRemoteVersions(forceRefresh = true) },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(Icons.Outlined.Refresh, "刷新", Modifier.size(16.dp), VerseColors.PcTextSecondary)
-                }
             }
 
             Spacer(modifier = Modifier.height(4.dp))

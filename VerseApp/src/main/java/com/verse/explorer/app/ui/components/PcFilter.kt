@@ -104,6 +104,17 @@ fun PcCompactFilterBar(
 ) {
     var expandedIndex by remember { mutableStateOf(-1) }
     Column(modifier = modifier) {
+        // 搜索框必须独占一行：它靠 weight 撑满宽度，而 weight 在横向滚动容器里会失效，
+        // 宽度塌成 0 后用户看不到自己输入的内容（输入了但看不见）
+        if (leading != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                leading()
+            }
+            Spacer(Modifier.height(6.dp))
+        }
         Row(
             // 不按权重平分：导航条占掉右侧后，平分会把每个筛选项压窄、下拉菜单跟着变窄。
             // 改为固有宽度 + 横向滚动，位置不够时滚动而不是压缩
@@ -111,7 +122,6 @@ fun PcCompactFilterBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            leading?.let { it() }
             selects.forEachIndexed { index, sel ->
                 val displayText = sel.options.find { it.first == sel.value }?.second ?: sel.value
                 Surface(
@@ -209,13 +219,22 @@ fun PcCompactSearchField(
                 modifier = Modifier.fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Outlined.Search,
-                    contentDescription = null,
-                    tint = VerseColors.PcTextMuted,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(Modifier.width(6.dp))
+                // 放大镜做成可点：原来只是装饰图标，点它没有任何反应（容易被当成「搜索按钮坏了」）
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = onSearch != null) { onSearch?.invoke() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.Search,
+                        contentDescription = "搜索",
+                        tint = VerseColors.PcTextMuted,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
                 Box(modifier = Modifier.weight(1f)) {
                     if (value.isEmpty()) {
                         Text(
