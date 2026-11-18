@@ -115,20 +115,26 @@ internal fun TopNavBar(
                 icon = item.icon,
                 label = item.label,
                 active = active,
-                showLabel = active,
                 onClick = { screen?.let(onSelect) }
             )
         }
     }
 }
 
-/** 单个入口：选中时反相填充并展开文字 */
+/**
+ * 导航条占用的宽度（含 4dp 内边距与 10dp 右边距的粗略值）。
+ *
+ * 页面标题行用它做 `padding(end = ...)`，让右对齐的刷新/操作按钮躲开导航条；
+ * 这里保持**常驻图标、不展开文字**，宽度才可预测，标题行不必按展开态留两套间距。
+ */
+internal val TopNavBarReservedWidth = 236.dp
+
+/** 单个入口：选中时反相填充（不展开文字，保证整条宽度可预测） */
 @Composable
 private fun NavPillItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     active: Boolean,
-    showLabel: Boolean,
     onClick: () -> Unit
 ) {
     val background = if (active) VerseColors.PcTextPrimary else Color.Transparent
@@ -142,20 +148,11 @@ private fun NavPillItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = if (showLabel) 12.dp else 9.dp, vertical = 8.dp),
+            .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(icon, label, Modifier.size(18.dp), tint = foreground)
-        if (showLabel) {
-            Text(
-                text = label,
-                color = foreground,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
-            )
-        }
     }
 }
 

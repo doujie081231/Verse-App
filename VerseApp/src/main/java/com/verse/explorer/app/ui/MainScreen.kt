@@ -182,12 +182,9 @@ fun MainScreen(
                     navController = navController,
             startDestination = Screen.Home.route,
             // 刘海避让由根容器统一按黑边处理，这里不再二次内缩。
-            // 非主页为顶部悬浮导航让出 44dp：导航条压在标题行右侧会挡操作按钮
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    top = if (!showSidebar || currentRoute == Screen.Home.route) 0.dp else 44.dp
-                ),
+            // 页面正常铺满：导航条覆盖在最上层，由各页标题行自己让出右侧空间
+            // （navButtonAvoid），而不是把整页往下推
+            modifier = Modifier.fillMaxSize(),
             enterTransition = {
                 navEnterTransition(
                     detail = targetState.destination.route in detailRoutes,

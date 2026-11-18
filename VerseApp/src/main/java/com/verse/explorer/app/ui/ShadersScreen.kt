@@ -32,6 +32,7 @@ import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.LabelWithIcon
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.components.PcCompactSearchField
 import com.verse.explorer.app.ui.components.PcCompactFilterBar
 import com.verse.explorer.app.ui.components.PcFilterSelect
@@ -106,6 +107,7 @@ fun ShadersScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navButtonAvoid()
                     .padding(horizontal = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween

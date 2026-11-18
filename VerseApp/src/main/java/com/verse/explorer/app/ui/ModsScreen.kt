@@ -32,6 +32,7 @@ import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.ui.components.effects.verseItemAppear
 import com.verse.explorer.app.ui.components.GlassCard
 import com.verse.explorer.app.ui.components.PageHeader
+import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.components.PcCompactSearchField
 import com.verse.explorer.app.ui.components.PcCompactFilterBar
 import com.verse.explorer.app.ui.components.PcFilterSelect
@@ -106,7 +107,7 @@ fun ModsScreen(
                     PcFilterSelect(uiState.selectedVersion, gameVersions.map { it to it }) { viewModel.setSelectedVersion(it) },
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().navButtonAvoid()
             ) {
                 PcCompactSearchField(
                     value = searchQuery,

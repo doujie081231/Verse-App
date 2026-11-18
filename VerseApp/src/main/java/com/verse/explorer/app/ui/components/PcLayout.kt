@@ -85,15 +85,19 @@ import com.verse.explorer.app.ui.backgroundGlass
 import com.verse.explorer.app.ui.influencedByBackgroundColor
 import com.verse.explorer.app.ui.theme.ActionMenuSide
 import com.verse.explorer.app.ui.theme.VerseColors
+
+/** 与 TopNavBar 实测宽度对齐的占位，导航条改宽高时同步改这里 */
+private val NAV_RESERVED_WIDTH = 236.dp
+
 /**
- * 悬浮导航避让：页面顶部栏与悬浮的圆形导航按钮重叠时，沿按钮停靠侧给顶部栏留出让位内边距，
- * 把标题与返回键挪到旁边；只作用于顶部栏，页面内容区宽度不受影响。
+ * 顶部导航避让：导航条常驻右上角，页面本身铺满，只让标题行右对齐的操作按钮（刷新等）
+ * 躲开导航条占用的宽度；不作用于页面内容区，也不会把整页往下推。
  */
 @Composable
 fun Modifier.navButtonAvoid(): Modifier {
-    // 导航已从「侧边圆形按钮」改为「顶部横向条」，页面内容统一在 MainScreen 里让出 44dp 顶部空间，
-    // 这里不再额外内缩右/左边缘（保留函数是为了各页面标题行的调用点不用改）
-    return this
+    // 顶部横向导航常驻右上角，页面本身铺满；只让标题行右对齐的操作按钮（刷新等）
+    // 躲开导航条占用的宽度，避免整页被往下推。
+    return padding(end = NAV_RESERVED_WIDTH)
 }
 
 /**
