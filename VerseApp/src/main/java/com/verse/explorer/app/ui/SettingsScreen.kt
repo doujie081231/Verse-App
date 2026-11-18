@@ -944,25 +944,14 @@ fun SettingsScreen(navController: NavHostController) {
                                 }?.first ?: "1",
                                 PageAnimSpeedOptions
                             ) { VersePersonalization.applyPageAnimSpeed(it.toFloat()) }
-                            PcSwitchRow(
-                                "侧边栏液态玻璃",
-                                "悬浮导航按钮与展开面板的液态玻璃折射效果（Android 13+ 生效）",
-                                VersePersonalization.sidebarGlass
-                            ) { VersePersonalization.applySidebarGlass(it) }
-                            PcSwitchRow(
-                                "侧边栏按钮显示功能字",
-                                "在导航按钮图标下方显示功能名（关闭后仅显示图标）",
-                                VersePersonalization.sidebarLabels
-                            ) { VersePersonalization.applySidebarLabels(it) }
-                            // 主界面操作菜单停靠侧：START=左 / END=右
-                            PcDropdownRow(
-                                "操作菜单停靠侧",
-                                VersePersonalization.actionMenuSide,
-                                listOf(
-                                    ActionMenuSide.END.name to "右侧",
-                                    ActionMenuSide.START.name to "左侧"
-                                )
-                            ) { VersePersonalization.applyActionMenuSide(it) }
+                            // 导航改成顶部横向条后，原来的「液态玻璃 / 图标下方文字 / 停靠侧」
+                            // 三项设置已无实际作用，这里直接去掉，避免留下点了没反应的开关
+                            Text(
+                                "顶部导航：右上角横向排列，主页可按住整条拖到任意位置（位置自动保存），" +
+                                    "其他页面固定在右上角。下载已并入「资源」，左侧分类切换版本 / 整合包 / 模组 / 材质包 / 光影。",
+                                fontSize = 11.sp,
+                                color = VerseColors.PcTextMuted
+                            )
                         }
                     }
 

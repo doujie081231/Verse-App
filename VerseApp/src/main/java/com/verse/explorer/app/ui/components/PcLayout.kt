@@ -91,9 +91,9 @@ import com.verse.explorer.app.ui.theme.VerseColors
  */
 @Composable
 fun Modifier.navButtonAvoid(): Modifier {
-    val dockEnd = VersePersonalization.actionMenuSide != ActionMenuSide.START.name
-    // 按钮贴边时为 12dp 边距 + 40dp 直径，共 52dp；留 56dp 确保标题与返回键不被遮挡
-    return if (dockEnd) padding(end = 56.dp) else padding(start = 56.dp)
+    // 导航已从「侧边圆形按钮」改为「顶部横向条」，页面内容统一在 MainScreen 里让出 44dp 顶部空间，
+    // 这里不再额外内缩右/左边缘（保留函数是为了各页面标题行的调用点不用改）
+    return this
 }
 
 /**

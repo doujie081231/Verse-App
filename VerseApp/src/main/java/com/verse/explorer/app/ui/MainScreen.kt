@@ -38,6 +38,7 @@ sealed class Screen(
     val selectedIcon: ImageVector = icon
 ) {
     object Home : Screen("home", "主页", Icons.Outlined.Home, Icons.Filled.Home)
+    object Resources : Screen("resources", "资源", Icons.Outlined.Widgets, Icons.Filled.Widgets)
     object Versions : Screen("versions", "下载", Icons.Outlined.Download, Icons.Filled.Download)
     object Mods : Screen("mods", "模组", Icons.Outlined.Extension, Icons.Filled.Extension)
     object Modpacks : Screen("modpacks", "整合包", Icons.Outlined.Inventory2, Icons.Filled.Inventory2)
@@ -59,15 +60,11 @@ internal data class NavItem(
     val submenuItems: List<Screen> = emptyList()
 )
 
+// 顶部横向导航：下载并入「资源」，模组/整合包/材质包/光影改为资源中心的左侧分类，
+// 一级入口因此从 7 个收敛到 6 个，横向排开不至于挤满屏宽
 internal val mainNavItems = listOf(
     NavItem(screen = Screen.Home, icon = Icons.Outlined.Home, label = "主页"),
-    NavItem(screen = Screen.Versions, icon = Icons.Outlined.Download, label = "下载"),
-    NavItem(
-        icon = Icons.Outlined.Widgets,
-        label = "资源",
-        isSubmenuToggle = true,
-        submenuItems = listOf(Screen.Mods, Screen.Modpacks, Screen.ResourcePacks, Screen.Shaders)
-    ),
+    NavItem(screen = Screen.Resources, icon = Icons.Outlined.Widgets, label = "资源"),
     NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "联机"),
     NavItem(screen = Screen.Transfer, icon = Icons.Outlined.SwapHoriz, label = "传输"),
     NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "账户"),
@@ -81,13 +78,8 @@ internal val footerNavItem = NavItem(
 )
 
 private val allSidebarRoutes = mainNavItems
-    .flatMap { if (it.screen != null) listOf(it.screen.route) else it.submenuItems.map { s -> s.route } }
+    .mapNotNull { it.screen?.route }
     .plus(footerNavItem.screen!!.route)
-    .toSet()
-
-private val submenuRoutes = mainNavItems
-    .filter { it.isSubmenuToggle }
-    .flatMap { it.submenuItems.map { s -> s.route } }
     .toSet()
 
 @Composable
@@ -176,17 +168,9 @@ fun MainScreen(
     val customBgScrimAlpha =
         0.60f * (100 - VersePersonalization.backgroundOpacity) / 100f
 
-    // 悬浮导航液态玻璃(Kyant0/AndroidLiquidGlass backdrop-android 2.0.0):
-    // RuntimeShader 实现仅支持 Android 13+,低版本自动降级为普通面板;
-    // 内容层与玻璃层分离渲染,圆形按钮与胶囊容器从背后内容透镜采样
-    val navGlassBackdrop = rememberLayerBackdrop()
-    val glassSupported = Build.VERSION.SDK_INT >= 33 && VersePersonalization.sidebarGlass
-
     Box(modifier = Modifier.fillMaxSize()) {
-        // 采样源层:自定义背景 + 页面内容,悬浮导航的玻璃层从此处透镜采样
-        Box(modifier = Modifier.fillMaxSize().then(
-            if (glassSupported) Modifier.layerBackdrop(navGlassBackdrop) else Modifier
-        )) {
+        // 采样源层:自定义背景 + 页面内容
+        Box(modifier = Modifier.fillMaxSize()) {
         // 背景:自定义背景(渐变/图片)
         AppBackground(Modifier.fillMaxSize())
         // 玻璃半透明遮罩(保证前景内容可读性,自定义背景时随不透明度减弱)
@@ -197,8 +181,13 @@ fun MainScreen(
         NavHost(
                     navController = navController,
             startDestination = Screen.Home.route,
-            // 刘海避让由根容器统一按黑边处理，这里不再二次内缩
-            modifier = Modifier.fillMaxSize(),
+            // 刘海避让由根容器统一按黑边处理，这里不再二次内缩。
+            // 非主页为顶部悬浮导航让出 44dp：导航条压在标题行右侧会挡操作按钮
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    top = if (!showSidebar || currentRoute == Screen.Home.route) 0.dp else 44.dp
+                ),
             enterTransition = {
                 navEnterTransition(
                     detail = targetState.destination.route in detailRoutes,
@@ -229,6 +218,7 @@ fun MainScreen(
             }
         ) {
             composable(Screen.Home.route) { HomeScreen(navController, onLaunchGame) }
+            composable(Screen.Resources.route) { ResourcesScreen(navController) }
             composable(Screen.Versions.route) { VersionsScreen(navController) }
             composable(Screen.Mods.route) { ModsScreen(navController) }
             composable(Screen.Modpacks.route) { ModpacksScreen(navController) }
@@ -282,13 +272,17 @@ fun MainScreen(
         }
         }
 
-        // 悬浮圆形导航(最上层图层,不占页面布局;液态玻璃采样上层内容)
+        // 顶部横向导航：右上角常驻；主页允许整条拖到任意位置（位置持久化）
         if (showSidebar) {
-            FloatingNavOverlay(
-                navController = navController,
+            TopNavBar(
+                items = mainNavItems,
                 currentRoute = currentRoute,
-                backdrop = navGlassBackdrop,
-                glassEnabled = glassSupported
+                onSelect = { screen -> navigateToTab(navController, screen.route) },
+                draggable = currentRoute == Screen.Home.route,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 6.dp, end = 10.dp)
             )
         }
         // 挂在导航外层:无论当前处于哪个页面,分享导入弹窗都能弹出
