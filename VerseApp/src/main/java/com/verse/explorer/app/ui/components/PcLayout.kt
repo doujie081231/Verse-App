@@ -84,10 +84,8 @@ import com.verse.explorer.app.launch.LaunchState
 import com.verse.explorer.app.ui.backgroundGlass
 import com.verse.explorer.app.ui.influencedByBackgroundColor
 import com.verse.explorer.app.ui.theme.ActionMenuSide
+import com.verse.explorer.app.ui.TopNavMetrics
 import com.verse.explorer.app.ui.theme.VerseColors
-
-/** 与 TopNavBar 实测宽度对齐的占位，导航条改宽高时同步改这里 */
-private val NAV_RESERVED_WIDTH = 236.dp
 
 /**
  * 顶部导航避让：导航条常驻右上角，页面本身铺满，只让标题行右对齐的操作按钮（刷新等）
@@ -97,7 +95,7 @@ private val NAV_RESERVED_WIDTH = 236.dp
 fun Modifier.navButtonAvoid(): Modifier {
     // 顶部横向导航常驻右上角，页面本身铺满；只让标题行右对齐的操作按钮（刷新等）
     // 躲开导航条占用的宽度，避免整页被往下推。
-    return padding(end = NAV_RESERVED_WIDTH)
+    return padding(end = TopNavMetrics.reservedWidth)
 }
 
 /**

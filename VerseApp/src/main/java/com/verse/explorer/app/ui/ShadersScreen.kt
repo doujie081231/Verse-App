@@ -75,7 +75,7 @@ fun ShadersScreen(
                 selects = listOf(
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().navButtonAvoid()
             ) {
                 PcCompactSearchField(
                     value = searchQuery,

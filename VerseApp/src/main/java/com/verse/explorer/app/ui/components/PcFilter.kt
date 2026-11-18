@@ -105,7 +105,9 @@ fun PcCompactFilterBar(
     var expandedIndex by remember { mutableStateOf(-1) }
     Column(modifier = modifier) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            // 不按权重平分：导航条占掉右侧后，平分会把每个筛选项压窄、下拉菜单跟着变窄。
+            // 改为固有宽度 + 横向滚动，位置不够时滚动而不是压缩
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -117,7 +119,7 @@ fun PcCompactFilterBar(
                     color = VerseColors.PcBgTertiary,
                     border = BorderStroke(1.dp, VerseColors.PcBorder),
                     modifier = Modifier
-                        .weight(1f)
+                        .widthIn(min = 104.dp)
                         .clickable { expandedIndex = if (expandedIndex == index) -1 else index }
                 ) {
                     Row(

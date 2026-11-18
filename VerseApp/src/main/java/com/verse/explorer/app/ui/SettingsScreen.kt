@@ -310,16 +310,7 @@ fun SettingsScreen(navController: NavHostController) {
                 .verticalScroll(rememberScrollState())
                 .padding(top = 32.dp, start = 8.dp, end = 8.dp)
         ) {
-            Text(
-                "设置",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = VerseColors.PcTextPrimary,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .navButtonAvoid()
-            )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             pages.forEachIndexed { index, label ->
                 val selected = targetPage == index
                 Surface(

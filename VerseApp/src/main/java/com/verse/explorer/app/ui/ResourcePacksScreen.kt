@@ -67,7 +67,7 @@ fun ResourcePacksScreen(
                     PcFilterSelect(selectedResolution, resolutions.map { it to it }) { selectedResolution = it },
                     PcFilterSelect(uiState.selectedSource, listOf("" to "全部", "modrinth" to "Modrinth", "curseforge" to "CurseForge")) { viewModel.setSelectedSource(it) }
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().navButtonAvoid()
             ) {
                 PcCompactSearchField(
                     value = searchQuery,

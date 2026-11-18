@@ -126,7 +126,9 @@ fun VersionsScreen(
                 Spacer(modifier = Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = VerseColors.PcRed.copy(alpha = 0.1f)
+                    color = VerseColors.PcRed.copy(alpha = 0.1f),
+                    // 与上一行同样让开导航条，否则「重试」会比「刷新」更靠右，看着偏位
+                    modifier = Modifier.navButtonAvoid()
                 ) {
                     Row(
                         modifier = Modifier

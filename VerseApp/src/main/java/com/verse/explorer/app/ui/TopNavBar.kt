@@ -99,7 +99,12 @@ internal fun TopNavBar(
 
     Row(
         modifier = modifier
-            .onSizeChanged { barSize = it }
+            .onSizeChanged {
+                barSize = it
+                // 选中项展开文字后宽度会变，标题行按实测宽度让位才不会被挡住
+                val measured = with(density) { it.width.toDp() } + 14.dp
+                if (measured > 0.dp) TopNavMetrics.reservedWidth = measured
+            }
             .offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }
             .then(dragModifier)
             .background(VerseColors.PcBgCard.copy(alpha = 0.94f), RoundedCornerShape(50))
@@ -115,10 +120,16 @@ internal fun TopNavBar(
                 icon = item.icon,
                 label = item.label,
                 active = active,
+                showLabel = active,
                 onClick = { screen?.let(onSelect) }
             )
         }
     }
+}
+
+/** 导航条实测宽度，供页面标题行做右侧让位（选中项展开文字后会变宽） */
+internal object TopNavMetrics {
+    var reservedWidth by mutableStateOf(236.dp)
 }
 
 /**
@@ -135,6 +146,7 @@ private fun NavPillItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     active: Boolean,
+    showLabel: Boolean,
     onClick: () -> Unit
 ) {
     val background = if (active) VerseColors.PcTextPrimary else Color.Transparent
@@ -148,11 +160,20 @@ private fun NavPillItem(
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 9.dp, vertical = 8.dp),
+            .padding(horizontal = if (showLabel) 12.dp else 9.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Icon(icon, label, Modifier.size(18.dp), tint = foreground)
+        if (showLabel) {
+            Text(
+                text = label,
+                color = foreground,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
     }
 }
 
