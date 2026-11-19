@@ -83,33 +83,34 @@ fun VersionsScreen(
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
             // 紧凑单行控制条：下载源 + 数量 + 刷新，避免压缩版本列表可视高度
+            // 紧凑单行控制条：下载源 + 数量（Rust 版页签不显示）
             if (selectedTab != HORIZON_TAB) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp)
-                    .navButtonAvoid(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "源: $sourceLabel",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.PcTextMuted,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (uiState.isLoading) "加载中..." else "共 ${displayVersions.size} 个版本",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VerseColors.PcTextMuted,
-                    fontSize = 10.sp,
-                    maxLines = 1
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp)
+                        .navButtonAvoid(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "源: $sourceLabel",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (uiState.isLoading) "加载中..." else "共 ${displayVersions.size} 个版本",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VerseColors.PcTextMuted,
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
             }
-
-            Spacer(modifier = Modifier.height(4.dp))
 
             PcTabGroup(
                 tabs = tabs,
@@ -149,10 +150,6 @@ fun VersionsScreen(
                         }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
             } else if (uiState.isLoading && displayVersions.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
