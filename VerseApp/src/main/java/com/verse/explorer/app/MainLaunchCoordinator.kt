@@ -50,6 +50,11 @@ internal class MainLaunchCoordinator(private val activity: MainActivity) {
     }
 
     fun launchGame(versionId: String?) {
+        // Rust 版（Horizon）不经过 JVM 管线，也不需要 JRE，必须最先分流
+        if (com.verse.explorer.app.horizon.HorizonLauncher.isHorizonVersion(versionId)) {
+            com.verse.explorer.app.horizon.HorizonLauncher.start(activity)
+            return
+        }
         if (!activity.jreReady.value) {
             Toast.makeText(activity, "Java运行时尚未初始化完成，请稍候...", Toast.LENGTH_LONG).show()
             return

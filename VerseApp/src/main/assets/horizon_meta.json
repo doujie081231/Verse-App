@@ -1,0 +1,11 @@
+{
+  "repo": "Rayan-XOO/horizon",
+  "tag": "android-v0.4.7",
+  "version": "v0.4.7",
+  "publishedAt": "2026-11-14",
+  "notesUrl": "https://github.com/Rayan-XOO/horizon/releases/tag/android-v0.4.7",
+  "engineLib": "libhorizon.so",
+  "abi": "arm64-v8a",
+  "shellPackage": "dev.horizonlab.horizon",
+  "apkSize": 65624188
+}

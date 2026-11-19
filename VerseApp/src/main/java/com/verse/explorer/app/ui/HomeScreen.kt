@@ -42,6 +42,7 @@ import com.verse.explorer.app.ui.home.LocalHomeHub
 import com.verse.explorer.app.ui.home.LocalHomeVersionActions
 import com.verse.explorer.app.ui.home.VerseHomeGrid
 import com.verse.explorer.app.ui.home.VersionCardManager
+import com.verse.explorer.app.horizon.HorizonLauncher
 import com.verse.explorer.app.ui.theme.VerseColors
 import com.verse.explorer.app.viewmodel.AccountsViewModel
 import com.verse.explorer.cardgrid.state.rememberCardGridState
@@ -103,7 +104,8 @@ fun HomeScreen(
             try {
                 val vm = VersionManager(GameConfig.getGameDir(context))
                 val versions = withContext(Dispatchers.IO) { vm.getLocalVersions() }
-                localVersions = versions
+                // 主页版本选择器追加 Rust 版条目：引擎内置 APK，不走 Java 启动链
+                localVersions = versions + HorizonLauncher.syntheticVersion()
                 // 从版本管理页返回后,重新读取最后选中版本
                 if (route == Screen.Home.route) {
                     selectedVersionId = settingsLastVersion() ?: selectedVersionId
@@ -132,7 +134,12 @@ fun HomeScreen(
                 if (!launchState.isLaunching) launchController.launchGame(versionId)
             },
             onOpenVersionSettings = { versionId ->
-                navController.navigate("version_settings/$versionId")
+                // Rust 版没有 Java 版设置项，跳到「Rust 版」页签
+                if (HorizonLauncher.isHorizonVersion(versionId)) {
+                    navController.navigate(Screen.Resources.route)
+                } else {
+                    navController.navigate("version_settings/$versionId")
+                }
             }
         )
     }

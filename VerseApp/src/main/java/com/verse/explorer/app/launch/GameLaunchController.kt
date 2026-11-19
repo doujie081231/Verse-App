@@ -110,6 +110,12 @@ class GameLaunchController(private val context: Context) {
 
     fun launchGame(versionId: String?, multiplayerArgs: Map<String, String>? = null) {
         if (_launchState.value.isLaunching) return
+        // Rust 版（Horizon）不经过 JVM 管线
+        if (com.verse.explorer.app.horizon.HorizonLauncher.isHorizonVersion(versionId)) {
+            runCatching { com.verse.explorer.app.horizon.HorizonLauncher.start(context) }
+                .onFailure { com.verse.explorer.app.ui.VerseLogger.error("Rust 版启动失败: ${it.message}", "LaunchController") }
+            return
+        }
 
         scope.launch {
             _launchState.value = LaunchState(

@@ -35,3 +35,8 @@
 
 # Vulkan capability checker: JNI native methods resolve by class/method name
 -keep class com.verse.explorer.app.device.** { *; }
+
+# ===== Rust 版（Horizon 安卓移植）壳层 =====
+# native 层（libhorizon.so）通过 JNI 反调这些类的成员方法（nativeText/nativeKey/showKeyboard 等），
+# R8 静态分析看不到这些调用，整包保留，禁止混淆与裁剪
+-keep class dev.horizonlab.horizon.** { *; }
