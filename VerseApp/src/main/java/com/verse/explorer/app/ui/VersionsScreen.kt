@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.RoseLoader
+import com.verse.explorer.app.horizon.HorizonCatalog
 import com.verse.explorer.app.ui.components.PcTabGroup
 import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -36,6 +37,9 @@ import com.verse.explorer.core.version.MinecraftVersion
 import com.verse.explorer.core.version.VersionType
 
 @OptIn(ExperimentalMaterial3Api::class)
+/** 「Rust 版」页签（Horizon 安卓移植）在 tabs 里的下标 */
+private const val HORIZON_TAB = 5
+
 @Composable
 fun VersionsScreen(
     navController: NavHostController
@@ -56,7 +60,7 @@ fun VersionsScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
 
-    val tabs = listOf("正式版", "快照版", "愚人节版", "远古版", "已安装")
+    val tabs = listOf("正式版", "快照版", "愚人节版", "远古版", "已安装", HorizonCatalog.TAB_LABEL)
 
     val displayVersions = when (selectedTab) {
         0 -> releaseVersions
@@ -79,6 +83,7 @@ fun VersionsScreen(
                 .padding(horizontal = 10.dp, vertical = 4.dp)
         ) {
             // 紧凑单行控制条：下载源 + 数量 + 刷新，避免压缩版本列表可视高度
+            if (selectedTab != HORIZON_TAB) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,7 +120,9 @@ fun VersionsScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            if (uiState.error != null) {
+            if (selectedTab == HORIZON_TAB) {
+                HorizonScreen(Modifier.fillMaxSize())
+            } else if (uiState.error != null) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
@@ -146,7 +153,7 @@ fun VersionsScreen(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            if (uiState.isLoading && displayVersions.isEmpty()) {
+            } else if (uiState.isLoading && displayVersions.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center

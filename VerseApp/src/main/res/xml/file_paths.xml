@@ -11,4 +11,8 @@
     <cache-path
         name="updates"
         path="updates/" />
+    <!-- Rust 版（Horizon 安卓移植）安装包：下载完成后交给系统安装器 -->
+    <cache-path
+        name="horizon"
+        path="horizon/" />
 </paths>
