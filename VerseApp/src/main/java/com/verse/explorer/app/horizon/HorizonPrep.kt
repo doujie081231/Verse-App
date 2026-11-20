@@ -116,10 +116,14 @@ object HorizonPrep {
 
             // 合成一个 inheritsFrom 26.3 的版本，用正常启动链路跑数据生成器
             val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
-            if (!File(com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), HorizonDatagenVersion.PARENT_ID).isDirectory) {
-                error("请先在「资源 → 版本」里安装 ${HorizonDatagenVersion.PARENT_ID}，派生数据需要它的库与资源")
-            }
-            val datagenJson = HorizonDatagenVersion.buildVersionJson(libRelativePaths)
+            val versionsDir = com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir)
+            val parentId = detectParentVersion(versionsDir)
+            HorizonPrepLog.append(
+                context,
+                if (parentId != null) "父版本=${parentId}（继承其库与资源）"
+                else "未找到 26.3 安装，改用独立版本（仅用刚解出的 ${libRelativePaths.size} 个依赖）"
+            )
+            val datagenJson = HorizonDatagenVersion.buildVersionJson(libRelativePaths, parentId)
             HorizonDatagenVersion.writeVersionFile(
                 com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), datagenJson
             )
@@ -296,6 +300,24 @@ object HorizonPrep {
      * 解包 Mojang bundler 到 gameDir/libraries，返回相对路径列表（供合成版本引用）。
      * 内层服务端 jar 落到 libraries/net/minecraft/server/26.3/server.jar。
      */
+    /**
+     * 在已安装版本里找 26.3：目录名可能是 26.3，也可能带后缀。
+     * 找不到返回 null，由调用方退化成独立版本——不能因为这一步卡住整个准备流程。
+     */
+    internal fun detectParentVersion(versionsDir: java.io.File): String? {
+        val candidates = versionsDir.listFiles()?.filter { it.isDirectory }.orEmpty()
+        candidates.firstOrNull { it.name == HorizonDatagenVersion.PARENT_ID }?.let { return it.name }
+        for (dir in candidates) {
+            val json = File(dir, "${dir.name}.json").takeIf { it.isFile } ?: continue
+            val id = runCatching {
+                com.google.gson.JsonParser.parseString(json.readText())
+                    .asJsonObject.get("id")?.asString
+            }.getOrNull() ?: continue
+            if (id == HorizonDatagenVersion.PARENT_ID) return dir.name
+        }
+        return candidates.firstOrNull { it.name.startsWith("${HorizonDatagenVersion.PARENT_ID}-") }?.name
+    }
+
     private fun extractBundlerToLibraries(context: Context, serverJar: File): List<String> {
         val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
         val librariesDir = com.verse.explorer.core.config.GameConfig.getLibrariesDir(gameDir)

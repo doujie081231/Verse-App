@@ -42,7 +42,7 @@ object HorizonDatagenVersion {
      *
      * @param libraryRelativePaths 已落到 libraries 目录的 jar 相对路径（含 server jar）
      */
-    fun buildVersionJson(libraryRelativePaths: List<String>): JsonObject {
+    fun buildVersionJson(libraryRelativePaths: List<String>, parentId: String? = PARENT_ID): JsonObject {
         val libraries = JsonArray()
         for (rel in libraryRelativePaths) {
             val name = if (rel.contains("net/minecraft/server/")) {
@@ -63,8 +63,15 @@ object HorizonDatagenVersion {
         }
         return JsonObject().apply {
             addProperty("id", VERSION_ID)
-            addProperty("inheritsFrom", PARENT_ID)
+            // 父版本存在时继承它的库与资源；找不到就退化成独立版本（只靠下面这些依赖）
+            if (parentId != null) addProperty("inheritsFrom", parentId)
             addProperty("mainClass", "net.minecraft.data.Main")
+            if (parentId == null) {
+                add("javaVersion", JsonObject().apply {
+                    addProperty("component", "jdk")
+                    addProperty("majorVersion", 25)
+                })
+            }
             addProperty("type", "release")
             add("arguments", JsonObject().apply {
                 add("game", JsonArray().apply {
