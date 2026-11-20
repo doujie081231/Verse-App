@@ -208,6 +208,13 @@
 
         <!-- ===== Rust 版（Horizon 安卓移植，MIT）：引擎收编进本 APK，壳层保持原包名供 JNI 反调 ===== -->
         <activity
+            android:name=".horizon.HorizonDatagenActivity"
+            android:exported="false"
+            android:process=":datagen"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+        <activity
             android:name=".horizon.HorizonPrepActivity"
             android:exported="false"
             android:screenOrientation="sensorLandscape"

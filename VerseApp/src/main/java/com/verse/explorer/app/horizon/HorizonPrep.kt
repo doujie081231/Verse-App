@@ -107,12 +107,22 @@ object HorizonPrep {
 
             val java = JavaRuntimeManager.getJavaExecutable(context, "java25")
                 ?: error("没有找到 Java 25 运行时，请先在「Java」页安装")
-            HorizonPrepLog.append(context, "java: ${java.absolutePath} canExecute=${java.canExecute()}")
+            val jreHome = java.parentFile?.parentFile ?: error("Java 运行时目录异常：${java.absolutePath}")
+            HorizonPrepLog.append(context, "jre: ${jreHome.absolutePath}")
+
+            onProgress(Progress(Stage.DATAGEN, "解包服务端依赖…", 0f))
+            val classpath = extractBundler(serverJar, work)
+            HorizonPrepLog.append(context, "classpath 条目=${classpath.split(":").size}")
 
             onProgress(Progress(Stage.DATAGEN, "正在生成游戏数据（约 2-5 分钟）…", 0f))
-            HorizonPrepLog.append(context, "启动数据生成器…")
-            runDataGenerator(java, serverJar, work) { line ->
-                onProgress(Progress(Stage.DATAGEN, line.take(80), -1f))
+            val exitCode = runDatagenInProcess(context, jreHome, work, classpath)
+            HorizonPrepLog.append(context, "datagen 退出码=$exitCode")
+            if (exitCode != 0) {
+                val logTail = runCatching {
+                    File(work, "datagen.log").takeIf { it.isFile }
+                        ?.readLines()?.takeLast(3)?.joinToString(" / ")
+                }.getOrNull().orEmpty()
+                error("数据生成器失败（退出码 $exitCode）${if (logTail.isBlank()) "" else "：$logTail"}")
             }
 
             onProgress(Progress(Stage.PACK, "打包派生数据…", 0.5f))
@@ -266,57 +276,72 @@ object HorizonPrep {
         }
     }
 
-    /** 跑官方数据生成器；返回后 reports 目录即有产物 */
-    private fun runDataGenerator(
-        java: File,
-        serverJar: File,
-        workDir: File,
-        onLine: (String) -> Unit
-    ) {
-        // JRE 解压出来默认没有可执行位，直接 ProcessBuilder 会 EACCES(13)
-        if (!java.canExecute()) java.setExecutable(true, false)
-        if (!java.canExecute()) error("Java 运行时不可执行：${java.absolutePath}，请到「Java」页重新安装")
-
-        val jreHome = java.parentFile?.parentFile
-        val command = listOf(
-            java.absolutePath,
-            "-Xmx1536M",
-            "-Djava.io.tmpdir=${workDir.absolutePath}",
-            "-DbundlerMainClass=net.minecraft.data.Main",
-            "-jar",
-            serverJar.absolutePath,
-            "--reports",
-            "--output",
-            "out"
-        )
-        HorizonPrepLog.append("exec: ${command.joinToString(" ")}")
-        val builder = ProcessBuilder(command)
-            .directory(workDir)
-            .redirectErrorStream(true)
-        // 直接 exec 时 JVM 需要自己找 libjli/lib 目录，否则会报找不到共享库
-        jreHome?.let { home ->
-            val env = builder.environment()
-            val libPath = listOf(File(home, "lib"), File(home, "lib/jli"))
-                .joinToString(":") { it.absolutePath }
-            env["LD_LIBRARY_PATH"] = listOfNotNull(env["LD_LIBRARY_PATH"], libPath)
-                .joinToString(":")
-        }
-        val process = builder.start()
-        val tail = ArrayDeque<String>()
-        process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { raw ->
-                val line = raw.trim()
-                if (line.isEmpty()) return@forEach
-                tail.addLast(line)
-                while (tail.size > 25) tail.removeFirst()
-                HorizonPrepLog.append("java| $line")
-                onLine(line)
+    /** 解包 Mojang bundler：依赖库 + 内层服务端 jar，拼出 classpath */
+    private fun extractBundler(serverJar: File, workDir: File): String {
+        File(workDir, "libraries").mkdirs()
+        var innerServer: File? = null
+        var joined: String? = null
+        java.util.zip.ZipFile(serverJar).use { zip ->
+            for (entry in zip.entries()) {
+                val name = entry.name
+                when {
+                    entry.isDirectory -> Unit
+                    name.startsWith("META-INF/libraries/") -> {
+                        val out = File(workDir, name.removePrefix("META-INF/"))
+                        out.parentFile?.mkdirs()
+                        zip.getInputStream(entry).use { input ->
+                            out.outputStream().use { input.copyTo(it) }
+                        }
+                    }
+                    name.startsWith("META-INF/versions/") && name.endsWith(".jar") -> {
+                        val out = File(workDir, "server-inner.jar")
+                        zip.getInputStream(entry).use { input ->
+                            out.outputStream().use { input.copyTo(it) }
+                        }
+                        innerServer = out
+                    }
+                    name == "META-INF/classpath-joined" -> {
+                        joined = zip.getInputStream(entry).bufferedReader().readText().trim()
+                    }
+                }
             }
         }
-        val code = process.waitFor()
-        HorizonPrepLog.append("java 退出码=$code")
-        if (code != 0) {
-            error("数据生成器失败（退出码 $code）：${tail.takeLast(3).joinToString(" / ")}")
+        val parts = mutableListOf<String>()
+        innerServer?.let { parts += it.absolutePath }
+        joined?.split(';')?.map { it.trim() }?.forEach { rel ->
+            if (rel.isBlank() || rel.startsWith("versions/")) return@forEach
+            val file = File(workDir, rel)
+            if (file.isFile) parts += file.absolutePath
         }
+        return parts.joinToString(":")
+    }
+
+    /**
+     * 在独立进程里用 JNI 建 JVM 跑数据生成器（不能 exec，见 HorizonDatagenActivity 注释）。
+     * @return JVM 退出码
+     */
+    private fun runDatagenInProcess(
+        context: Context,
+        jreHome: File,
+        workDir: File,
+        classpath: String
+    ): Int {
+        val resultFile = File(workDir, "datagen.result")
+        resultFile.delete()
+        context.startActivity(
+            android.content.Intent(context, HorizonDatagenActivity::class.java)
+                .putExtra(HorizonDatagenActivity.EXTRA_WORK, workDir.absolutePath)
+                .putExtra(HorizonDatagenActivity.EXTRA_JRE, jreHome.absolutePath)
+                .putExtra(HorizonDatagenActivity.EXTRA_CP, classpath)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        val deadline = System.currentTimeMillis() + 25 * 60 * 1000
+        while (System.currentTimeMillis() < deadline) {
+            if (resultFile.isFile) {
+                return resultFile.readText().trim().toIntOrNull() ?: -1
+            }
+            Thread.sleep(1000)
+        }
+        return -1
     }
 }
