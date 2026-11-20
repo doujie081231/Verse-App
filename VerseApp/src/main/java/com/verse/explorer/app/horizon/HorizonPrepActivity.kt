@@ -66,8 +66,7 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
     var fraction by remember { mutableStateOf(0f) }
     var logTail by remember { mutableStateOf("") }
     var copied by remember { mutableStateOf(false) }
-
-    fun run() {
+    fun startPrep() {
         if (running) return
         running = true
         error = null
@@ -107,7 +106,26 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
         }
     }
 
-    androidx.compose.runtime.LaunchedEffect(Unit) { run() }
+    val importPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                val dest = HorizonPrep.derivedZip(context)
+                dest.parentFile?.mkdirs()
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+                HorizonPrepLog.append(context, "已导入派生包: ${dest.length()} B")
+                startPrep()
+            }.onFailure {
+                error = "导入失败：${it.message}"
+                logTail = HorizonPrepLog.tail(6)
+            }
+        }
+    }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) { startPrep() }
 
     val steps = listOf(
         StepState(
@@ -246,6 +264,26 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
             }
         }
 
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "已有 horizon-derived.zip？",
+                fontSize = 10.sp,
+                color = VerseColors.PcTextMuted
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = "导入",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = VerseColors.PcAccent,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { importPicker.launch(arrayOf("*/*")) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+
         error?.let { message ->
             Spacer(Modifier.height(12.dp))
             Text(
@@ -269,7 +307,7 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(VerseColors.PcTextPrimary)
-                    .clickable { run() }
+                    .clickable { startPrep() }
                     .padding(vertical = 11.dp)
             )
         }
