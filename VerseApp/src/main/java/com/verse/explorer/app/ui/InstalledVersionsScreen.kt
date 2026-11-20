@@ -104,10 +104,15 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     // Rust 版（引擎内置 APK）：准备完成后作为一条已安装版本出现在列表里
     val horizonInstalled = remember { com.verse.explorer.app.horizon.HorizonPrep.isInstalled(context) }
     val versionSource = remember(localVersions, horizonInstalled) {
+        // horizon-datagen 是为生成派生数据造的内部版本（一次性的 Java 辅助步骤），
+        // 不是玩家会启动的版本，列表里必须隐藏
+        val visible = localVersions.filterNot {
+            it.id == com.verse.explorer.app.horizon.HorizonDatagenVersion.VERSION_ID
+        }
         if (horizonInstalled) {
-            localVersions + com.verse.explorer.app.horizon.HorizonLauncher.syntheticVersion()
+            visible + com.verse.explorer.app.horizon.HorizonLauncher.syntheticVersion()
         } else {
-            localVersions
+            visible
         }
     }
 

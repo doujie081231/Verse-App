@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.verse.explorer.app.ui.components.RoseLoader
 import com.verse.explorer.app.horizon.HorizonCatalog
+import com.verse.explorer.app.horizon.HorizonDatagenVersion
 import com.verse.explorer.app.ui.components.PcTabGroup
 import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
@@ -67,7 +68,8 @@ fun VersionsScreen(
         1 -> snapshotVersions
         2 -> specialVersions
         3 -> oldVersions
-        4 -> localVersions
+        // 内部 datagen 版本不对外展示（它是生成派生数据的一次性 Java 辅助）
+        4 -> localVersions.filterNot { it.id == HorizonDatagenVersion.VERSION_ID }
         else -> emptyList()
     }
 
