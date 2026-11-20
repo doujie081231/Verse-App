@@ -2,6 +2,7 @@ package com.verse.explorer.app.ui
 
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,7 +92,11 @@ internal fun VersionItemLayout(
     onExportClick: () -> Unit = {},
     onOpenFolder: (String) -> Unit = {},
     onTogglePin: (Boolean) -> Unit = {},
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    /** 自定义显示名（Rust 版条目显示 26.3 而不是内部 id） */
+    displayName: String? = null,
+    /** 名称后的标签，如「Rust」 */
+    badge: String? = null
 ) {
     // 列表行不做入场缩放：滚动时每行重新组合都会起一个缩放动画并额外建图层，
     // 快速滑动时多行动画叠加会掉帧
@@ -146,10 +151,23 @@ internal fun VersionItemLayout(
                 VersionIcon(version = version, size = 34.dp)
 
                 Column(modifier = Modifier.weight(1f)) {
-                    MarqueeText(
-                        text = version.id,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        MarqueeText(
+                            text = displayName ?: version.id,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        if (badge != null) {
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .clip(MaterialTheme.shapes.small)
+                                    .background(contentColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                     if (meta.summary.isNotBlank()) {
                         MarqueeText(
                             text = meta.summary,

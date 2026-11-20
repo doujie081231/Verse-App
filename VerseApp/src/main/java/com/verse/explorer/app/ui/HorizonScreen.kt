@@ -3,7 +3,6 @@ package com.verse.explorer.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,11 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,35 +30,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.verse.explorer.app.horizon.HorizonCatalog
 import com.verse.explorer.app.horizon.HorizonLauncher
-import com.verse.explorer.app.horizon.HorizonPortRepository
-import com.verse.explorer.app.horizon.HorizonRelease
+import com.verse.explorer.app.horizon.HorizonPrep
 import com.verse.explorer.app.ui.components.navButtonAvoid
 import com.verse.explorer.app.ui.theme.VerseColors
 
 /**
- * 「Rust 版」页签：引擎已内置 APK（见 tools/horizon_sync.py 收编脚本），
- * 这里是收编状态管理页——内嵌版本信息 + 启动入口 + 上游新版本提示。
+ * 「Rust 版」页签：只放一张 26.3 的版本卡片。
  *
- * 游戏本体资源（约 500MB）由壳层 Setup 向导在首次启动时从 Mojang 官方端点下载并校验，
- * 与本启动器的下载管线无关。
+ * 卡片结构与版本列表一致（图标块 + 名称 + 副标题 + 右侧动作），名称后带 Rust 标签：
+ * - 未安装：右侧「点击下载」→ 进入准备页（派生数据 + 游戏文件，带阶段进度）
+ * - 已安装：右侧「启动」→ 直接进游戏，副标题显示内嵌引擎版本
  */
 @Composable
-internal fun HorizonScreen(modifier: Modifier = Modifier.fillMaxSize()) {
+internal fun HorizonScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val meta = remember { HorizonLauncher.readMeta(context) }
+    // 每次进入页签重算：文件被清掉时能自愈回「未安装」
+    var installed by remember { mutableStateOf(HorizonPrep.isInstalled(context)) }
     val engineOk = remember { HorizonLauncher.isEnginePackaged(context) }
-    val deviceAbi = remember { HorizonCatalog.primaryAbi(android.os.Build.SUPPORTED_ABIS.toList()) }
-
-    var upstream by remember { mutableStateOf<HorizonRelease?>(null) }
-    var upstreamState by remember { mutableStateOf("正在检查上游版本...") }
-
-    LaunchedEffect(Unit) {
-        val result = HorizonPortRepository.fetchReleases(deviceAbi, context = context)
-        upstream = result.firstOrNull { it.repo == "Rayan-XOO/horizon" } ?: result.firstOrNull()
-        upstreamState = if (result.isEmpty()) "上游检查失败（网络）" else ""
-    }
 
     Column(
         modifier = modifier
@@ -83,74 +73,82 @@ internal fun HorizonScreen(modifier: Modifier = Modifier.fillMaxSize()) {
 
         Spacer(Modifier.height(8.dp))
 
-        // 内嵌状态卡
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(VerseColors.PcBgCard)
-                .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(10.dp))
-                .padding(14.dp)
+                .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(VerseColors.PcTextPrimary),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
-                    text = HorizonLauncher.VERSION_TITLE,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = VerseColors.PcTextPrimary,
-                    modifier = Modifier.weight(1f)
+                    "R",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = VerseColors.PcBgPrimary
                 )
+            }
+            Spacer(Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "26.3",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = VerseColors.PcTextPrimary
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Rust",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = VerseColors.PcBgPrimary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(VerseColors.PcTextPrimary)
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = if (engineOk) "引擎已内置" else "引擎缺失",
+                    text = when {
+                        !engineOk -> "引擎缺失，请重新安装本版本启动器"
+                        installed -> "已安装 · 引擎 ${meta?.version ?: "?"}"
+                        else -> "Horizon 原生重写，非官方 · 首次需准备约 700MB"
+                    },
                     fontSize = 10.sp,
-                    color = if (engineOk) VerseColors.PcGreen else VerseColors.PcRed,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(
-                            (if (engineOk) VerseColors.PcGreen else VerseColors.PcRed).copy(alpha = 0.12f)
-                        )
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    color = VerseColors.PcTextMuted,
+                    maxLines = 2
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "引擎 ${meta?.version ?: "?"}（${meta?.tag ?: "?"}，${meta?.publishedAt ?: ""}）· ${meta?.abi ?: ""}",
-                fontSize = 10.sp,
-                color = VerseColors.PcTextMuted
-            )
-            Spacer(Modifier.height(12.dp))
 
-            val updateHint = when {
-                upstream == null -> upstreamState
-                meta != null && upstream!!.versionName != meta.version ->
-                    "上游有新版本 ${upstream!!.versionName}，等待收编更新"
-                else -> "已是最新收编版本"
-            }
-            Text(
-                text = updateHint,
-                fontSize = 10.sp,
-                color = VerseColors.PcTextMuted
-            )
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.width(8.dp))
 
             Text(
-                text = "启动 Rust 版",
-                fontSize = 14.sp,
+                text = if (installed) "启动" else "点击下载",
+                fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = if (engineOk) VerseColors.PcBgPrimary else VerseColors.PcTextMuted,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (engineOk) VerseColors.PcTextPrimary else VerseColors.PcBgTertiary)
-                    .clickable(enabled = engineOk) { HorizonLauncher.start(context) }
-                    .padding(vertical = 13.dp),
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "首次启动会进入资源向导，下载约 500MB 官方资源（Mojang 官方端点，可断点续传）。",
-                fontSize = 10.sp,
-                color = VerseColors.PcTextMuted
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        if (engineOk) VerseColors.PcTextPrimary else VerseColors.PcBgTertiary
+                    )
+                    .clickable(enabled = engineOk) {
+                        HorizonLauncher.start(context)
+                        if (installed) installed = HorizonPrep.isInstalled(context)
+                    }
+                    .padding(horizontal = 14.dp, vertical = 9.dp)
             )
         }
 
@@ -181,7 +179,8 @@ private fun HorizonNoticeCard() {
         Spacer(Modifier.height(4.dp))
         Text(
             "Horizon 是社区用 Rust 从零重写的 Minecraft Java 26.3（非官方、与 Mojang/微软无关）。" +
-                "单人模式不需要账号，加入验证账号的服务器需要 Java Edition 正版。Fabric / Forge 模组不支持。",
+                "首次进入需要准备设备上的 26.3 数据（启动器内自动完成），单人不需要账号，" +
+                "加入验证账号的服务器需要 Java Edition 正版。Fabric / Forge 模组不支持。",
             fontSize = 10.sp,
             color = VerseColors.PcTextSecondary
         )
@@ -194,7 +193,7 @@ private fun HorizonNoticeCard() {
                 modifier = Modifier.clickable {
                     runCatching {
                         com.verse.explorer.app.util.IntentHelper.openUrl(
-                            context, HorizonCatalog.OFFICIAL_SITE_URL
+                            context, com.verse.explorer.app.horizon.HorizonCatalog.OFFICIAL_SITE_URL
                         )
                     }
                 }

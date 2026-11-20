@@ -101,6 +101,16 @@ fun InstalledVersionsScreen(navController: NavHostController) {
     val viewModel = VersionsViewModel.shared(context.applicationContext as android.app.Application)
     val localVersions by viewModel.localVersions.collectAsStateWithLifecycle()
 
+    // Rust 版（引擎内置 APK）：准备完成后作为一条已安装版本出现在列表里
+    val horizonInstalled = remember { com.verse.explorer.app.horizon.HorizonPrep.isInstalled(context) }
+    val versionSource = remember(localVersions, horizonInstalled) {
+        if (horizonInstalled) {
+            localVersions + com.verse.explorer.app.horizon.HorizonLauncher.syntheticVersion()
+        } else {
+            localVersions
+        }
+    }
+
     var currentLaunchVersionId by remember { mutableStateOf(settingsLastVersion() ?: "") }
     var showDeleteConfirm by remember { mutableStateOf<String?>(null) }
     var metaVersion by remember { mutableIntStateOf(0) }
@@ -141,7 +151,7 @@ fun InstalledVersionsScreen(navController: NavHostController) {
 
     // 元数据缓存：置顶 / 摘要 / 自定义信息，metaVersion 自增触发刷新
     val metaMap = remember(localVersions, metaVersion) {
-        localVersions.associate { it.id to VersionMetaRepository.get(context, it.id) }
+        versionSource.associate { it.id to VersionMetaRepository.get(context, it.id) }
     }
 
     // 本地导入整合包：SAF 打开内部存储挑选 .zip/.mrpack 文件
@@ -178,15 +188,15 @@ fun InstalledVersionsScreen(navController: NavHostController) {
         }
     }
 
-    val allCount = localVersions.size
-    val vanillaCount = remember(localVersions) { localVersions.count { !isModdedVersion(it) } }
-    val modloaderCount = remember(localVersions) { localVersions.count { isModdedVersion(it) } }
+    val allCount = versionSource.size
+    val vanillaCount = remember(versionSource) { versionSource.count { !isModdedVersion(it) } }
+    val modloaderCount = remember(versionSource) { versionSource.count { isModdedVersion(it) } }
 
-    val displayedVersions = remember(localVersions, category, metaMap, customOrder) {
+    val displayedVersions = remember(versionSource, category, metaMap, customOrder) {
         val base = when (category) {
-            VersionCategory.ALL -> localVersions
-            VersionCategory.VANILLA -> localVersions.filterNot { isModdedVersion(it) }
-            VersionCategory.MODLOADER -> localVersions.filter { isModdedVersion(it) }
+            VersionCategory.ALL -> versionSource
+            VersionCategory.VANILLA -> versionSource.filterNot { isModdedVersion(it) }
+            VersionCategory.MODLOADER -> versionSource.filter { isModdedVersion(it) }
         }
         if (customOrder.isNotEmpty()) {
             // 用户拖过顺序后以自定义顺序为准，置顶只保留徽章、不再强制把图钉项拉回最前，
@@ -420,6 +430,10 @@ fun InstalledVersionsScreen(navController: NavHostController) {
                                             .verseReorderMotion(isDragging),
                                         dragHandleModifier = if (reorderEnabled) Modifier.draggableHandle() else null,
                                         version = version,
+                                        displayName = if (com.verse.explorer.app.horizon.HorizonLauncher
+                                                .isHorizonVersion(version.id)) "26.3" else null,
+                                        badge = if (com.verse.explorer.app.horizon.HorizonLauncher
+                                                .isHorizonVersion(version.id)) "Rust" else null,
                                         selected = version.id == currentLaunchVersionId,
                                         meta = metaMap[version.id] ?: VersionMetaRepository.VersionMeta(),
                                         pinnedToHome = com.verse.explorer.app.ui.home.VersionCardManager.hasCard(version.id),

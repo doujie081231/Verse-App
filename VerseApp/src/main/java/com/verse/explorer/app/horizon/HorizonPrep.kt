@@ -45,6 +45,21 @@ object HorizonPrep {
 
     fun derivedZip(context: Context): File = File(home(context), "horizon-derived.zip")
 
+    private const val PREFS = "horizon_state"
+    private const val KEY_INSTALLED = "installed"
+
+    /** 准备流程跑完一次后置位，避免每次都重新探测（探测要加载引擎 so） */
+    fun markInstalled(context: Context, installed: Boolean = true) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_INSTALLED, installed).apply()
+    }
+
+    fun isMarkedInstalled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_INSTALLED, false)
+
+    /** 已安装 = 标记过且引擎文件确实就绪（文件被清掉时能自愈回到未安装） */
+    fun isInstalled(context: Context): Boolean = isMarkedInstalled(context) && isEngineReady(context)
+
     /** 派生包已就绪（引擎 nativeStart 会用它） */
     fun hasDerivedPack(context: Context): Boolean = derivedZip(context).isFile
 
@@ -248,6 +263,9 @@ object HorizonPrep {
         workDir: File,
         onLine: (String) -> Unit
     ) {
+        // JRE 解压出来默认没有可执行位，直接 ProcessBuilder 会 EACCES(13)
+        if (!java.canExecute()) java.setExecutable(true, false)
+        if (!java.canExecute()) error("Java 运行时不可执行：${java.absolutePath}，请到「Java」页重新安装")
         val command = listOf(
             java.absolutePath,
             "-Xmx2G",

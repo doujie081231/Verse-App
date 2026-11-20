@@ -91,6 +91,7 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
                 return@launch
             }
             running = false
+            HorizonPrep.markInstalled(context, true)
             runCatching { HorizonLauncher.startGame(context) }
             onFinished()
         }
