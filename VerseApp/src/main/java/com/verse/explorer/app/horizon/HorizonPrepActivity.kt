@@ -64,6 +64,8 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
     var stage by remember { mutableStateOf(HorizonPrep.Stage.CHECK) }
     var detail by remember { mutableStateOf("") }
     var fraction by remember { mutableStateOf(0f) }
+    var logTail by remember { mutableStateOf("") }
+    var copied by remember { mutableStateOf(false) }
 
     fun run() {
         if (running) return
@@ -74,9 +76,13 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
                 stage = p.stage
                 detail = p.text
                 if (p.fraction >= 0f) fraction = p.fraction
+                logTail = HorizonPrepLog.tail(6)
             }
             if (derived.isFailure) {
-                error = derived.exceptionOrNull()?.message ?: "生成派生数据失败"
+                val ex = derived.exceptionOrNull()
+                HorizonPrepLog.append(context, "失败: ${ex?.javaClass?.simpleName}: ${ex?.message}")
+                logTail = HorizonPrepLog.tail(6)
+                error = ex?.message ?: "生成派生数据失败"
                 running = false
                 return@launch
             }
@@ -84,9 +90,13 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
                 stage = p.stage
                 detail = p.text
                 if (p.fraction >= 0f) fraction = p.fraction
+                logTail = HorizonPrepLog.tail(6)
             }
             if (engine.isFailure) {
-                error = engine.exceptionOrNull()?.message ?: "准备游戏文件失败"
+                val ex = engine.exceptionOrNull()
+                HorizonPrepLog.append(context, "失败: ${ex?.javaClass?.simpleName}: ${ex?.message}")
+                logTail = HorizonPrepLog.tail(6)
+                error = ex?.message ?: "准备游戏文件失败"
                 running = false
                 return@launch
             }
@@ -193,6 +203,48 @@ private fun HorizonPrepScreen(onFinished: () -> Unit) {
             fontSize = 11.sp,
             color = VerseColors.PcTextSecondary
         )
+
+        if (logTail.isNotBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(VerseColors.PcBgCard)
+                    .border(1.dp, VerseColors.PcBorder, RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("执行日志", fontSize = 10.sp, color = VerseColors.PcTextMuted)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = if (copied) "已复制" else "复制日志",
+                        fontSize = 10.sp,
+                        color = VerseColors.PcAccent,
+                        modifier = Modifier.clickable {
+                            runCatching {
+                                val clipboard = context.getSystemService(
+                                    android.content.Context.CLIPBOARD_SERVICE
+                                ) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    android.content.ClipData.newPlainText(
+                                        "horizon-prep-log", HorizonPrepLog.all()
+                                    )
+                                )
+                                copied = true
+                            }
+                        }
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = logTail,
+                    fontSize = 9.sp,
+                    color = VerseColors.PcTextSecondary,
+                    maxLines = 8
+                )
+            }
+        }
 
         error?.let { message ->
             Spacer(Modifier.height(12.dp))

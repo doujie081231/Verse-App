@@ -82,10 +82,12 @@ object HorizonPrep {
                 return@runCatching zip
             }
 
+            HorizonPrepLog.append(context, "开始准备：home=${home(context).absolutePath}")
             onProgress(Progress(Stage.VERSION_JSON, "读取 26.3 版本信息…", 0f))
             val versionJson = fetchVersionJson()
             val serverJarInfo = HorizonDataPack.parseServerJar(versionJson)
                 ?: error("26.3 版本信息里没有 server.jar 下载地址")
+            HorizonPrepLog.append(context, "server.jar: ${serverJarInfo.size / 1048576}MB ${serverJarInfo.url}")
 
             val work = File(home(context), "prep-work").apply { mkdirs() }
             val serverJar = File(work, "server.jar")
@@ -105,15 +107,19 @@ object HorizonPrep {
 
             val java = JavaRuntimeManager.getJavaExecutable(context, "java25")
                 ?: error("没有找到 Java 25 运行时，请先在「Java」页安装")
+            HorizonPrepLog.append(context, "java: ${java.absolutePath} canExecute=${java.canExecute()}")
 
             onProgress(Progress(Stage.DATAGEN, "正在生成游戏数据（约 2-5 分钟）…", 0f))
+            HorizonPrepLog.append(context, "启动数据生成器…")
             runDataGenerator(java, serverJar, work) { line ->
                 onProgress(Progress(Stage.DATAGEN, line.take(80), -1f))
             }
 
             onProgress(Progress(Stage.PACK, "打包派生数据…", 0.5f))
             val reports = File(work, "out/reports")
+            HorizonPrepLog.append(context, "datagen 产物目录存在=${reports.isDirectory} ${reports.listFiles()?.size ?: 0} 项")
             val entries = HorizonDataPack.buildDerivedZip(reports, zip)
+            HorizonPrepLog.append(context, "派生包条目=$entries size=${zip.length()}")
             if (entries == 0) error("数据生成没有产出可打包的文件，请查看日志")
             work.deleteRecursively()
             onProgress(Progress(Stage.PACK, "派生包已生成（$entries 个文件）", 1f))
@@ -133,6 +139,7 @@ object HorizonPrep {
                 return@runCatching
             }
             onProgress(Progress(Stage.ENGINE, "正在准备游戏文件（约 700MB）…", 0f))
+            HorizonPrepLog.append(context, "调用引擎 nativeStart…")
             // nativeStart 会阻塞到准备结束；进度靠 nativeStatus 轮询
             Thread {
                 runCatching {
@@ -152,7 +159,10 @@ object HorizonPrep {
                             onProgress(Progress(Stage.READY, "游戏文件已就绪", 1f))
                             return@runCatching
                         }
-                        "error" -> error(error ?: "准备失败：$stageLabel")
+                        "error" -> {
+                            HorizonPrepLog.append(context, "引擎错误: ${error ?: stageLabel}")
+                            error(error ?: "准备失败：$stageLabel")
+                        }
                         else -> onProgress(Progress(Stage.ENGINE, stageLabel, fraction))
                     }
                 }
@@ -266,9 +276,12 @@ object HorizonPrep {
         // JRE 解压出来默认没有可执行位，直接 ProcessBuilder 会 EACCES(13)
         if (!java.canExecute()) java.setExecutable(true, false)
         if (!java.canExecute()) error("Java 运行时不可执行：${java.absolutePath}，请到「Java」页重新安装")
+
+        val jreHome = java.parentFile?.parentFile
         val command = listOf(
             java.absolutePath,
-            "-Xmx2G",
+            "-Xmx1536M",
+            "-Djava.io.tmpdir=${workDir.absolutePath}",
             "-DbundlerMainClass=net.minecraft.data.Main",
             "-jar",
             serverJar.absolutePath,
@@ -276,16 +289,34 @@ object HorizonPrep {
             "--output",
             "out"
         )
-        val process = ProcessBuilder(command)
+        HorizonPrepLog.append("exec: ${command.joinToString(" ")}")
+        val builder = ProcessBuilder(command)
             .directory(workDir)
             .redirectErrorStream(true)
-            .start()
+        // 直接 exec 时 JVM 需要自己找 libjli/lib 目录，否则会报找不到共享库
+        jreHome?.let { home ->
+            val env = builder.environment()
+            val libPath = listOf(File(home, "lib"), File(home, "lib/jli"))
+                .joinToString(":") { it.absolutePath }
+            env["LD_LIBRARY_PATH"] = listOfNotNull(env["LD_LIBRARY_PATH"], libPath)
+                .joinToString(":")
+        }
+        val process = builder.start()
+        val tail = ArrayDeque<String>()
         process.inputStream.bufferedReader().useLines { lines ->
-            lines.forEach { line ->
-                if (line.isNotBlank()) onLine(line.trim())
+            lines.forEach { raw ->
+                val line = raw.trim()
+                if (line.isEmpty()) return@forEach
+                tail.addLast(line)
+                while (tail.size > 25) tail.removeFirst()
+                HorizonPrepLog.append("java| $line")
+                onLine(line)
             }
         }
         val code = process.waitFor()
-        if (code != 0) error("数据生成器退出码 $code")
+        HorizonPrepLog.append("java 退出码=$code")
+        if (code != 0) {
+            error("数据生成器失败（退出码 $code）：${tail.takeLast(3).joinToString(" / ")}")
+        }
     }
 }
