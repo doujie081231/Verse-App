@@ -50,8 +50,72 @@ final class Ui {
         return "ru".equals(Locale.getDefault().getLanguage());
     }
 
+    /** 中文文案表：按英文原文映射，未覆盖的条目自动回落英文（上游更新不会因此报错） */
+    private static final java.util.Map<String, String> ZH = new java.util.HashMap<>();
+
+    static {
+        ZH.put("No access to the Horizon folder", "无法访问 Horizon 文件夹");
+        ZH.put("Grant access", "授予权限");
+        ZH.put("App folder", "使用应用目录");
+        ZH.put("First launch", "首次启动");
+        ZH.put("The game needs the Minecraft 26.3 files. They will be downloaded automatically, about 700 MB. Wi-Fi is best.", "游戏需要 Minecraft 26.3 的文件，将自动下载，约 700 MB。建议连接 Wi-Fi。");
+        ZH.put("Download game files", "下载游戏文件");
+        ZH.put("Pick horizon-derived.zip", "选择 horizon-derived.zip");
+        ZH.put("No file picker app found.", "没有找到文件选择器应用。");
+        ZH.put("Copy the error text", "复制错误信息");
+        ZH.put("Copied ✓", "已复制 ✓");
+        ZH.put("Vulkan driver (experimental)", "Vulkan 驱动（实验性）");
+        ZH.put("Profile: name and skin", "档案：名称与皮肤");
+        ZH.put("This build has no Horizon data pack address. Put horizon-derived.zip in the game folder (Android/data/dev.horizonlab.horizon/files) or install a build that has one.", "此构建没有内置 Horizon 数据包地址。请把 horizon-derived.zip 放到游戏目录（Android/data/com.verse.explorer/files/horizon），或安装带地址的构建。");
+        ZH.put("Copying the archive…", "正在复制压缩包…");
+        ZH.put("the file did not open", "文件无法打开");
+        ZH.put("this is not a zip archive", "这不是 zip 压缩包");
+        ZH.put("The archive is in place. Tap Download game files.", "压缩包已就位，点「下载游戏文件」继续。");
+        ZH.put("Could not copy the archive: ", "复制压缩包失败：");
+        ZH.put("Not enough space. About 1.5 GB is needed, free: ", "存储空间不足：需要约 1.5 GB，当前可用：");
+        ZH.put(" MB.", "MB。");
+        ZH.put("Mobile data", "移动数据");
+        ZH.put("You are not on Wi-Fi. Download about 700 MB over mobile data?", "当前不是 Wi-Fi 网络，要用移动数据下载约 700 MB 吗？");
+        ZH.put("Download", "下载");
+        ZH.put("Cancel", "取消");
+        ZH.put("Preparing", "准备中");
+        ZH.put("Downloading the game", "正在下载游戏");
+        ZH.put("Unpacking", "正在解包");
+        ZH.put("Sounds, fonts and languages", "音效、字体与语言");
+        ZH.put("Horizon data", "Horizon 数据");
+        ZH.put("Ready", "就绪");
+        ZH.put("Preparing", "准备中");
+        ZH.put("The phone ran out of space.", "手机存储空间不足。");
+        ZH.put("The Horizon data pack was not found. Put horizon-derived.zip in the game folder and tap Retry.", "未找到 Horizon 数据包。请把 horizon-derived.zip 放进游戏目录后点重试。");
+        ZH.put("A file is missing on the server (404). This build's link is out of date: update Horizon.", "服务器上缺少文件（404）。此构建的链接已过期，请更新 Horizon。");
+        ZH.put("The server refused the file. Wait a few minutes or switch networks (VPN or mobile data).", "服务器拒绝了请求。请稍等几分钟，或切换网络（VPN 或移动数据）。");
+        ZH.put("The download server is down for now. Try again later.", "下载服务器暂时不可用，请稍后再试。");
+        ZH.put("A secure connection failed. Check the phone's date and time, or switch networks.", "安全连接失败。请检查手机日期时间，或切换网络。");
+        ZH.put("The data pack is damaged. Delete horizon-derived.zip from the game folder and tap Retry.", "数据包已损坏。请从游戏目录删除 horizon-derived.zip 后点重试。");
+        ZH.put("A file arrived damaged. Tap Retry.", "有文件下载损坏，请点重试。");
+        ZH.put("Could not reach the server. Check the connection and tap Retry.", "无法连接服务器。请检查网络后点重试。");
+        ZH.put("Something went wrong. Tap Retry, the download continues where it stopped.", "出错了。点重试会从断点继续下载。");
+        ZH.put(" MB", "MB");
+        ZH.put(" MB/s", "MB/s");
+        ZH.put(" files", "个文件");
+        ZH.put("The download stopped", "下载已停止");
+        ZH.put("Details: ", "详情：");
+        ZH.put("Retry", "重试");
+    }
+
+    /** 系统语言为中文时优先用中文表 */
+    private static boolean zhLocale() {
+        String lang = java.util.Locale.getDefault().getLanguage();
+        return lang != null && lang.toLowerCase(java.util.Locale.ROOT).startsWith("zh");
+    }
+
     static String t(String ru, String en) {
-        return ru() ? ru : en;
+        if (ru()) return ru;
+        if (zhLocale()) {
+            String zh = ZH.get(en);
+            if (zh != null) return zh;
+        }
+        return en;
     }
 
     static int dp(Context c, float v) {

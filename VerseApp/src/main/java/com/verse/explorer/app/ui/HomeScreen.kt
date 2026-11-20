@@ -122,7 +122,12 @@ fun HomeScreen(
                     VersionCardManager.addCard(context, seed)
                     VersionCardManager.markSeeded(context)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // 不能静默吞：版本列表加载失败时界面会显示空，必须留下可查的痕迹
+                com.verse.explorer.app.ui.VerseLogger.error(
+                    "首页版本列表加载失败: ${e.javaClass.simpleName}: ${e.message}", "Home"
+                )
+            }
         }
     }
 

@@ -31,8 +31,11 @@ final class Storage {
     static final String ASKED = "storage-asked";
 
     static File appDir(Context c) {
-        File dir = c.getExternalFilesDir(null);
-        if (dir == null) dir = c.getFilesDir();
+        // 收编进 Verse 后必须独占子目录：Horizon 的家目录（resources/saves/mods/logs）
+        // 与其外置数据根不能混在同一层，否则引擎的清理动作会波及启动器自己的文件
+        File base = c.getExternalFilesDir(null);
+        if (base == null) base = c.getFilesDir();
+        File dir = new File(base, "horizon");
         dir.mkdirs();
         return dir;
     }
