@@ -58,10 +58,20 @@ object HorizonDataPack {
      *
      * @return 写进 zip 的条目数；0 表示报告目录不完整（没有生成文件）
      */
+    /**
+     * 定位真正的 reports 目录：官方生成器会在 --output 下自建 reports/，
+     * 上游工具也可能直接把产物摊在根目录，所以两种都要认。
+     */
+    fun resolveReportsDir(dir: File): File =
+        if (File(dir, "registries.json").isFile) dir
+        else listOf(File(dir, "reports"), File(dir, "report"))
+            .firstOrNull { File(it, "registries.json").isFile } ?: dir
+
     fun buildDerivedZip(reportsDir: File, dest: File): Int {
-        val registries = File(reportsDir, "registries.json")
+        val root = resolveReportsDir(reportsDir)
+        val registries = File(root, "registries.json")
         val commands = File(reportsDir, "commands.json")
-        val itemDir = File(reportsDir, "minecraft/components/item")
+        val itemDir = File(root, "minecraft/components/item")
         if (!registries.isFile || !itemDir.isDirectory) return 0
 
         val componentEntries = itemDir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
@@ -76,7 +86,7 @@ object HorizonDataPack {
         if (componentEntries.isEmpty()) return 0
 
         val itemsJson = buildItemsJson(componentEntries)
-        val biomeDir = File(reportsDir, "minecraft/biome_parameters")
+        val biomeDir = File(root, "minecraft/biome_parameters")
         val biomeFiles = biomeDir.listFiles { f -> f.isFile && f.name.endsWith(".json") }
             ?.sortedBy { it.name }
             .orEmpty()

@@ -126,9 +126,11 @@ object HorizonPrep {
             // 必须删掉旧目录：上一次跑留下的版本元数据会被启动器复用（实测主类没更新就说明了这点）
             File(versionsDir, HorizonDatagenVersion.VERSION_ID).deleteRecursively()
             // 输出目录必须绝对路径：FCL 的工作目录是版本目录，相对 "out" 会落到我们看不到的地方
-            val reports = File(gameDir, "out/reports")
+            // 注意：官方数据生成器会在 --output 下自己建 reports/ 子目录，所以这里给 gameDir/out
+            val datagenOut = File(gameDir, "out")
+            val reports = File(datagenOut, "reports")
             val datagenJson = HorizonDatagenVersion.buildVersionJson(
-                libRelativePaths, parentId, reports.absolutePath
+                libRelativePaths, parentId, datagenOut.absolutePath
             )
             HorizonPrepLog.append(
                 context,

@@ -109,6 +109,20 @@ class HorizonDataPackTest {
     }
 
     @Test
+    fun `输出目录下再嵌一层 reports 也能找到`() {
+        // 官方生成器的行为：--output <dir> 会在 <dir>/reports 下写产物
+        val out = temp.newFolder("out")
+        val inner = File(out, "reports").apply { mkdirs() }
+        File(inner, "registries.json").writeText("{}")
+        val items = File(inner, "minecraft/components/item").apply { mkdirs() }
+        File(items, "stone.json").writeText("""{"components":{"a":1}}""")
+
+        assertEquals(inner, HorizonDataPack.resolveReportsDir(out))
+        val dest = File(temp.newFolder("outZip"), "horizon-derived.zip")
+        assertEquals(2, HorizonDataPack.buildDerivedZip(out, dest))
+    }
+
+    @Test
     fun `缺少 components 时不出包`() {
         val reports = temp.newFolder("emptyReports")
         File(reports, "registries.json").writeText("{}")
