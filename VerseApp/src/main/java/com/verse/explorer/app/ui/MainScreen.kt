@@ -68,7 +68,9 @@ internal val mainNavItems = listOf(
     NavItem(screen = Screen.Lan, icon = Icons.Outlined.Wifi, label = "联机"),
     NavItem(screen = Screen.Transfer, icon = Icons.Outlined.SwapHoriz, label = "传输"),
     NavItem(screen = Screen.Accounts, icon = Icons.Outlined.Person, label = "账户"),
-    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置")
+    NavItem(screen = Screen.Settings, icon = Icons.Outlined.Settings, label = "设置"),
+    // 问题反馈：改横向导航时漏掉了，加回（原先挂在侧边栏底部的 footer 项）
+    NavItem(screen = Screen.Console, icon = Icons.Outlined.Feedback, label = "反馈")
 )
 
 internal val footerNavItem = NavItem(

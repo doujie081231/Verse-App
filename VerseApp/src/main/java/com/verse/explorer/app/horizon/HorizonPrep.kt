@@ -142,7 +142,16 @@ object HorizonPrep {
                 Thread.sleep(1500)
             }
             if (!File(reports, "registries.json").isFile) {
-                error("数据生成没有产出（20 分钟超时），请查看 datagen 版本的启动日志")
+                // datagen 是通过正常启动链路跑的，真正的异常在 FCL 的游戏日志里
+                val fclLog = File(gameDir, "logs/latest.log")
+                val tail = fclLog.takeIf { it.isFile }
+                    ?.readLines()?.takeLast(40)?.joinToString("\n")
+                    .orEmpty()
+                if (tail.isNotBlank()) HorizonPrepLog.append(context, "datagen 日志尾部:\n$tail")
+                error(
+                    "数据生成失败（未产出 reports）。" +
+                        if (tail.isBlank()) "未找到 logs/latest.log" else "日志尾部见下方"
+                )
             }
             HorizonPrepLog.append(context, "datagen 产物就绪")
 
