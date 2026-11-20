@@ -44,7 +44,7 @@ class HorizonDatagenVersionTest {
 
         assertEquals("horizon-datagen", json.get("id").asString)
         assertEquals("26.3", json.get("inheritsFrom").asString)
-        assertEquals("net.minecraft.data.Main", json.get("mainClass").asString)
+        assertEquals(HorizonDatagenVersion.WRAPPER_MAIN, json.get("mainClass").asString)
 
         val args = json.getAsJsonObject("arguments").getAsJsonArray("game").map { it.asString }
         assertEquals(listOf("--reports", "--output", "out"), args)

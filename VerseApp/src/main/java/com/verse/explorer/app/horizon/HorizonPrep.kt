@@ -357,6 +357,17 @@ object HorizonPrep {
                 }
             }
         }
+        // 包装 jar：丢弃启动器注入的游戏参数（否则 jopt-simple 直接抛 UnrecognizedOptionException）
+        runCatching {
+            val wrapperDest = File(gameDir, HorizonDatagenVersion.WRAPPER_LIB_PATH)
+            wrapperDest.parentFile?.mkdirs()
+            context.assets.open(HorizonDatagenVersion.WRAPPER_ASSET).use { input ->
+                wrapperDest.outputStream().use { input.copyTo(it) }
+            }
+            out += HorizonDatagenVersion.WRAPPER_LIB_PATH
+        }.onFailure {
+            HorizonPrepLog.append("包装 jar 拷贝失败: ${it.message}")
+        }
         HorizonPrepLog.append("libraries 目录: ${librariesDir.absolutePath}，写入 ${out.size} 个 jar")
         return out
     }

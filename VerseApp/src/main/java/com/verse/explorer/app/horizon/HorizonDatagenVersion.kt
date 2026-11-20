@@ -15,6 +15,11 @@ import java.io.File
 object HorizonDatagenVersion {
 
     const val VERSION_ID = "horizon-datagen"
+    /** 包装类：丢弃启动器注入的游戏参数，只把 --reports/--output 传给数据生成器 */
+    const val WRAPPER_MAIN = "verse.horizon.DatagenWrapper"
+    /** 包装 jar 在 assets 里的名字，运行期拷进 libraries 后加入 classpath */
+    const val WRAPPER_ASSET = "horizon-datagen-wrapper.jar"
+    const val WRAPPER_LIB_PATH = "libraries/verse/horizon/datagen-wrapper/1.0/datagen-wrapper-1.0.jar"
     const val PARENT_ID = "26.3"
 
     /**
@@ -65,7 +70,7 @@ object HorizonDatagenVersion {
             addProperty("id", VERSION_ID)
             // 父版本存在时继承它的库与资源；找不到就退化成独立版本（只靠下面这些依赖）
             if (parentId != null) addProperty("inheritsFrom", parentId)
-            addProperty("mainClass", "net.minecraft.data.Main")
+            addProperty("mainClass", WRAPPER_MAIN)
             if (parentId == null) {
                 add("javaVersion", JsonObject().apply {
                     addProperty("component", "jdk")
