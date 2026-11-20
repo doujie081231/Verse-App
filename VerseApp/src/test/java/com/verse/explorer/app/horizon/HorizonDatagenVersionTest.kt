@@ -46,8 +46,8 @@ class HorizonDatagenVersionTest {
         assertEquals("26.3", json.get("inheritsFrom").asString)
         assertEquals(HorizonDatagenVersion.WRAPPER_MAIN, json.get("mainClass").asString)
 
-        val args = json.getAsJsonObject("arguments").getAsJsonArray("game").map { it.asString }
-        assertEquals(listOf("--reports", "--output", "out"), args)
+        // 游戏参数不再由版本 JSON 提供（包装类负责），这里只校验结构存在
+        assertEquals(0, json.getAsJsonObject("arguments").getAsJsonArray("game").size())
 
         val names = json.getAsJsonArray("libraries").map { it.asJsonObject.get("name").asString }
         assertTrue(names.contains("net.minecraft:server:26.3"))
@@ -59,6 +59,21 @@ class HorizonDatagenVersionTest {
         val json = HorizonDatagenVersion.buildVersionJson(listOf("libraries/broken.jar"))
 
         assertEquals(0, json.getAsJsonArray("libraries").size())
+    }
+
+    @Test
+    fun `输出目录以绝对路径注入 JVM 参数`() {
+        val json = HorizonDatagenVersion.buildVersionJson(
+            listOf("libraries/a/b/c/1.0/c-1.0.jar"),
+            parentId = "26.3",
+            outputDir = "/storage/emulated/0/Android/data/com.verse.explorer/files/VerseExplorerX/out/reports"
+        )
+        val jvmArgs = json.getAsJsonObject("arguments").getAsJsonArray("jvm").map { it.asString }
+
+        assertEquals(
+            listOf("-Dverse.datagen.output=/storage/emulated/0/Android/data/com.verse.explorer/files/VerseExplorerX/out/reports"),
+            jvmArgs
+        )
     }
 
     @Test

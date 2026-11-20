@@ -123,14 +123,23 @@ object HorizonPrep {
                 if (parentId != null) "父版本=${parentId}（继承其库与资源）"
                 else "未找到 26.3 安装，改用独立版本（仅用刚解出的 ${libRelativePaths.size} 个依赖）"
             )
-            val datagenJson = HorizonDatagenVersion.buildVersionJson(libRelativePaths, parentId)
+            // 必须删掉旧目录：上一次跑留下的版本元数据会被启动器复用（实测主类没更新就说明了这点）
+            File(versionsDir, HorizonDatagenVersion.VERSION_ID).deleteRecursively()
+            // 输出目录必须绝对路径：FCL 的工作目录是版本目录，相对 "out" 会落到我们看不到的地方
+            val reports = File(gameDir, "out/reports")
+            val datagenJson = HorizonDatagenVersion.buildVersionJson(
+                libRelativePaths, parentId, reports.absolutePath
+            )
+            HorizonPrepLog.append(
+                context,
+                "版本主类=${datagenJson.get("mainClass")?.asString}，依赖=${datagenJson.getAsJsonArray("libraries").size()} 条"
+            )
             HorizonDatagenVersion.writeVersionFile(
                 com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), datagenJson
             )
             HorizonPrepLog.append(context, "已写出 ${HorizonDatagenVersion.VERSION_ID} 版本（主类 net.minecraft.data.Main）")
 
             onProgress(Progress(Stage.DATAGEN, "正在生成游戏数据（约 2-5 分钟）…", 0f))
-            val reports = File(gameDir, "out/reports")
             reports.deleteRecursively()
             com.verse.explorer.app.launch.GameLaunchController(context)
                 .launchGame(HorizonDatagenVersion.VERSION_ID)
@@ -367,6 +376,7 @@ object HorizonPrep {
             out += HorizonDatagenVersion.WRAPPER_LIB_PATH
         }.onFailure {
             HorizonPrepLog.append("包装 jar 拷贝失败: ${it.message}")
+            error("包装 jar 写入失败：${it.message}")
         }
         HorizonPrepLog.append("libraries 目录: ${librariesDir.absolutePath}，写入 ${out.size} 个 jar")
         return out

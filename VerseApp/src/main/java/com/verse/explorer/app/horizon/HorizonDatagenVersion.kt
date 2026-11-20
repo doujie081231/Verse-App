@@ -47,7 +47,11 @@ object HorizonDatagenVersion {
      *
      * @param libraryRelativePaths 已落到 libraries 目录的 jar 相对路径（含 server jar）
      */
-    fun buildVersionJson(libraryRelativePaths: List<String>, parentId: String? = PARENT_ID): JsonObject {
+    fun buildVersionJson(
+        libraryRelativePaths: List<String>,
+        parentId: String? = PARENT_ID,
+        outputDir: String? = null
+    ): JsonObject {
         val libraries = JsonArray()
         for (rel in libraryRelativePaths) {
             val name = if (rel.contains("net/minecraft/server/")) {
@@ -79,11 +83,13 @@ object HorizonDatagenVersion {
             }
             addProperty("type", "release")
             add("arguments", JsonObject().apply {
-                add("game", JsonArray().apply {
-                    add("--reports")
-                    add("--output")
-                    add("out")
-                })
+                // 真正传给数据生成器的参数由包装类决定；这里只用来注入输出目录的绝对路径
+                add("game", JsonArray())
+                if (outputDir != null) {
+                    add("jvm", JsonArray().apply {
+                        add("-Dverse.datagen.output=$outputDir")
+                    })
+                }
             })
             add("libraries", libraries)
         }
