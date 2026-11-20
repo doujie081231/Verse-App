@@ -41,11 +41,25 @@ object HorizonLauncher {
     fun isEnginePackaged(context: Context): Boolean =
         File(context.applicationInfo.nativeLibraryDir, "libhorizon.so").exists()
 
-    /** 启动 Rust 版：统一入口（FLAG_ACTIVITY_NEW_TASK 使任意 Context 可用） */
+    /**
+     * 启动 Rust 版：引擎已就绪直接进壳层（壳层自己会跳到游戏），
+     * 否则先进准备页把派生数据和游戏文件备齐。
+     */
     fun start(context: Context) {
-        val intent = Intent(context, dev.horizonlab.horizon.SetupActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
+        val target = if (HorizonPrep.isEngineReady(context)) {
+            dev.horizonlab.horizon.SetupActivity::class.java
+        } else {
+            HorizonPrepActivity::class.java
+        }
+        context.startActivity(Intent(context, target).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /** 准备完成后进游戏（壳层检测到就绪会立即启动） */
+    fun startGame(context: Context) {
+        context.startActivity(
+            Intent(context, dev.horizonlab.horizon.SetupActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     /** 启动链路分流标记 */

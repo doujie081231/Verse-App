@@ -37,10 +37,11 @@ public class SetupActivity extends Activity
         System.loadLibrary("horizon");
     }
 
-    static native int nativeReady(String home);
+    /** 启动器侧准备流程调用：以下三个 native 入口对外开放（原为包内可见） */
+    public static native int nativeReady(String home);
     static native String nativeDefaultUrl();
-    static native void nativeStart(String home, String derivedUrl);
-    static native String nativeStatus();
+    public static native void nativeStart(String home, String derivedUrl);
+    public static native String nativeStatus();
 
     private static final long NEED_BYTES = 1500L * 1024 * 1024;
 
