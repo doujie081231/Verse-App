@@ -1,0 +1,87 @@
+package com.verse.explorer.app.horizon
+
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
+import java.io.File
+
+/**
+ * 把「跑官方数据生成器」伪装成一个普通的 Minecraft 版本。
+ *
+ * 为什么这么绕：Android 禁止 exec 私有目录的可执行文件，而启动器**已经验证过**能跑 Java 的路径
+ * 只有正常启动链路（FCLauncher → dlopen libjvm → JNI 建 JVM）。所以不去另造 JVM 启动器，
+ * 而是造一个 `inheritsFrom: 26.3` 的版本：继承 26.3 的全部库与资源，只把 mainClass 换成
+ * `net.minecraft.data.Main`、参数换成 `--reports --output out`，用同一条链路跑。
+ */
+object HorizonDatagenVersion {
+
+    const val VERSION_ID = "horizon-datagen"
+    const val PARENT_ID = "26.3"
+
+    /**
+     * 由 jar 在 libraries 下的相对路径反推 Maven 坐标。
+     *
+     * `libraries/com/google/code/gson/gson/2.13.2/gson-2.13.2.jar`
+     *   → `com.google.code.gson:gson:2.13.2`
+     * 反推失败返回 null（调用方跳过该库）。
+     */
+    fun mavenName(relativePath: String): String? {
+        val path = relativePath.replace('\\', '/').removePrefix("libraries/")
+        val segments = path.split('/')
+        if (segments.size < 3) return null
+        val file = segments.last()
+        if (!file.endsWith(".jar")) return null
+        val version = segments[segments.size - 2]
+        val artifact = segments[segments.size - 3]
+        val group = segments.dropLast(3).joinToString(".")
+        if (group.isBlank() || artifact.isBlank() || version.isBlank()) return null
+        return "$group:$artifact:$version"
+    }
+
+    /**
+     * 生成版本 JSON。
+     *
+     * @param libraryRelativePaths 已落到 libraries 目录的 jar 相对路径（含 server jar）
+     */
+    fun buildVersionJson(libraryRelativePaths: List<String>): JsonObject {
+        val libraries = JsonArray()
+        for (rel in libraryRelativePaths) {
+            val name = if (rel.contains("net/minecraft/server/")) {
+                "net.minecraft:server:$PARENT_ID"
+            } else {
+                mavenName(rel) ?: continue
+            }
+            libraries.add(JsonObject().apply {
+                addProperty("name", name)
+                add("downloads", JsonObject().apply {
+                    add("artifact", JsonObject().apply {
+                        addProperty("path", rel.removePrefix("libraries/"))
+                        // 文件已存在时安装器不会下载；给个官方地址只为满足字段
+                        addProperty("url", "https://libraries.minecraft.net/" + rel.removePrefix("libraries/"))
+                    })
+                })
+            })
+        }
+        return JsonObject().apply {
+            addProperty("id", VERSION_ID)
+            addProperty("inheritsFrom", PARENT_ID)
+            addProperty("mainClass", "net.minecraft.data.Main")
+            addProperty("type", "release")
+            add("arguments", JsonObject().apply {
+                add("game", JsonArray().apply {
+                    add("--reports")
+                    add("--output")
+                    add("out")
+                })
+            })
+            add("libraries", libraries)
+        }
+    }
+
+    /** 写出 versions/horizon-datagen/horizon-datagen.json */
+    fun writeVersionFile(versionsDir: File, json: JsonObject): File {
+        val dir = File(versionsDir, VERSION_ID).apply { mkdirs() }
+        val file = File(dir, "$VERSION_ID.json")
+        file.writeText(json.toString())
+        return file
+    }
+}

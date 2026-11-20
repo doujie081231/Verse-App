@@ -111,22 +111,38 @@ object HorizonPrep {
             HorizonPrepLog.append(context, "jre: ${jreHome.absolutePath}")
 
             onProgress(Progress(Stage.DATAGEN, "解包服务端依赖…", 0f))
-            val classpath = extractBundler(serverJar, work)
-            HorizonPrepLog.append(context, "classpath 条目=${classpath.split(":").size}")
+            val libRelativePaths = extractBundlerToLibraries(context, serverJar)
+            HorizonPrepLog.append(context, "依赖库=${libRelativePaths.size} 个")
+
+            // 合成一个 inheritsFrom 26.3 的版本，用正常启动链路跑数据生成器
+            val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
+            if (!File(com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), HorizonDatagenVersion.PARENT_ID).isDirectory) {
+                error("请先在「资源 → 版本」里安装 ${HorizonDatagenVersion.PARENT_ID}，派生数据需要它的库与资源")
+            }
+            val datagenJson = HorizonDatagenVersion.buildVersionJson(libRelativePaths)
+            HorizonDatagenVersion.writeVersionFile(
+                com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), datagenJson
+            )
+            HorizonPrepLog.append(context, "已写出 ${HorizonDatagenVersion.VERSION_ID} 版本（主类 net.minecraft.data.Main）")
 
             onProgress(Progress(Stage.DATAGEN, "正在生成游戏数据（约 2-5 分钟）…", 0f))
-            val exitCode = runDatagenInProcess(context, jreHome, work, classpath)
-            HorizonPrepLog.append(context, "datagen 退出码=$exitCode")
-            if (exitCode != 0) {
-                val logTail = runCatching {
-                    File(work, "datagen.log").takeIf { it.isFile }
-                        ?.readLines()?.takeLast(3)?.joinToString(" / ")
-                }.getOrNull().orEmpty()
-                error("数据生成器失败（退出码 $exitCode）${if (logTail.isBlank()) "" else "：$logTail"}")
+            val reports = File(gameDir, "out/reports")
+            reports.deleteRecursively()
+            com.verse.explorer.app.launch.GameLaunchController(context)
+                .launchGame(HorizonDatagenVersion.VERSION_ID)
+            HorizonPrepLog.append(context, "已通过正常启动链路拉起 datagen 版本")
+
+            val deadline = System.currentTimeMillis() + 20 * 60 * 1000
+            while (System.currentTimeMillis() < deadline) {
+                if (File(reports, "registries.json").isFile) break
+                Thread.sleep(1500)
             }
+            if (!File(reports, "registries.json").isFile) {
+                error("数据生成没有产出（20 分钟超时），请查看 datagen 版本的启动日志")
+            }
+            HorizonPrepLog.append(context, "datagen 产物就绪")
 
             onProgress(Progress(Stage.PACK, "打包派生数据…", 0.5f))
-            val reports = File(work, "out/reports")
             HorizonPrepLog.append(context, "datagen 产物目录存在=${reports.isDirectory} ${reports.listFiles()?.size ?: 0} 项")
             val entries = HorizonDataPack.buildDerivedZip(reports, zip)
             HorizonPrepLog.append(context, "派生包条目=$entries size=${zip.length()}")
@@ -276,72 +292,41 @@ object HorizonPrep {
         }
     }
 
-    /** 解包 Mojang bundler：依赖库 + 内层服务端 jar，拼出 classpath */
-    private fun extractBundler(serverJar: File, workDir: File): String {
-        File(workDir, "libraries").mkdirs()
-        var innerServer: File? = null
-        var joined: String? = null
+    /**
+     * 解包 Mojang bundler 到 gameDir/libraries，返回相对路径列表（供合成版本引用）。
+     * 内层服务端 jar 落到 libraries/net/minecraft/server/26.3/server.jar。
+     */
+    private fun extractBundlerToLibraries(context: Context, serverJar: File): List<String> {
+        val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
+        val librariesDir = com.verse.explorer.core.config.GameConfig.getLibrariesDir(gameDir)
+        val out = mutableListOf<String>()
         java.util.zip.ZipFile(serverJar).use { zip ->
             for (entry in zip.entries()) {
                 val name = entry.name
+                if (entry.isDirectory) continue
                 when {
-                    entry.isDirectory -> Unit
                     name.startsWith("META-INF/libraries/") -> {
-                        val out = File(workDir, name.removePrefix("META-INF/"))
-                        out.parentFile?.mkdirs()
+                        val rel = name.removePrefix("META-INF/")
+                        val dest = File(gameDir, rel)
+                        dest.parentFile?.mkdirs()
                         zip.getInputStream(entry).use { input ->
-                            out.outputStream().use { input.copyTo(it) }
+                            dest.outputStream().use { input.copyTo(it) }
                         }
+                        out += rel
                     }
                     name.startsWith("META-INF/versions/") && name.endsWith(".jar") -> {
-                        val out = File(workDir, "server-inner.jar")
+                        val rel = "libraries/net/minecraft/server/${HorizonDatagenVersion.PARENT_ID}/server.jar"
+                        val dest = File(gameDir, rel)
+                        dest.parentFile?.mkdirs()
                         zip.getInputStream(entry).use { input ->
-                            out.outputStream().use { input.copyTo(it) }
+                            dest.outputStream().use { input.copyTo(it) }
                         }
-                        innerServer = out
-                    }
-                    name == "META-INF/classpath-joined" -> {
-                        joined = zip.getInputStream(entry).bufferedReader().readText().trim()
+                        out += rel
                     }
                 }
             }
         }
-        val parts = mutableListOf<String>()
-        innerServer?.let { parts += it.absolutePath }
-        joined?.split(';')?.map { it.trim() }?.forEach { rel ->
-            if (rel.isBlank() || rel.startsWith("versions/")) return@forEach
-            val file = File(workDir, rel)
-            if (file.isFile) parts += file.absolutePath
-        }
-        return parts.joinToString(":")
-    }
-
-    /**
-     * 在独立进程里用 JNI 建 JVM 跑数据生成器（不能 exec，见 HorizonDatagenActivity 注释）。
-     * @return JVM 退出码
-     */
-    private fun runDatagenInProcess(
-        context: Context,
-        jreHome: File,
-        workDir: File,
-        classpath: String
-    ): Int {
-        val resultFile = File(workDir, "datagen.result")
-        resultFile.delete()
-        context.startActivity(
-            android.content.Intent(context, HorizonDatagenActivity::class.java)
-                .putExtra(HorizonDatagenActivity.EXTRA_WORK, workDir.absolutePath)
-                .putExtra(HorizonDatagenActivity.EXTRA_JRE, jreHome.absolutePath)
-                .putExtra(HorizonDatagenActivity.EXTRA_CP, classpath)
-                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
-        val deadline = System.currentTimeMillis() + 25 * 60 * 1000
-        while (System.currentTimeMillis() < deadline) {
-            if (resultFile.isFile) {
-                return resultFile.readText().trim().toIntOrNull() ?: -1
-            }
-            Thread.sleep(1000)
-        }
-        return -1
+        HorizonPrepLog.append("libraries 目录: ${librariesDir.absolutePath}，写入 ${out.size} 个 jar")
+        return out
     }
 }
