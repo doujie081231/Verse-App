@@ -11,6 +11,10 @@ name: horizon-derived
 # 是否公开托管由项目所有者决定，本工作流只负责生成与上传。
 
 on:
+  # push 触发：GitHub 对手动触发偶发 422（提示缺少 workflow_dispatch），push 到本文件即构建
+  push:
+    paths:
+      - ".github/workflows/horizon-derived.yml"
   workflow_dispatch:
     inputs:
       port_ref:
@@ -33,8 +37,8 @@ jobs:
       - name: Checkout port source
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.port_repo }}
-          ref: ${{ inputs.port_ref }}
+          repository: ${{ inputs.port_repo || 'Rayan-XOO/horizon' }}
+          ref: ${{ inputs.port_ref || 'android-v0.4.7' }}
           path: port
           fetch-depth: 1
 
@@ -92,8 +96,8 @@ print(v["url"])
           set -euo pipefail
           tag="derived-${{ steps.sha.outputs.short }}"
           gh release create "$tag" \
-            --title "Horizon derived pack (${{ inputs.port_ref }})" \
-            --notes "自动生成的派生包，对应 ${{ inputs.port_repo }}@${{ steps.sha.outputs.short }}。请与同一版本的内置引擎配对使用。" \
+            --title "Horizon derived pack (${{ inputs.port_ref || 'android-v0.4.7' }})" \
+            --notes "自动生成的派生包，对应 ${{ inputs.port_repo || 'Rayan-XOO/horizon' }}@${{ steps.sha.outputs.short }}。请与同一版本的内置引擎配对使用。" \
             port/target/android/horizon-derived.zip horizon-derived.zip.sha256 || true
           gh release upload "$tag" port/target/android/horizon-derived.zip horizon-derived.zip.sha256 --clobber
           echo "下载地址： https://github.com/${{ github.repository }}/releases/download/$tag/horizon-derived.zip"
