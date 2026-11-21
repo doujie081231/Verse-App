@@ -62,11 +62,17 @@ jobs:
           curl -fL --retry 3 -o server.jar "$JAR_URL"
           ls -la server.jar
 
+      - name: Build a fake .minecraft with 26.3 installed
+        run: |
+          set -euo pipefail
+          python3 tools/fetch_mc_ci.py "$HOME/.minecraft"
+          ls -la "$HOME/.minecraft/versions/26.3"
+
       - name: Prepare game files (runs the Java exporters)
         working-directory: port
         run: |
           set -euo pipefail
-          cargo run --release -p horizon-prepare -- --prepare --server-jar ../server.jar
+          cargo run --release -p horizon-prepare -- --prepare --server-jar ../server.jar --minecraft-dir "$HOME/.minecraft"
 
       - name: Pack derived zip
         working-directory: port
