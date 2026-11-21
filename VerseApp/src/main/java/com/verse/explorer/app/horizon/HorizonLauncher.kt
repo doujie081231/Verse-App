@@ -28,7 +28,9 @@ object HorizonLauncher {
         val engineLib: String = "libhorizon.so",
         val abi: String = "arm64-v8a",
         val shellPackage: String = "dev.horizonlab.horizon",
-        val apkSize: Long = 0
+        val apkSize: Long = 0,
+        /** 派生包下载地址（官网托管）；为空时只能手动导入 */
+        val derivedUrl: String = ""
     )
 
     fun readMeta(context: Context): HorizonMeta? = runCatching {

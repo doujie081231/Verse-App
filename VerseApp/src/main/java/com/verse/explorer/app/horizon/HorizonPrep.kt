@@ -71,6 +71,12 @@ object HorizonPrep {
     /**
      * 生成派生包。已存在则直接返回。
      */
+    /**
+     * 准备派生包。
+     *
+     * 派生包里有 facts.json / horizon-resources.json，这两个由 Horizon 自己的 Java 导出器
+     * 生成（不是原版数据生成器能产的），所以手机端无法自建，只能：本地已有 → 官网下载 → 引导导入。
+     */
     suspend fun ensureDerivedPack(
         context: Context,
         onProgress: (Progress) -> Unit
@@ -78,102 +84,69 @@ object HorizonPrep {
         runCatching {
             val zip = derivedZip(context)
             if (zip.isFile && zip.length() > 0) {
-                onProgress(Progress(Stage.PACK, "派生包已就绪", 1f))
+                onProgress(Progress(Stage.PACK, "派生包已就绪（${zip.length() / 1048576}MB）", 1f))
                 return@runCatching zip
             }
 
-            HorizonPrepLog.append(context, "开始准备：home=${home(context).absolutePath}")
-            onProgress(Progress(Stage.VERSION_JSON, "读取 26.3 版本信息…", 0f))
-            val versionJson = fetchVersionJson()
-            val serverJarInfo = HorizonDataPack.parseServerJar(versionJson)
-                ?: error("26.3 版本信息里没有 server.jar 下载地址")
-            HorizonPrepLog.append(context, "server.jar: ${serverJarInfo.size / 1048576}MB ${serverJarInfo.url}")
+            val remote = remoteDerivedUrl(context)
+            if (remote.isNullOrBlank()) {
+                HorizonPrepLog.append(context, "没有配置派生包下载地址")
+                error("缺少派生包：请点下方「导入」选择 horizon-derived.zip")
+            }
 
-            val work = File(home(context), "prep-work").apply { mkdirs() }
-            val serverJar = File(work, "server.jar")
-
-            if (!serverJar.isFile || serverJar.length() != serverJarInfo.size) {
-                downloadServerJar(serverJarInfo, serverJar) { done, total ->
-                    val fraction = if (total > 0) done.toFloat() / total else 0f
-                    onProgress(
-                        Progress(
-                            Stage.SERVER_JAR,
-                            "下载 server.jar ${done / 1048576} / ${total / 1048576} MB",
-                            fraction
-                        )
+            HorizonPrepLog.append(context, "从官网下载派生包: $remote")
+            onProgress(Progress(Stage.SERVER_JAR, "下载派生包…", 0f))
+            downloadTo(remote, zip) { done, total ->
+                val fraction = if (total > 0) done.toFloat() / total else 0f
+                onProgress(
+                    Progress(
+                        Stage.SERVER_JAR,
+                        "下载派生包 ${done / 1048576} / ${if (total > 0) total / 1048576 else 0} MB",
+                        fraction
                     )
-                }
-            }
-
-            val java = JavaRuntimeManager.getJavaExecutable(context, "java25")
-                ?: error("没有找到 Java 25 运行时，请先在「Java」页安装")
-            val jreHome = java.parentFile?.parentFile ?: error("Java 运行时目录异常：${java.absolutePath}")
-            HorizonPrepLog.append(context, "jre: ${jreHome.absolutePath}")
-
-            onProgress(Progress(Stage.DATAGEN, "解包服务端依赖…", 0f))
-            val libRelativePaths = extractBundlerToLibraries(context, serverJar)
-            HorizonPrepLog.append(context, "依赖库=${libRelativePaths.size} 个")
-
-            // 合成一个 inheritsFrom 26.3 的版本，用正常启动链路跑数据生成器
-            val gameDir = com.verse.explorer.core.config.GameConfig.getGameDir(context)
-            val versionsDir = com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir)
-            val parentId = detectParentVersion(versionsDir)
-            HorizonPrepLog.append(
-                context,
-                if (parentId != null) "父版本=${parentId}（继承其库与资源）"
-                else "未找到 26.3 安装，改用独立版本（仅用刚解出的 ${libRelativePaths.size} 个依赖）"
-            )
-            // 必须删掉旧目录：上一次跑留下的版本元数据会被启动器复用（实测主类没更新就说明了这点）
-            File(versionsDir, HorizonDatagenVersion.VERSION_ID).deleteRecursively()
-            // 输出目录必须绝对路径：FCL 的工作目录是版本目录，相对 "out" 会落到我们看不到的地方
-            // 注意：官方数据生成器会在 --output 下自己建 reports/ 子目录，所以这里给 gameDir/out
-            val datagenOut = File(gameDir, "out")
-            val reports = File(datagenOut, "reports")
-            val datagenJson = HorizonDatagenVersion.buildVersionJson(
-                libRelativePaths, parentId, datagenOut.absolutePath
-            )
-            HorizonPrepLog.append(
-                context,
-                "版本主类=${datagenJson.get("mainClass")?.asString}，依赖=${datagenJson.getAsJsonArray("libraries").size()} 条"
-            )
-            HorizonDatagenVersion.writeVersionFile(
-                com.verse.explorer.core.config.GameConfig.getVersionsDir(gameDir), datagenJson
-            )
-            HorizonPrepLog.append(context, "已写出 ${HorizonDatagenVersion.VERSION_ID} 版本（主类 net.minecraft.data.Main）")
-
-            onProgress(Progress(Stage.DATAGEN, "正在生成游戏数据（约 2-5 分钟）…", 0f))
-            reports.deleteRecursively()
-            com.verse.explorer.app.launch.GameLaunchController(context)
-                .launchGame(HorizonDatagenVersion.VERSION_ID)
-            HorizonPrepLog.append(context, "已通过正常启动链路拉起 datagen 版本")
-
-            val deadline = System.currentTimeMillis() + 20 * 60 * 1000
-            while (System.currentTimeMillis() < deadline) {
-                if (File(reports, "registries.json").isFile) break
-                Thread.sleep(1500)
-            }
-            if (!File(reports, "registries.json").isFile) {
-                // datagen 是通过正常启动链路跑的，真正的异常在 FCL 的游戏日志里
-                val fclLog = File(gameDir, "logs/latest.log")
-                val tail = fclLog.takeIf { it.isFile }
-                    ?.readLines()?.takeLast(40)?.joinToString("\n")
-                    .orEmpty()
-                if (tail.isNotBlank()) HorizonPrepLog.append(context, "datagen 日志尾部:\n$tail")
-                error(
-                    "数据生成失败（未产出 reports）。" +
-                        if (tail.isBlank()) "未找到 logs/latest.log" else "日志尾部见下方"
                 )
             }
-            HorizonPrepLog.append(context, "datagen 产物就绪")
-
-            onProgress(Progress(Stage.PACK, "打包派生数据…", 0.5f))
-            HorizonPrepLog.append(context, "datagen 产物目录存在=${reports.isDirectory} ${reports.listFiles()?.size ?: 0} 项")
-            val entries = HorizonDataPack.buildDerivedZip(reports, zip)
-            HorizonPrepLog.append(context, "派生包条目=$entries size=${zip.length()}")
-            if (entries == 0) error("数据生成没有产出可打包的文件，请查看日志")
-            work.deleteRecursively()
-            onProgress(Progress(Stage.PACK, "派生包已生成（$entries 个文件）", 1f))
+            HorizonPrepLog.append(context, "派生包下载完成 size=${zip.length()}")
+            onProgress(Progress(Stage.PACK, "派生包已就绪（${zip.length() / 1048576}MB）", 1f))
             zip
+        }
+    }
+
+    /** 派生包下载地址来自随包元数据；为空则只能手动导入 */
+    private fun remoteDerivedUrl(context: Context): String? =
+        runCatching { HorizonLauncher.readMeta(context)?.derivedUrl }.getOrNull()
+
+    private fun downloadTo(url: String, dest: File, onProgress: (Long, Long) -> Unit) {
+        dest.parentFile?.mkdirs()
+        val tmp = File(dest.parentFile, "${dest.name}.part")
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).execute().use { resp ->
+            check(resp.isSuccessful) { "HTTP ${resp.code}" }
+            val body = resp.body ?: error("空响应")
+            val total = body.contentLength()
+            var done = 0L
+            var last = 0L
+            body.byteStream().use { input ->
+                tmp.outputStream().use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        output.write(buffer, 0, read)
+                        done += read
+                        if (done - last >= 1024 * 1024) {
+                            last = done
+                            onProgress(done, total)
+                        }
+                    }
+                    onProgress(done, total)
+                }
+            }
+            if (total > 0 && tmp.length() != total) {
+                tmp.delete()
+                error("下载不完整：${tmp.length()}/$total")
+            }
+            tmp.renameTo(dest)
         }
     }
 
