@@ -100,6 +100,6 @@ jobs:
           TAG: derived-${{ steps.sha.outputs.short }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" --title "Horizon derived pack ($TAG)" --notes "自动生成，对应 Rayan-XOO/horizon@${{ steps.sha.outputs.short }}" || true
-          gh release upload "$TAG" port/target/android/horizon-derived.zip horizon-derived.zip.sha256 --clobber
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Horizon derived pack ($TAG)" --notes "自动生成，对应 Rayan-XOO/horizon@${{ steps.sha.outputs.short }}" || true
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" port/target/android/horizon-derived.zip horizon-derived.zip.sha256 --clobber
           echo "asset: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/horizon-derived.zip"
