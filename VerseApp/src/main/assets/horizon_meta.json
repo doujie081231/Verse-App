@@ -7,5 +7,7 @@
   "engineLib": "libhorizon.so",
   "abi": "arm64-v8a",
   "shellPackage": "dev.horizonlab.horizon",
-  "apkSize": 65624188
+  "apkSize": 65624188,
+  "derivedUrl": "",
+  "derivedUrlNote": "填 .github/workflows/horizon-derived.yml 产出的 release 资产地址；留空则只能手动导入 zip"
 }
