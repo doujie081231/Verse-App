@@ -73,6 +73,11 @@ jobs:
           python3 self/tools/fetch_mc_ci.py "$HOME/.minecraft"
           ls -la "$HOME/.minecraft/versions/26.3"
 
+      - name: Accept Mojang's current 26.3 version file
+        run: |
+          set -euo pipefail
+          python3 self/tools/patch_horizon_lock.py port "$HOME/.minecraft"
+
       - name: Prepare game files (runs the Java exporters)
         working-directory: port
         run: |
