@@ -24,6 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+        with:
+          path: self
+
       - name: Checkout port source
         uses: actions/checkout@v4
         with:
@@ -65,7 +70,7 @@ jobs:
       - name: Build a fake .minecraft with 26.3 installed
         run: |
           set -euo pipefail
-          python3 tools/fetch_mc_ci.py "$HOME/.minecraft"
+          python3 self/tools/fetch_mc_ci.py "$HOME/.minecraft"
           ls -la "$HOME/.minecraft/versions/26.3"
 
       - name: Prepare game files (runs the Java exporters)
