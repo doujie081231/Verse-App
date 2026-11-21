@@ -56,7 +56,9 @@ def main() -> int:
 
     vdir = home / "versions" / VERSION
     vdir.mkdir(parents=True, exist_ok=True)
-    (vdir / f"{VERSION}.json").write_text(json.dumps(version, ensure_ascii=False), encoding="utf-8")
+    # 必须原样保存：horizon-prepare 会校验版本 JSON 的 sha1，
+    # 任何重新序列化（哪怕只是缩进变化）都会导致 "not a version file Horizon knows"
+    download(entry["url"], vdir / f"{VERSION}.json")
 
     tasks = [(version["downloads"]["client"]["url"], vdir / f"{VERSION}.jar")]
 
