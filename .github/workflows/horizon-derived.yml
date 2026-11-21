@@ -2,29 +2,19 @@ name: horizon-derived
 
 # 生成 Horizon 安卓端需要的派生包（horizon-derived.zip，约 4MB）。
 #
-# 为什么要单独的 CI：包里的 facts.json / horizon-resources.json 由 Horizon 自研的 Java 导出器
-# 产出（crates/horizon-prepare），手机端跑不了，只能在有 Rust + JDK 的机器上生成一次。
-# 手动触发一次，产物挂到本仓库 release，把 URL 填进 VerseApp/src/main/assets/horizon_meta.json
-# 的 derivedUrl，启动器就能直接下载（用户无需电脑）。
+# 包里的 facts.json / horizon-resources.json 由 Horizon 自研的 Java 导出器产出
+# （见 crates/horizon-prepare），手机端跑不了，只能在有 Rust + JDK 的机器上生成一次。
+# 产物挂到本仓库 release，把下载地址填进 VerseApp/src/main/assets/horizon_meta.json
+# 的 derivedUrl，启动器即可直接下载，用户无需电脑。
 #
-# 注意：派生数据来自 Mojang 的游戏文件，上游脚本明确写着 "Not for publishing"。
-# 是否公开托管由项目所有者决定，本工作流只负责生成与上传。
+# 注意：派生数据来自 Mojang 的游戏文件，上游脚本注明 "Not for publishing"，
+# 是否公开托管由项目所有者决定。
 
 on:
-  # push 触发：GitHub 对手动触发偶发 422（提示缺少 workflow_dispatch），push 到本文件即构建
   push:
     paths:
       - ".github/workflows/horizon-derived.yml"
   workflow_dispatch:
-    inputs:
-      port_ref:
-        description: "移植仓库的 ref（tag/commit），必须与内置引擎一致"
-        required: true
-        default: "android-v0.4.7"
-      port_repo:
-        description: "移植仓库"
-        required: true
-        default: "Rayan-XOO/horizon"
 
 permissions:
   contents: write
@@ -37,8 +27,8 @@ jobs:
       - name: Checkout port source
         uses: actions/checkout@v4
         with:
-          repository: ${{ inputs.port_repo || 'Rayan-XOO/horizon' }}
-          ref: ${{ inputs.port_ref || 'android-v0.4.7' }}
+          repository: Rayan-XOO/horizon
+          ref: android-v0.4.7
           path: port
           fetch-depth: 1
 
@@ -46,7 +36,7 @@ jobs:
         id: sha
         run: echo "short=$(git -C port rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Set up JDK 25 (data generators need class file v69)
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -61,17 +51,15 @@ jobs:
           workspaces: port
 
       - name: Download Minecraft 26.3 server jar
+        env:
+          MANIFEST: https://piston-meta.mojang.com/mc/game/version_manifest_v2.json
         run: |
           set -euo pipefail
-          meta=$(curl -fsSL https://piston-meta.mojang.com/mc/game/version_manifest_v2.json)
-          url=$(printf '%s' "$meta" | python3 -c '
-import json,sys
-d=json.load(sys.stdin)
-v=[x for x in d["versions"] if x["id"]=="26.3"][0]
-print(v["url"])
-')
-          jar=$(curl -fsSL "$url" | python3 -c 'import json,sys; print(json.load(sys.stdin)["downloads"]["server"]["url"])')
-          curl -fL --retry 3 -o server.jar "$jar"
+          curl -fsSL "$MANIFEST" -o manifest.json
+          VERSION_URL=$(jq -r '.versions[] | select(.id=="26.3") | .url' manifest.json)
+          curl -fsSL "$VERSION_URL" -o version.json
+          JAR_URL=$(jq -r '.downloads.server.url' version.json)
+          curl -fL --retry 3 -o server.jar "$JAR_URL"
           ls -la server.jar
 
       - name: Prepare game files (runs the Java exporters)
@@ -87,17 +75,15 @@ print(v["url"])
           chmod +x packaging/android/make_derived_pack.sh
           packaging/android/make_derived_pack.sh
           ls -la target/android/horizon-derived.zip
-          sha256sum target/android/horizon-derived.zip | tee ../horizon-derived.zip.sha256
+          sha256sum target/android/horizon-derived.zip > ../horizon-derived.zip.sha256
+          cat ../horizon-derived.zip.sha256
 
       - name: Publish release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: derived-${{ steps.sha.outputs.short }}
         run: |
           set -euo pipefail
-          tag="derived-${{ steps.sha.outputs.short }}"
-          gh release create "$tag" \
-            --title "Horizon derived pack (${{ inputs.port_ref || 'android-v0.4.7' }})" \
-            --notes "自动生成的派生包，对应 ${{ inputs.port_repo || 'Rayan-XOO/horizon' }}@${{ steps.sha.outputs.short }}。请与同一版本的内置引擎配对使用。" \
-            port/target/android/horizon-derived.zip horizon-derived.zip.sha256 || true
-          gh release upload "$tag" port/target/android/horizon-derived.zip horizon-derived.zip.sha256 --clobber
-          echo "下载地址： https://github.com/${{ github.repository }}/releases/download/$tag/horizon-derived.zip"
+          gh release create "$TAG" --title "Horizon derived pack ($TAG)" --notes "自动生成，对应 Rayan-XOO/horizon@${{ steps.sha.outputs.short }}" || true
+          gh release upload "$TAG" port/target/android/horizon-derived.zip horizon-derived.zip.sha256 --clobber
+          echo "asset: https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/horizon-derived.zip"
